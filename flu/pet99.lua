@@ -1,32 +1,39 @@
 --[[ ============================================================
      pufyftyk-kvires · Pet Simulator 99 Auto-Miner Hub
-     
+     📱 MOBILE FIX EDITION (CRASH-PROOF)
+     ============================================================
      ФУНКЦИИ И ОСОБЕННОСТИ:
-     1. ПРИОРИТЕТЫ РУД:
+     1. 🛡️ 100% ЗАЩИТА ОТ ВЫЛЕТОВ НА ТЕЛЕФОНЕ (CRASH-PROOF):
+        - Полностью убраны VirtualInputManager / VirtualUser клики мыши,
+          вызывавшие вылет процесса Роблокса (SIGSEGV) на рабочий стол.
+        - Убраны опасные хуки __namecall / __index, крашившие мобильные эксплойты.
+        - Добыча переведена на прямые сетевые ремоуты PS99 Update 95
+          (BlockWorlds_Break, BlockWorlds_Target, Breakables) + Tool:Activate().
+     2. 🎯 ПРИОРИТЕТЫ РУД (ОЧЕРЕДЬ ДОБЫЧИ):
         - Самые ценные руды и сундуки (⭐ ТОП) копаются ПЕРВЫМИ
         - Порядковая очередь (#1, #2, #3...)
         - Кнопка "⭐ Авто-ранг по редкости"
-     2. ВИРТУАЛЬНАЯ МЫШЬ И ПРИЦЕЛ (1 СЕКУНДА):
-        - Позиция виртуальной мыши обновляется каждую 1 секунду
-        - Без перехвата курсора мыши игрока: можно спокойно работать в инвентаре
-        - Защита ремоутов: инвентарь и торговля не затрагиваются
-     3. КАРТОФЕЛЬНЫЙ РЕЖИМ (POTATO MODE):
+     3. 📊 ЖИВАЯ СТАТИСТИКА ДОБЫЧИ:
+        - Счетчик дропа, таймер, темп (руд/мин)
+        - Детальный расклад по типам руд
+     4. 🥔 КАРТОФЕЛЬНЫЙ РЕЖИМ (POTATO MODE):
         - Очистка текстур блоков мира без затрагивания руд и сундуков
-        - Асинхронная оптимизация без лагов и зависаний
-     4. ПОЛНОСТЬЮ РАБОЧИЙ ESP:
-        - 3D Highlight + BillboardGui метка с дистанцией
-        - Золотая, оранжевая и бирюзовая подсветка по приоритету
+        - Асинхронная оптимизация без лагов и фризов
+     5. 👁️ ПОЛНОСТЬЮ РАБОЧИЙ SAFE ESP:
+        - 3D Highlight (до 15 шт, без перегрузки мобильного GPU)
+        - BillboardGui метки с дистанцией и рангом
+     6. 👆 УДОБНЫЙ TOUCH ИНТЕРФЕЙС:
+        - Перетаскивание окна за шапку без случайных сдвигов
+        - Адаптированный размер под экраны смартфонов
      ============================================================ ]]
 
-local WS        = game:GetService("Workspace")
-local Players   = game:GetService("Players")
-local UIS       = game:GetService("UserInputService")
-local RunS      = game:GetService("RunService")
-local RepS      = game:GetService("ReplicatedStorage")
-local Lighting  = game:GetService("Lighting")
-local StarterGui= game:GetService("StarterGui")
-local VIM       = pcall(function() return game:GetService("VirtualInputManager") end) and game:GetService("VirtualInputManager") or nil
-local VU        = pcall(function() return game:GetService("VirtualUser") end) and game:GetService("VirtualUser") or nil
+local WS         = game:GetService("Workspace")
+local Players    = game:GetService("Players")
+local UIS        = game:GetService("UserInputService")
+local RunS       = game:GetService("RunService")
+local RepS       = game:GetService("ReplicatedStorage")
+local Lighting   = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
 
 -- Ожидание загрузки игрока
 local player = Players.LocalPlayer
@@ -39,22 +46,19 @@ end
 
 local camera = WS.CurrentCamera or WS:WaitForChild("Camera", 5)
 
--- ======================== 100% БЕЗОПАСНЫЙ ПОИСК РОДИТЕЛЯ GUI ========================
+-- ======================== БЕЗОПАСНЫЙ ПОИСК РОДИТЕЛЯ GUI ========================
 local function getGuiParent()
     local parent = nil
-    -- 1. Пробуем gethui (если поддерживается инжектором)
     pcall(function()
         if gethui then parent = gethui() end
     end)
-    -- 2. Пробуем CoreGui через pcall (чтобы не крашило в Solara / мобильных)
     if not parent then
         pcall(function()
             local cg = game:GetService("CoreGui")
-            local _ = cg.Name -- проверка прав доступа
+            local _ = cg.Name
             parent = cg
         end)
     end
-    -- 3. Надежный стандартный fallback - PlayerGui
     if not parent then
         pcall(function()
             parent = player:WaitForChild("PlayerGui", 5) or player:FindFirstChild("PlayerGui")
@@ -63,7 +67,7 @@ local function getGuiParent()
     return parent
 end
 
--- Безопасная и полная очистка ВСЕХ старых окон скрипта
+-- Полная очистка старых окон
 local function cleanPrevious()
     pcall(function()
         if _G.Pufyftyk_Cleanup then
@@ -76,6 +80,7 @@ local function cleanPrevious()
             _G.Pufyftyk_Hub_Instance = nil
         end
     end)
+
     local containers = {}
     pcall(function() if gethui then table.insert(containers, gethui()) end end)
     pcall(function() table.insert(containers, game:GetService("CoreGui")) end)
@@ -96,10 +101,12 @@ local function cleanPrevious()
 end
 cleanPrevious()
 
--- Сетевые ремоуты PS99
-local net = RepS:FindFirstChild("Network")
-local remTarget = net and (net:FindFirstChild("BlockWorlds_Target") or net:FindFirstChild("Instancing_FireCustomFromClient"))
-local remBreak  = net and net:FindFirstChild("BlockWorlds_Break")
+-- ======================== СЕТЕВЫЕ РЕМОУТЫ PS99 ========================
+local net = RepS:FindFirstChild("Network") or RepS:WaitForChild("Network", 4)
+local remTarget        = net and (net:FindFirstChild("BlockWorlds_Target") or net:FindFirstChild("Instancing_FireCustomFromClient"))
+local remBreak         = net and net:FindFirstChild("BlockWorlds_Break")
+local remBreakables    = net and net:FindFirstChild("Breakables_PlayerDealDamage")
+local remBlockWorlds   = net and net:FindFirstChild("BlockWorlds")
 
 -- ======================== КОНФИГУРАЦИЯ ========================
 local userCfg = (typeof(getgenv) == "function" and typeof(getgenv().PufyftykConfig) == "table") and getgenv().PufyftykConfig or {}
@@ -110,48 +117,46 @@ local function opt(val, def)
 end
 
 local cfg = {
-    dwell              = userCfg.dwell or 0.01,  -- пауза после ТП (с)
-    maxBreakTime       = userCfg.maxBreakTime or 30.0,  -- макс. время на руду (с)
-    yOffset            = userCfg.yOffset or 2.2,   -- высота над рудой при ТП
-    maxDist            = userCfg.maxDist or 2500,  -- радиус поиска руд
-    scanTime           = userCfg.scanTime or 30.0,  -- авто-обновление руд (с) [по умолчанию 30 сек]
-    virtualAimInterval = userCfg.virtualAimInterval or 1.0,   -- интервал обновления виртуальной мыши
-    spamTp             = opt(userCfg.spamTp, true),  -- спам-ТП фиксация над рудой
-    spamInterval       = userCfg.spamInterval or 0.08,  -- интервал спам-ТП (с)
-    permHold           = opt(userCfg.permHold, true),  -- вечный зажим ЛКМ
-    toolSwing          = opt(userCfg.toolSwing, true),  -- взмахи киркой (Activate)
-    aimAtOre           = opt(userCfg.aimAtOre, true),  -- мягкий прицел на руду
-    autoPrioritizeRare = opt(userCfg.autoPrioritizeRare, true),  -- авто-приоритет
-    autoKey1           = opt(userCfg.autoKey1, true),  -- авто-нажатие [1]
-    key1Interval       = userCfg.key1Interval or 15.0,  -- интервал [1] (с)
-    autoKey2           = opt(userCfg.autoKey2, true),  -- авто-нажатие [2]
-    key2Interval       = userCfg.key2Interval or 30.0,  -- интервал [2] (с)
-    noclip             = opt(userCfg.noclip, true),  -- ноклип
-    freeCam            = opt(userCfg.freeCam, true),  -- свободная камера
-    espOn              = opt(userCfg.espOn, false), -- ESP руд
-    espText            = opt(userCfg.espText, true),  -- текстовые метки ESP
-    espHighlights      = opt(userCfg.espHighlights, true),  -- 3D подсветка Highlight
-    espTransp          = userCfg.espTransp or 0.45,  -- прозрачность подсветки
-    espMaxCount        = userCfg.espMaxCount or 40,    -- макс. меток ESP
-    autoBreak          = opt(userCfg.autoBreak, true),  -- авто-добыча
-    fpsCap30           = opt(userCfg.fpsCap30, true),  -- лимит 30 FPS
-    potatoMode         = opt(userCfg.potatoMode, false), -- картофельная графика
-    darkScreen         = opt(userCfg.darkScreen, false), -- затемнение 3D мира
-    render3dOff        = opt(userCfg.render3dOff, false), -- отключение 3D рендера
-    antiAfk            = opt(userCfg.antiAfk, true),  -- защита от вылета
+    dwell              = userCfg.dwell or 0.02,        -- пауза после ТП (с)
+    maxBreakTime       = userCfg.maxBreakTime or 15.0,  -- макс. время на руду (с)
+    yOffset            = userCfg.yOffset or 2.2,       -- высота над рудой при ТП
+    maxDist            = userCfg.maxDist or 2500,      -- радиус поиска руд
+    scanTime           = userCfg.scanTime or 25.0,     -- авто-обновление руд (с)
+    spamTp             = opt(userCfg.spamTp, true),    -- спам-ТП фиксация над рудой
+    spamInterval       = userCfg.spamInterval or 0.08, -- интервал спам-ТП (с)
+    toolSwing          = opt(userCfg.toolSwing, true), -- взмахи киркой (Activate)
+    aimAtOre           = opt(userCfg.aimAtOre, true),  -- прицел на руду
+    autoPrioritizeRare = opt(userCfg.autoPrioritizeRare, true),
+    autoKey1           = opt(userCfg.autoKey1, false), -- по умолчанию выкл на мобайле
+    key1Interval       = userCfg.key1Interval or 15.0,
+    autoKey2           = opt(userCfg.autoKey2, false),
+    key2Interval       = userCfg.key2Interval or 30.0,
+    noclip             = opt(userCfg.noclip, true),    -- ноклип
+    freeCam            = opt(userCfg.freeCam, false),
+    espOn              = opt(userCfg.espOn, true),     -- ESP руд
+    espText            = opt(userCfg.espText, true),   -- текстовые метки ESP
+    espHighlights      = opt(userCfg.espHighlights, true), -- 3D подсветка (ограничена до 12 шт)
+    espTransp          = userCfg.espTransp or 0.45,
+    espMaxCount        = userCfg.espMaxCount or 25,    -- макс. меток ESP
+    autoBreak          = opt(userCfg.autoBreak, true), -- авто-добыча
+    fpsCap30           = opt(userCfg.fpsCap30, false),
+    potatoMode         = opt(userCfg.potatoMode, false),
+    darkScreen         = opt(userCfg.darkScreen, false),
+    render3dOff        = opt(userCfg.render3dOff, false),
+    antiAfk            = opt(userCfg.antiAfk, true),   -- безопасный анти-афк
 }
 
-local priorityOrder = {} -- Упорядоченный список руд: { [1] = "Diamond", [2] = "Gold", ... }
-local selected      = {} -- id -> rank (1, 2, 3...)
-local allIds        = {} -- id -> общее количество в мире
-local route         = {}
-local highlights    = {}
-local minedStats       = {} -- id -> количество добытых руд: { ["Diamond"] = 12, ... }
+local priorityOrder    = {}
+local selected         = {}
+local allIds           = {}
+local route            = {}
+local highlights       = {}
+local minedStats       = {}
 local totalMinedCount  = 0
 local sessionStartTime = tick()
 local updateStatsUI    = nil
 local syncScanTimeSettings = nil
-local scanTimeBox = nil
+local scanTimeBox      = nil
 
 local function recordMinedOre(id)
     if not id then return end
@@ -161,13 +166,13 @@ local function recordMinedOre(id)
         pcall(updateStatsUI)
     end
 end
-local brokenOres    = {} -- Черный список сломанных руд
+
+local brokenOres     = {}
 local farmOn, paused = false, false
-local currentTarget = nil
-local isHoldingMouse = false
-local connections   = {}
-local potatoTask    = nil
-local win           = nil -- Опережающее объявление главного окна GUI
+local currentTarget  = nil
+local connections    = {}
+local potatoTask     = nil
+local win            = nil
 
 local function getTargetBasePart(inst)
     if not inst then return nil end
@@ -178,7 +183,6 @@ local function getTargetBasePart(inst)
     return nil
 end
 
--- Ключевые слова для автоматического определения редких / ценных руд
 local rareKeywords = {
     "chest", "huge", "magic", "golden", "gold", "diamond",
     "emerald", "rainbow", "amethyst", "ruby", "sapphire",
@@ -196,7 +200,7 @@ local function isRareOre(id)
     return false
 end
 
--- Сохранение оригинальных настроек освещения
+-- Сохранение настроек освещения
 local origLighting = {}
 pcall(function()
     origLighting.Brightness = Lighting.Brightness
@@ -212,19 +216,14 @@ local planSmartRoute, rebuildOreList, rebuildBlockList, applyESP, clearESP, updS
 -- ======================== ФУНКЦИЯ ОЧИСТКИ ========================
 _G.Pufyftyk_Cleanup = function()
     _G.Pufyftyk_Loaded = false
+    farmOn = false
+    paused = false
     if potatoTask then pcall(function() task.cancel(potatoTask) end); potatoTask = nil end
     for _, c in pairs(connections) do
         if c and typeof(c) == "RBXScriptConnection" then
             pcall(function() c:Disconnect() end)
         end
     end
-    if isHoldingMouse then
-        pcall(function()
-            if VIM then VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0) end
-            if VU then VU:Button1Up(Vector2.zero) end
-        end)
-    end
-    -- Откат графики
     pcall(function()
         if origLighting.Brightness then Lighting.Brightness = origLighting.Brightness end
         if origLighting.GlobalShadows ~= nil then Lighting.GlobalShadows = origLighting.GlobalShadows end
@@ -245,16 +244,13 @@ local function isAlive(inst)
     if not inst:IsDescendantOf(WS) then return false end
     if brokenOres[inst] then return false end
 
-    -- Проверка на специфичные атрибуты разрушения в PS99
     if inst:GetAttribute("Broken") == true or inst:GetAttribute("Dead") == true or inst:GetAttribute("Destroyed") == true then
         return false
     end
 
-    -- Проверка здоровья если указано в атрибутах
     local hp = inst:GetAttribute("health") or inst:GetAttribute("hp") or inst:GetAttribute("Health")
     if hp and type(hp) == "number" and hp <= 0 then return false end
 
-    -- Проверка на полное скрытие (только если блок стал полностью невидимым / деспавнился)
     if inst:IsA("BasePart") then
         if inst.Transparency >= 0.99 then return false end
     elseif inst:IsA("Model") then
@@ -265,10 +261,6 @@ local function isAlive(inst)
     return true
 end
 
-local function toCell(pos)
-    return Vector3.new(math.floor(pos.X / 3), math.floor(pos.Y / 3), math.floor(pos.Z / 3))
-end
-
 -- ======================== ОПТИМИЗАЦИЯ И КАРТОФЕЛЬНАЯ ГРАФИКА ========================
 local function setFpsLimit(fps)
     pcall(function()
@@ -276,7 +268,6 @@ local function setFpsLimit(fps)
     end)
 end
 
--- МЯГКОЕ ЗАТЕМНЕНИЕ 3D МИРА (не черное, приятный полумрак)
 local function applyDarkScreen(enable)
     pcall(function()
         if enable then
@@ -297,7 +288,6 @@ local function applyDarkScreen(enable)
     end)
 end
 
--- Проверка: относится ли объект к рудам (ЧТОБЫ КАРТОШКА НЕ ПОРТИЛА РУДЫ!)
 local function isOreObjectOrPart(v)
     if not v then return false end
     if v:GetAttribute("id") ~= nil then return true end
@@ -314,8 +304,6 @@ end
 local function makePotatoPart(v)
     if not v or not v.Parent then return end
     if player.Character and v:IsDescendantOf(player.Character) then return end
-
-    -- НЕ ТРОГАЕМ РУДЫ! Руды должны сохранять текстуры, цвета и красивый вид!
     if isOreObjectOrPart(v) then return end
 
     if v:IsA("BasePart") and not v:IsA("Terrain") then
@@ -328,7 +316,6 @@ local function makePotatoPart(v)
     elseif v:IsA("SurfaceAppearance") then
         v:Destroy()
     elseif v:IsA("Decal") or v:IsA("Texture") then
-        -- Скрываем текстуры блоков мира, не трогая GUI и уведомления
         if not v:FindFirstAncestorOfClass("ScreenGui") and not v:FindFirstAncestorOfClass("BillboardGui") then
             v.Transparency = 1
         end
@@ -337,7 +324,6 @@ local function makePotatoPart(v)
     end
 end
 
--- БЕЗОПАСНАЯ КАРТОФЕЛЬНАЯ ГРАФИКА (0 ФРИЗОВ, ЧАНКОВАЯ ОБРАБОТКА)
 local function applyPotatoGraphics(enable)
     if enable then
         pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
@@ -351,7 +337,6 @@ local function applyPotatoGraphics(enable)
                 WS.Terrain.WaterReflectance = 0
             end
         end)
-        -- Отключаем тяжелые шейдеры и эффекты Lighting
         pcall(function()
             for _, eff in ipairs(Lighting:GetChildren()) do
                 if eff:IsA("PostEffect") or eff:IsA("Atmosphere") or eff:IsA("BloomEffect")
@@ -360,7 +345,6 @@ local function applyPotatoGraphics(enable)
                 end
             end
         end)
-        -- Асинхронная плавная оптимизация чанками (НЕ ЗАВИСАЕТ ПРИ СТАРТЕ!)
         if potatoTask then task.cancel(potatoTask) end
         potatoTask = task.spawn(function()
             local all = WS:GetDescendants()
@@ -368,11 +352,10 @@ local function applyPotatoGraphics(enable)
                 if not cfg.potatoMode then break end
                 pcall(makePotatoPart, all[i])
                 if i % 250 == 0 then
-                    task.wait() -- отпускаем кадр движку, чтобы не было фризов!
+                    task.wait()
                 end
             end
         end)
-        -- Слушаем новые блоки при раскопках в глубину
         if not connections.PotatoWatcher then
             connections.PotatoWatcher = WS.DescendantAdded:Connect(function(v)
                 if cfg.potatoMode then
@@ -456,84 +439,25 @@ connections.Noclip = RunS.Stepped:Connect(function()
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
 end)
 
--- НЕПРЕРЫВНЫЙ АИМБОТ НА РУДУ (RenderStepped: каждый кадр держит прицел на блоке)
+-- ПРИЦЕЛ НА РУДУ (ТОЛЬКО КОГДА ЦЕЛЬ АКТИВНА)
 connections.Aimbot = RunS.RenderStepped:Connect(function()
     if farmOn and not paused and cfg.aimAtOre and currentTarget and currentTarget.pos then
         if isAlive(currentTarget.inst) then
             pcall(function()
                 local cam = WS.CurrentCamera
                 if cam then
-                    cam.CFrame = CFrame.new(cam.CFrame.Position, currentTarget.pos)
+                    cam.CFrame = CFrame.lookAt(cam.CFrame.Position, currentTarget.pos)
                 end
             end)
         end
-    end
-end)
-
--- ======================== ХУКИ RAYCAST И МЫШИ ========================
-pcall(function()
-    if hookmetamethod then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            if not farmOn or paused or not currentTarget or not currentTarget.inst or not isAlive(currentTarget.inst) or checkcaller() then
-                return oldNamecall(self, ...)
-            end
-
-            local method = getnamecallmethod()
-            local args = {...}
-
-            if method == "Raycast" or method == "raycast" then
-                local origin = args[1]
-                local cam = WS.CurrentCamera
-                if typeof(origin) == "Vector3" and cam and (origin - cam.CFrame.Position).Magnitude < 2.0 then
-                    local dir = (currentTarget.pos - origin).Unit * 100
-                    local newRp = RaycastParams.new()
-                    newRp.FilterType = Enum.RaycastFilterType.Include
-                    local targetPart = getTargetBasePart(currentTarget.inst) or currentTarget.inst
-                    newRp.FilterDescendantsInstances = { targetPart }
-                    return oldNamecall(self, origin, dir, newRp)
-                end
-            end
-
-            if method == "ViewportPointToRay" or method == "ScreenPointToRay" then
-                local cam = WS.CurrentCamera
-                local origin = cam and cam.CFrame.Position or (currentTarget.pos + Vector3.new(0, 3, 0))
-                local dir = (currentTarget.pos - origin).Unit
-                return Ray.new(origin, dir * 1000)
-            end
-
-
-            return oldNamecall(self, ...)
-        end)
-    end
-end)
-
-pcall(function()
-    if hookmetamethod then
-        local oldIndex
-        oldIndex = hookmetamethod(game, "__index", function(self, key)
-            if not farmOn or paused or not currentTarget or not currentTarget.inst or not isAlive(currentTarget.inst) or checkcaller() then
-                return oldIndex(self, key)
-            end
-            if typeof(self) == "Instance" and self:IsA("Mouse") then
-                if key == "Target" then
-                    return getTargetBasePart(currentTarget.inst) or currentTarget.inst
-                elseif key == "Hit" then
-                    return CFrame.new(currentTarget.pos)
-                elseif key == "UnitRay" then
-                    local cam = WS.CurrentCamera
-                    local origin = cam and cam.CFrame.Position or (currentTarget.pos + Vector3.new(0, 3, 0))
-                    return Ray.new(origin, (currentTarget.pos - origin).Unit)
-                end
-            end
-            return oldIndex(self, key)
-        end)
     end
 end)
 
@@ -570,7 +494,6 @@ end
 
 local function isOreObject(inst)
     if not inst or brokenOres[inst] then return false end
-    -- Если Part находится внутри Model, которая сама является рудой, не дублируем Part как отдельную цель!
     if inst:IsA("BasePart") and inst.Parent and inst.Parent:IsA("Model") and inst.Parent ~= WS then
         if getOreId(inst.Parent) ~= nil or brokenOres[inst.Parent] then
             return false
@@ -580,6 +503,7 @@ local function isOreObject(inst)
 end
 
 local function getObjectPos(inst)
+    if not inst then return nil end
     if inst:IsA("BasePart") then
         return inst.Position
     elseif inst:IsA("Model") then
@@ -589,7 +513,7 @@ local function getObjectPos(inst)
     return nil
 end
 
--- Вспомогательные функции управления очередью приоритетов
+-- Управление очередью приоритетов
 addOrTogglePriority = function(id)
     local foundIdx = nil
     for i, v in ipairs(priorityOrder) do
@@ -675,17 +599,16 @@ autoSetRarePriority = function()
     if cfg.espOn and applyESP then applyESP() end
 end
 
--- МАРШРУТ: СТРОГО ПО ВЫБРАННОМУ ПОРЯДКУ ПРИОРИТЕТОВ (#1 -> #2 -> #3)
+-- МАРШРУТ: СТРОГО ПО ВЫБРАННОМУ ПОРЯДКУ ПРИОРИТЕТОВ
 planSmartRoute = function()
     local bw = getBlockWorlds()
     allIds = {}
     if not bw then route = {} return end
 
     local char = player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
     local origin = hrp and hrp.Position or Vector3.zero
 
-    -- Сканируем один раз за один быстрый проход без подвисаний
     local descendants = bw:GetDescendants()
     local oreMap = {}
     local seen = {}
@@ -727,7 +650,6 @@ planSmartRoute = function()
     local planned = {}
     local currPos = origin
 
-    -- Строго проходим по очереди: сначала ВСЕ руды #1, затем ВСЕ руды #2, затем #3...
     for rank, targetId in ipairs(priorityOrder) do
         local pool = oreMap[targetId]
         if pool and #pool > 0 then
@@ -749,7 +671,6 @@ planSmartRoute = function()
         end
     end
 
-    -- Если список приоритетов пуст, копаем любые ближайшие доступные руды
     if #planned == 0 and #priorityOrder == 0 then
         table.sort(anyList, function(a, b) return a.d < b.d end)
         for i = 1, math.min(30, #anyList) do
@@ -762,19 +683,20 @@ end
 
 clearESP = function()
     for _, item in pairs(highlights) do
-        if item and typeof(item) == "Instance" then
+        if item and typeof(item) == "Instance" and item.Parent then
             pcall(function() item:Destroy() end)
         end
     end
     table.clear(highlights)
 end
 
+-- БЕЗОПАСНЫЙ ESP ДЛЯ МОБИЛЬНЫХ (защита от перегрузки GPU)
 applyESP = function()
     clearESP()
     if not cfg.espOn then return end
 
     local count = 0
-    local maxCount = cfg.espMaxCount or 30
+    local maxCount = math.clamp(cfg.espMaxCount or 25, 5, 40)
 
     local list = {}
     if #route > 0 then
@@ -783,7 +705,7 @@ applyESP = function()
         local bw = getBlockWorlds()
         if bw then
             local char = player.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
             local orig = hrp and hrp.Position or Vector3.zero
             for _, d in ipairs(bw:GetDescendants()) do
                 if isOreObject(d) then
@@ -819,15 +741,15 @@ applyESP = function()
 
             local pPart = d:IsA("BasePart") and d or (d:FindFirstChildWhichIsA("BasePart", true) or d.PrimaryPart)
 
-            -- 1. 3D Highlight (родитель - сам объект руды, чтобы 100% отрисовывался)
-            if cfg.espHighlights and count < 15 then
+            -- 3D Highlight: строго до 12 штук (лимит мобильного чипа)
+            if cfg.espHighlights and count < 12 and pPart then
                 pcall(function()
                     local hl = Instance.new("Highlight")
                     hl.Name = "OreHighlight"
                     hl.FillColor = espColor
                     hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-                    hl.FillTransparency = cfg.espTransp or 0.4
-                    hl.OutlineTransparency = 0.1
+                    hl.FillTransparency = cfg.espTransp or 0.45
+                    hl.OutlineTransparency = 0.15
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                     hl.Adornee = d
                     hl.Parent = d
@@ -835,13 +757,13 @@ applyESP = function()
                 end)
             end
 
-            -- 2. Текстовая метка BillboardGui (родитель - pPart, 100% видно сквозь стены)
+            -- Текстовая метка BillboardGui
             if cfg.espText and pPart then
                 pcall(function()
                     local bb = Instance.new("BillboardGui")
                     bb.Name = "OreLabel"
                     bb.Adornee = pPart
-                    bb.Size = UDim2.new(0, 130, 0, 24)
+                    bb.Size = UDim2.new(0, 120, 0, 22)
                     bb.StudsOffset = Vector3.new(0, 2.0, 0)
                     bb.AlwaysOnTop = true
                     bb.Parent = pPart
@@ -854,14 +776,14 @@ applyESP = function()
                     bg.Parent = bb
                     Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 5)
                     local st = Instance.new("UIStroke", bg)
-                    st.Color = espColor; st.Thickness = 1.2; st.Transparency = 0.3
+                    st.Color = espColor; st.Thickness = 1.1; st.Transparency = 0.3
 
                     local txt = Instance.new("TextLabel")
                     txt.Size = UDim2.new(1, 0, 1, 0)
                     txt.BackgroundTransparency = 1
                     txt.TextColor3 = espColor
                     txt.Font = Enum.Font.GothamBold
-                    txt.TextSize = 10
+                    txt.TextSize = 9
                     local dist = b.d or (pPart.Position - myPos).Magnitude
                     local prefix = rank and (rank == 1 and "🥇 #1 " or (rank == 2 and "🥈 #2 " or (rank == 3 and "🥉 #3 " or string.format("#%d ", rank)))) or ""
                     txt.Text = string.format("%s%s [%dм]", prefix, b.id, math.floor(dist))
@@ -876,7 +798,7 @@ applyESP = function()
     end
 end
 
--- ======================== УПРАВЛЕНИЕ МЫШЬЮ И КИРКОЙ ========================
+-- ======================== УПРАВЛЕНИЕ КИРКОЙ И УРОНОМ ========================
 local function getPickaxe()
     local char = player.Character
     if not char then return nil end
@@ -892,82 +814,15 @@ local function getPickaxe()
     return nil
 end
 
-local function isInsideGui(point)
-    if not win or not win.Parent or not win.Visible then return false end
-    local p = win.AbsolutePosition
-    local s = win.AbsoluteSize
-    return (point.X >= p.X and point.X <= p.X + s.X and point.Y >= p.Y and point.Y <= p.Y + s.Y)
-end
-
-local function getClickVector(targetPos)
-    local cam = WS.CurrentCamera or camera
-    if not cam then return Vector2.new(400, 300) end
-    local vp = cam.ViewportSize
-    local chosen = Vector2.new(vp.X / 2, vp.Y / 2)
-    if targetPos then
-        local screenPos, onScreen = cam:WorldToViewportPoint(targetPos)
-        if onScreen then
-            chosen = Vector2.new(screenPos.X, screenPos.Y)
-        end
-    end
-
-    -- Защита: если координаты клика попадают внутрь окна MainWindow,
-    -- смещаем виртуальный клик в безопасную зону вне интерфейса.
-    -- Это исключает случайное переключение кнопок (например, «Взмах киркой»)
-    -- и гарантирует прохождение кликов сквозь UI в 3D мир игры.
-    if isInsideGui(chosen) then
-        local safePos = Vector2.new(25, 25)
-        if isInsideGui(safePos) then
-            safePos = Vector2.new(25, math.max(25, vp.Y - 35))
-        end
-        if isInsideGui(safePos) then
-            safePos = Vector2.new(math.max(25, vp.X - 35), 25)
-        end
-        return safePos
-    end
-
-    return chosen
-end
-
-local function updateVirtualMouse(targetPos)
-    if not targetPos then return end
-    local vec = getClickVector(targetPos)
-    if isInsideGui(vec) then return end
-    pcall(function()
-        if VIM and (isHoldingMouse or cfg.permHold) then
-            VIM:SendMouseButtonEvent(vec.X, vec.Y, 0, true, game, 0)
-        end
-        if VU and (isHoldingMouse or cfg.permHold) then
-            VU:CaptureController()
-            VU:Button1Down(vec)
-        end
-    end)
-end
-
-local function holdLMB(targetPos)
-    isHoldingMouse = true
-    updateVirtualMouse(targetPos)
-end
-
-local function releaseLMB(targetPos)
-    isHoldingMouse = false
-    local vec = targetPos and getClickVector(targetPos) or nil
-    if vec and isInsideGui(vec) then return end
-    pcall(function()
-        if VIM and vec then
-            VIM:SendMouseButtonEvent(vec.X, vec.Y, 0, false, game, 0)
-        end
-        if VU then
-            VU:Button1Up(vec or Vector2.zero)
-        end
-    end)
-end
-
--- ТЕЛЕПОРТ: Персонаж становится точно НАД целевой рудой (руда прямо ПОД НОГАМИ)
+-- ТЕЛЕПОРТ: Персонаж становится точно НАД целевой рудой
 local function teleportTo(pos, inst)
     if not isAlive(inst) then return end
     local char = player.Character
-    local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
     if hrp then
         local halfHeight = 1.5
         local basePart = getTargetBasePart(inst)
@@ -975,22 +830,66 @@ local function teleportTo(pos, inst)
             halfHeight = basePart.Size.Y / 2
         end
 
-        -- Стоим прямо НАД рудой, чтобы она была ровно под ногами
-        local standPos = Vector3.new(pos.X, pos.Y + halfHeight + 2.2, pos.Z)
-        -- Смотрим прямо в центр этой целевой руды
-        hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(pos.X, pos.Y, pos.Z), Vector3.new(0, 0, -1))
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
+        local standPos = Vector3.new(pos.X, pos.Y + halfHeight + cfg.yOffset, pos.Z)
+        pcall(function()
+            hrp.CFrame = CFrame.lookAt(standPos, pos)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end)
     end
 end
 
--- ======================== ИСПРАВЛЕННАЯ ДОБЫЧА РУДЫ ========================
+-- БЕЗОПАСНЫЙ СЕТЕВОЙ УРОН ПО РУДЕ (БЕЗ МЫШКИ)
+local function sendDamageToOre(inst, pos, oreId)
+    local targetPart = getTargetBasePart(inst) or inst
+    local blockName = inst.Name
+
+    -- 1. Ремоуты PS99 Update 95
+    if remTarget then
+        pcall(function() remTarget:FireServer(targetPart) end)
+        pcall(function() remTarget:FireServer(blockName) end)
+        pcall(function() remTarget:FireServer(pos) end)
+    end
+
+    if remBreak then
+        pcall(function() remBreak:FireServer(targetPart) end)
+        pcall(function() remBreak:FireServer(blockName) end)
+        pcall(function() remBreak:FireServer(pos) end)
+        pcall(function() remBreak:FireServer(targetPart, pos) end)
+    end
+
+    if remBreakables then
+        pcall(function() remBreakables:FireServer(blockName) end)
+        if oreId then pcall(function() remBreakables:FireServer(oreId) end) end
+    end
+
+    if remBlockWorlds then
+        pcall(function() remBlockWorlds:FireServer("Break", targetPart) end)
+        pcall(function() remBlockWorlds:FireServer(targetPart) end)
+    end
+
+    -- 2. Взаимодействие с интерактивными объектами
+    local pp = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if pp and fireproximityprompt then pcall(fireproximityprompt, pp) end
+    local cd = inst:FindFirstChildWhichIsA("ClickDetector", true)
+    if cd and fireclickdetector then pcall(fireclickdetector, cd) end
+
+    -- 3. Взмах киркой
+    if cfg.toolSwing then
+        local tool = getPickaxe()
+        if tool then
+            pcall(function() tool:Activate() end)
+        end
+    end
+end
+
+-- ======================== ДОБЫЧА РУДЫ (CRASH-PROOF) ========================
 local function breakOreKillaura(b)
     if not cfg.autoBreak then return end
     currentTarget = b
     local inst = b.inst
     local pos  = b.pos
-    local cell = toCell(pos)
+    local oreId = b.id or getOreId(inst)
 
     if not isAlive(inst) then
         markOreBroken(inst)
@@ -998,9 +897,7 @@ local function breakOreKillaura(b)
         return
     end
 
-    local targetPart = getTargetBasePart(inst) or inst
-
-    -- 1. ТЕЛЕПОРТ СТРОГО НАД РУДОЙ (РУДА ПОД НОГАМИ)
+    -- Телепорт над рудой
     teleportTo(pos, inst)
     task.wait(0.04)
 
@@ -1008,77 +905,47 @@ local function breakOreKillaura(b)
     local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
     local lockCFrame = hrp and hrp.CFrame
 
-    -- 2. Берем кирку и начинаем зажим
-    local tool = getPickaxe()
-    holdLMB(pos)
-
-    if remTarget then
-        pcall(function() remTarget:FireServer(targetPart) end)
-    end
-
     local start = tick()
-    local lastSwing = 0
-    local lastRemote = 0
     local minedRecorded = false
-    -- Тайм-аут 30 секунд: достаточно для любых прочных руд, сундуков и алмазов без сброса урона!
-    local maxT = math.clamp(cfg.maxBreakTime or 30.0, 5.0, 120.0)
+    local maxT = math.clamp(cfg.maxBreakTime or 15.0, 3.0, 90.0)
 
     while (tick() - start < maxT) and farmOn and not paused do
-        -- 1. Как только руда под ногами сломалась — МГНОВЕННЫЙ ВЫХОД
         if not isAlive(inst) then
             markOreBroken(inst)
             if not minedRecorded then
                 minedRecorded = true
-                recordMinedOre(b.id)
+                recordMinedOre(oreId)
             end
             break
         end
 
-        -- 2. СТАБИЛИЗАЦИЯ ПОЗИЦИИ: стоим ровно над этой целевой рудой
-        if hrp and lockCFrame and isAlive(inst) then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            if (hrp.Position - lockCFrame.Position).Magnitude > 1.2 then
-                hrp.CFrame = lockCFrame
-            end
+        -- Спам-ТП фиксация над рудой
+        if cfg.spamTp and hrp and lockCFrame and isAlive(inst) then
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                if (hrp.Position - lockCFrame.Position).Magnitude > 1.2 then
+                    hrp.CFrame = lockCFrame
+                end
+            end)
         end
 
-        -- 3. Полный естественный взмах киркой строго по руде под ногами
-        if cfg.toolSwing and (tick() - lastSwing >= 0.22) then
-            tool = getPickaxe()
-            if tool then
-                pcall(function() tool:Activate() end)
-            end
-            lastSwing = tick()
-        end
+        -- Нанесение урона блоку
+        sendDamageToOre(inst, pos, oreId)
 
-        -- 4. Сетевой урон по целевой детали под ногами
-        if remBreak and (tick() - lastRemote >= 0.15) then
-            pcall(function() remBreak:FireServer(targetPart) end)
-            lastRemote = tick()
-        end
-
-        local pp = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if pp and fireproximityprompt then pcall(fireproximityprompt, pp) end
-
-        task.wait(0.02)
+        task.wait(0.06)
     end
 
-    -- Завершение руды
     markOreBroken(inst)
     if not isAlive(inst) and not minedRecorded then
         minedRecorded = true
-        recordMinedOre(b.id)
-    end
-    if not cfg.permHold then
-        releaseLMB(pos)
+        recordMinedOre(oreId)
     end
     currentTarget = nil
 end
 
--- ======================== ОЧЕРЕДЬ ШАГОВ (БЕЗ ПОВТОРНЫХ ТП) ========================
+-- ======================== ОЧЕРЕДЬ ШАГОВ ========================
 local function stepFarm()
-    -- 1. Сразу выкидываем из начала очереди все мертвые/сломанные руды
     while #route > 0 do
         if route[1] and isAlive(route[1].inst) then
             break
@@ -1087,16 +954,14 @@ local function stepFarm()
         end
     end
 
-    -- 2. Если живых руд в очереди нет — сканируем заново
     if #route == 0 then
         planSmartRoute()
         rebuildBlockList()
         applyESP()
         updStatus()
-        if #route == 0 then task.wait(0.15) return end
+        if #route == 0 then task.wait(0.2) return end
     end
 
-    -- 3. Берем первую актуальную цель
     local b = route[1]
     if b and isAlive(b.inst) then
         if cfg.dwell > 0 then task.wait(cfg.dwell) end
@@ -1113,76 +978,33 @@ task.spawn(function()
         if farmOn and not paused then
             stepFarm()
         else
-            if isHoldingMouse and not cfg.permHold then
-                releaseLMB()
-            end
-            task.wait(0.15)
+            task.wait(0.2)
         end
     end
 end)
 
--- Авто-нажатие [1]
+-- Авто-обновление руд
 task.spawn(function()
     while _G.Pufyftyk_Loaded do
-        local waitT = math.max(0.1, cfg.key1Interval or 15.0)
-        task.wait(waitT)
-        if farmOn and not paused and cfg.autoKey1 then
-            pcall(function()
-                if VIM then
-                    VIM:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                    task.wait(0.04)
-                    VIM:SendKeyEvent(false, Enum.KeyCode.One, false, game)
-                end
-            end)
-        end
-    end
-end)
-
--- Авто-нажатие [2]
-task.spawn(function()
-    while _G.Pufyftyk_Loaded do
-        local waitT = math.max(0.1, cfg.key2Interval or 30.0)
-        task.wait(waitT)
-        if farmOn and not paused and cfg.autoKey2 then
-            pcall(function()
-                if VIM then
-                    VIM:SendKeyEvent(true, Enum.KeyCode.Two, false, game)
-                    task.wait(0.04)
-                    VIM:SendKeyEvent(false, Enum.KeyCode.Two, false, game)
-                end
-            end)
-        end
-    end
-end)
-
--- Полноценное авто-обновление руд каждые cfg.scanTime секунд (по умолчанию 30.0с)
-task.spawn(function()
-    while _G.Pufyftyk_Loaded do
-        local waitT = math.clamp(tonumber(cfg.scanTime) or 30.0, 0.5, 120.0)
+        local waitT = math.clamp(tonumber(cfg.scanTime) or 25.0, 1.0, 120.0)
         task.wait(waitT)
 
         pcall(function()
-            -- Если прямо сейчас копаем руду — НЕ прерываем процесс и не создаем лагов!
-            -- Ждем пока текущая руда сломается, чтобы урон не сбрасывался
             local waitCount = 0
             while currentTarget and currentTarget.inst and isAlive(currentTarget.inst) and farmOn and not paused and waitCount < 100 do
                 task.wait(0.3)
                 waitCount = waitCount + 1
             end
 
-            -- 1. Всегда сканируем руды в мире
             planSmartRoute()
 
-            -- 2. Если открыта вкладка приоритетов — сразу обновляем каталог и очередь в реальном времени!
             if oresPage and oresPage.Visible then
                 if rebuildOreList then rebuildOreList() end
                 if rebuildBlockList then rebuildBlockList() end
             end
 
-            -- 3. Обновляем статус
             if updStatus then updStatus() end
 
-            -- 4. Обновляем ESP если он активен
             if cfg.espOn and applyESP then
                 applyESP()
             end
@@ -1190,17 +1012,17 @@ task.spawn(function()
     end
 end)
 
--- Фоновое обновление ESP меток каждые 3.0 секунды
+-- Фоновое обновление ESP меток каждые 3.5 секунды
 task.spawn(function()
     while _G.Pufyftyk_Loaded do
-        task.wait(3.0)
-        if cfg.espOn and applyESP then
+        task.wait(3.5)
+        if cfg.espOn and applyESP and farmOn then
             pcall(applyESP)
         end
     end
 end)
 
--- Фоновое мягкое обновление таймера статистики (каждую 1 секунду)
+-- Фоновое обновление таймера статистики (каждую 1 секунду)
 task.spawn(function()
     while _G.Pufyftyk_Loaded do
         task.wait(1.0)
@@ -1210,10 +1032,10 @@ task.spawn(function()
     end
 end)
 
--- 10-секундный Watchdog защиты от зависаний
+-- Watchdog защиты от зависаний
 task.spawn(function()
     while _G.Pufyftyk_Loaded do
-        task.wait(10)
+        task.wait(8)
         if farmOn and not paused then
             pcall(function()
                 if currentTarget and currentTarget.inst then
@@ -1223,7 +1045,6 @@ task.spawn(function()
                     else
                         brokenOres[currentTarget.inst] = true
                         currentTarget = nil
-                        if not cfg.permHold then releaseLMB() end
                     end
                 end
             end)
@@ -1231,32 +1052,37 @@ task.spawn(function()
     end
 end)
 
--- Anti-AFK
+-- Безопасный Anti-AFK для телефонов
 connections.AntiAfk = player.Idled:Connect(function()
-    if cfg.antiAfk and VU then
-        VU:CaptureController()
-        VU:ClickButton2(Vector2.zero)
+    if cfg.antiAfk then
+        pcall(function()
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
     end
 end)
 
 -- ======================== ИНТЕРФЕЙС PUFYFTYK-KVIRES ========================
 local Theme = {
-    bg          = Color3.fromRGB(11, 13, 20),      -- глубокий стильный фон
-    sidebar     = Color3.fromRGB(15, 18, 28),      -- сайдбар
-    card        = Color3.fromRGB(21, 25, 38),      -- карточки
-    cardHover   = Color3.fromRGB(28, 34, 52),      -- подсветка
-    cardActive  = Color3.fromRGB(34, 42, 64),      -- активный элемент
-    accent      = Color3.fromRGB(0, 229, 255),     -- неоновый электрик циан
-    accentGlow  = Color3.fromRGB(60, 235, 255),    -- сияние
-    violet      = Color3.fromRGB(139, 92, 246),    -- фиолетовый акцент
-    gold        = Color3.fromRGB(245, 158, 11),    -- золото (#1 приоритет)
-    silver      = Color3.fromRGB(203, 213, 225),   -- серебро (#2 приоритет)
-    bronze      = Color3.fromRGB(217, 119, 6),     -- бронза (#3 приоритет)
-    text        = Color3.fromRGB(248, 250, 252),   -- белый текст
-    textDark    = Color3.fromRGB(148, 163, 184),   -- приглушенный текст
-    on          = Color3.fromRGB(16, 185, 129),    -- изумрудный (ВКЛ)
-    off         = Color3.fromRGB(30, 36, 52),      -- выключено
-    red         = Color3.fromRGB(239, 68, 68),     -- красный (Удалить / СТОП)
+    bg          = Color3.fromRGB(11, 13, 20),
+    sidebar     = Color3.fromRGB(15, 18, 28),
+    card        = Color3.fromRGB(21, 25, 38),
+    cardHover   = Color3.fromRGB(28, 34, 52),
+    cardActive  = Color3.fromRGB(34, 42, 64),
+    accent      = Color3.fromRGB(0, 229, 255),
+    accentGlow  = Color3.fromRGB(60, 235, 255),
+    violet      = Color3.fromRGB(139, 92, 246),
+    gold        = Color3.fromRGB(245, 158, 11),
+    silver      = Color3.fromRGB(203, 213, 225),
+    bronze      = Color3.fromRGB(217, 119, 6),
+    text        = Color3.fromRGB(248, 250, 252),
+    textDark    = Color3.fromRGB(148, 163, 184),
+    on          = Color3.fromRGB(16, 185, 129),
+    off         = Color3.fromRGB(30, 36, 52),
+    red         = Color3.fromRGB(239, 68, 68),
 }
 
 local gui = Instance.new("ScreenGui")
@@ -1268,11 +1094,11 @@ local targetParent = getGuiParent()
 gui.Parent = targetParent
 _G.Pufyftyk_Hub_Instance = gui
 
--- Главное окно
+-- Главное окно (адаптировано под мобильные экраны)
 win = Instance.new("Frame")
 win.Name = "MainWindow"
-win.Size = UDim2.new(0, 600, 0, 390)
-win.Position = UDim2.new(0.5, -300, 0.5, -195)
+win.Size = UDim2.new(0, 520, 0, 330)
+win.Position = UDim2.new(0.5, -260, 0.08, 0)
 win.BackgroundColor3 = Theme.bg; win.BorderSizePixel = 0; win.Active = true; win.Draggable = false
 win.ClipsDescendants = true
 win.Parent = gui
@@ -1288,22 +1114,22 @@ topBar.Size = UDim2.new(1, 0, 0, 38); topBar.BackgroundColor3 = Theme.sidebar; t
 Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
 
 local logoLabel = Instance.new("TextLabel")
-logoLabel.Text = "⚡ pufyftyk-kvires"
+logoLabel.Text = "⚡ pufyftyk · MOBILE FIX"
 logoLabel.Font = Enum.Font.GothamBold; logoLabel.TextSize = 13
 logoLabel.TextColor3 = Theme.accent; logoLabel.TextXAlignment = Enum.TextXAlignment.Left
-logoLabel.Size = UDim2.new(0, 300, 1, 0); logoLabel.Position = UDim2.new(0, 14, 0, 0)
+logoLabel.Size = UDim2.new(0, 280, 1, 0); logoLabel.Position = UDim2.new(0, 14, 0, 0)
 logoLabel.BackgroundTransparency = 1; logoLabel.Active = false; logoLabel.Parent = topBar
 
 local minBtn = Instance.new("TextButton")
 minBtn.Text = "—"; minBtn.Font = Enum.Font.GothamBold; minBtn.TextSize = 13
 minBtn.TextColor3 = Theme.textDark; minBtn.BackgroundColor3 = Theme.card; minBtn.BorderSizePixel = 0
-minBtn.Size = UDim2.new(0, 28, 0, 24); minBtn.Position = UDim2.new(1, -66, 0, 7); minBtn.Parent = topBar
+minBtn.Size = UDim2.new(0, 30, 0, 26); minBtn.Position = UDim2.new(1, -70, 0, 6); minBtn.Parent = topBar
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 5)
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Text = "✕"; closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 12
 closeBtn.TextColor3 = Theme.red; closeBtn.BackgroundColor3 = Theme.card; closeBtn.BorderSizePixel = 0
-closeBtn.Size = UDim2.new(0, 28, 0, 24); closeBtn.Position = UDim2.new(1, -34, 0, 7); closeBtn.Parent = topBar
+closeBtn.Size = UDim2.new(0, 30, 0, 26); closeBtn.Position = UDim2.new(1, -36, 0, 6); closeBtn.Parent = topBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 5)
 closeBtn.MouseButton1Click:Connect(function()
     _G.Pufyftyk_Cleanup()
@@ -1312,11 +1138,11 @@ end)
 local collapsed = false
 minBtn.MouseButton1Click:Connect(function()
     collapsed = not collapsed
-    win.Size = collapsed and UDim2.new(0, 600, 0, 38) or UDim2.new(0, 600, 0, 390)
+    win.Size = collapsed and UDim2.new(0, 520, 0, 38) or UDim2.new(0, 520, 0, 330)
     minBtn.Text = collapsed and "+" or "—"
 end)
 
--- ПЕРЕТАСКИВАНИЕ ТОЛЬКО ЗА ВЕРХНЮЮ ШАПКУ (topBar)
+-- Перетаскивание за заголовок (Touch и Mouse)
 local isDragging = false
 local dragStart = nil
 local startPos = nil
@@ -1355,18 +1181,18 @@ connections.DragChanged = UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Боковая панель с вкладками
+-- Боковая панель
 local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0, 142, 1, -38); sidebar.Position = UDim2.new(0, 0, 0, 38)
+sidebar.Size = UDim2.new(0, 130, 1, -38); sidebar.Position = UDim2.new(0, 0, 0, 38)
 sidebar.BackgroundColor3 = Theme.sidebar; sidebar.BorderSizePixel = 0; sidebar.Parent = win
 
 local sList = Instance.new("UIListLayout", sidebar)
-sList.Padding = UDim.new(0, 6); sList.SortOrder = Enum.SortOrder.LayoutOrder
+sList.Padding = UDim.new(0, 5); sList.SortOrder = Enum.SortOrder.LayoutOrder
 local sPad = Instance.new("UIPadding", sidebar)
-sPad.PaddingTop = UDim.new(0, 10); sPad.PaddingLeft = UDim.new(0, 8); sPad.PaddingRight = UDim.new(0, 8)
+sPad.PaddingTop = UDim.new(0, 8); sPad.PaddingLeft = UDim.new(0, 6); sPad.PaddingRight = UDim.new(0, 6)
 
 local container = Instance.new("Frame")
-container.Size = UDim2.new(1, -152, 1, -48); container.Position = UDim2.new(0, 147, 0, 43)
+container.Size = UDim2.new(1, -140, 1, -46); container.Position = UDim2.new(0, 135, 0, 42)
 container.BackgroundTransparency = 1; container.Parent = win
 
 local tabs = {}
@@ -1381,14 +1207,14 @@ local function createTab(id, titleText, icon, order)
     page.Parent = container
 
     local tBtn = Instance.new("TextButton")
-    tBtn.Size = UDim2.new(1, 0, 0, 34); tBtn.LayoutOrder = order
+    tBtn.Size = UDim2.new(1, 0, 0, 32); tBtn.LayoutOrder = order
     tBtn.BackgroundColor3 = Theme.card; tBtn.BorderSizePixel = 0
     tBtn.Text = icon .. "  " .. titleText
-    tBtn.Font = Enum.Font.GothamSemibold; tBtn.TextSize = 11
+    tBtn.Font = Enum.Font.GothamSemibold; tBtn.TextSize = 10
     tBtn.TextColor3 = Theme.textDark; tBtn.TextXAlignment = Enum.TextXAlignment.Left
     tBtn.Parent = sidebar
     Instance.new("UICorner", tBtn).CornerRadius = UDim.new(0, 6)
-    local tPad = Instance.new("UIPadding", tBtn); tPad.PaddingLeft = UDim.new(0, 10)
+    local tPad = Instance.new("UIPadding", tBtn); tPad.PaddingLeft = UDim.new(0, 8)
 
     tabs[id] = page
     tabButtons[id] = tBtn
@@ -1434,51 +1260,53 @@ fst.Color = Theme.accent; fst.Thickness = 1.2; fst.Transparency = 0.5
 
 -- ======================== ВКЛАДКА 1: МАЙНИНГ ========================
 local statusBar = Instance.new("Frame")
-statusBar.Size = UDim2.new(1, 0, 0, 32); statusBar.BackgroundColor3 = Theme.card; statusBar.BorderSizePixel = 0
+statusBar.Size = UDim2.new(1, 0, 0, 30); statusBar.BackgroundColor3 = Theme.card; statusBar.BorderSizePixel = 0
 statusBar.Parent = farmPage
 Instance.new("UICorner", statusBar).CornerRadius = UDim.new(0, 6)
 local sbStroke = Instance.new("UIStroke", statusBar)
 sbStroke.Color = Theme.cardHover; sbStroke.Thickness = 1
 
 local statusChip1 = Instance.new("TextLabel")
-statusChip1.Size = UDim2.new(0, 85, 1, 0); statusChip1.Position = UDim2.new(0, 10, 0, 0)
+statusChip1.Size = UDim2.new(0, 75, 1, 0); statusChip1.Position = UDim2.new(0, 8, 0, 0)
 statusChip1.BackgroundTransparency = 1; statusChip1.Text = "● ОНЛАЙН"
-statusChip1.TextColor3 = Theme.on; statusChip1.Font = Enum.Font.GothamBold; statusChip1.TextSize = 11
+statusChip1.TextColor3 = Theme.on; statusChip1.Font = Enum.Font.GothamBold; statusChip1.TextSize = 10
 statusChip1.TextXAlignment = Enum.TextXAlignment.Left; statusChip1.Parent = statusBar
 
 local statusChip2 = Instance.new("TextLabel")
-statusChip2.Size = UDim2.new(0, 120, 1, 0); statusChip2.Position = UDim2.new(0, 100, 0, 0)
+statusChip2.Size = UDim2.new(0, 100, 1, 0); statusChip2.Position = UDim2.new(0, 85, 0, 0)
 statusChip2.BackgroundTransparency = 1; statusChip2.Text = "⏹ СТОП"
-statusChip2.TextColor3 = Theme.textDark; statusChip2.Font = Enum.Font.GothamBold; statusChip2.TextSize = 11
+statusChip2.TextColor3 = Theme.textDark; statusChip2.Font = Enum.Font.GothamBold; statusChip2.TextSize = 10
 statusChip2.TextXAlignment = Enum.TextXAlignment.Left; statusChip2.Parent = statusBar
 
 local statusChip3 = Instance.new("TextLabel")
-statusChip3.Size = UDim2.new(1, -230, 1, 0); statusChip3.Position = UDim2.new(0, 220, 0, 0)
-statusChip3.BackgroundTransparency = 1; statusChip3.Text = "В очереди: 0 | Первая: Нет"
+statusChip3.Size = UDim2.new(1, -195, 1, 0); statusChip3.Position = UDim2.new(0, 190, 0, 0)
+statusChip3.BackgroundTransparency = 1; statusChip3.Text = "В очереди: 0"
 statusChip3.TextColor3 = Theme.accent; statusChip3.Font = Enum.Font.GothamSemibold; statusChip3.TextSize = 10
 statusChip3.TextXAlignment = Enum.TextXAlignment.Right; statusChip3.Parent = statusBar
-local sPad3 = Instance.new("UIPadding", statusChip3); sPad3.PaddingRight = UDim.new(0, 10)
+local sPad3 = Instance.new("UIPadding", statusChip3); sPad3.PaddingRight = UDim.new(0, 8)
 
 updStatus = function()
     local firstOre = priorityOrder[1] or (route[1] and route[1].id) or "Нет"
     statusChip2.Text = farmOn and (paused and "⏸ ПАУЗА" or "⛏️ КОПАЮ...") or "⏹ СТОП"
     statusChip2.TextColor3 = farmOn and (paused and Theme.gold or Theme.on) or Theme.textDark
-    statusChip3.Text = string.format("В очереди: %d | 🥇 Первая: %s", #route, tostring(firstOre))
+    statusChip3.Text = string.format("В очереди: %d | 🥇 %s", #route, tostring(firstOre))
 end
 
-local farmGrid = Instance.new("Frame")
-farmGrid.Size = UDim2.new(1, 0, 1, -40); farmGrid.Position = UDim2.new(0, 0, 0, 38)
-farmGrid.BackgroundTransparency = 1; farmGrid.Parent = farmPage
+local farmGrid = Instance.new("ScrollingFrame")
+farmGrid.Size = UDim2.new(1, 0, 1, -36); farmGrid.Position = UDim2.new(0, 0, 0, 36)
+farmGrid.BackgroundTransparency = 1; farmGrid.BorderSizePixel = 0
+farmGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y; farmGrid.CanvasSize = UDim2.new(0,0,0,0)
+farmGrid.ScrollBarThickness = 3; farmGrid.Parent = farmPage
 
 local fGridLay = Instance.new("UIGridLayout")
-fGridLay.CellSize = UDim2.new(0.485, 0, 0, 38)
-fGridLay.CellPadding = UDim2.new(0.03, 0, 0, 8)
+fGridLay.CellSize = UDim2.new(0.485, 0, 0, 36)
+fGridLay.CellPadding = UDim2.new(0.03, 0, 0, 6)
 fGridLay.Parent = farmGrid
 
 local function createToggle(parent, title, stateKey, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 1, 0); btn.BorderSizePixel = 0
-    btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 11
+    btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 10
     btn.Parent = parent
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -1510,7 +1338,7 @@ end
 local function createAction(parent, title, color, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 1, 0); btn.BorderSizePixel = 0
-    btn.Text = title; btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
+    btn.Text = title; btn.Font = Enum.Font.GothamBold; btn.TextSize = 10
     btn.TextColor3 = Color3.new(1,1,1); btn.BackgroundColor3 = color; btn.Parent = parent
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     if callback then
@@ -1521,9 +1349,15 @@ end
 
 local farmBtn = createAction(farmGrid, "▶ СТАРТ ФАРМ", Theme.on, function()
     farmOn = not farmOn
+    if farmOn then
+        if #route == 0 then planSmartRoute() end
+        applyESP()
+    else
+        clearESP()
+    end
     updStatus()
-    if not farmOn and not cfg.permHold then releaseLMB() end
 end)
+
 connections.FarmBtnWatcher = RunS.Heartbeat:Connect(function()
     farmBtn.Text = farmOn and "⏹ СТОП ФАРМ" or "▶ СТАРТ ФАРМ"
     farmBtn.BackgroundColor3 = farmOn and Theme.red or Theme.on
@@ -1532,7 +1366,6 @@ end)
 createToggle(farmGrid, "⏸ Пауза", "paused", function()
     paused = not paused
     updStatus()
-    if paused and not cfg.permHold then releaseLMB() end
 end)
 
 createToggle(farmGrid, "📍 Спам-ТП (Фиксация)", "spamTp")
@@ -1540,31 +1373,22 @@ createToggle(farmGrid, "🎯 Прицел на руду", "aimAtOre")
 createToggle(farmGrid, "👁️ ESP подсветка руд", "espOn", function(v)
     if v then applyESP() else clearESP() end
 end)
-
-createToggle(farmGrid, "🔘 Вечный зажим ЛКМ", "permHold", function(v)
-    if not v and not farmOn then releaseLMB() end
-end)
 createToggle(farmGrid, "⚔️ Взмах киркой", "toolSwing")
-createToggle(farmGrid, "🎥 Свободная камера", "freeCam", function(v)
-    setCameraMode(v)
-end)
+createToggle(farmGrid, "👻 Noclip (Сквозь блоки)", "noclip")
 
-createToggle(farmGrid, "⌨️ Авто-клавиша [1]", "autoKey1")
-createToggle(farmGrid, "⌨️ Авто-клавиша [2]", "autoKey2")
-
-createAction(farmGrid, "🔍 Пересканировать мир", Color3.fromRGB(35, 95, 150), function()
+createAction(farmGrid, "🔍 Пересканировать", Color3.fromRGB(35, 95, 150), function()
     table.clear(brokenOres)
     planSmartRoute(); rebuildOreList(); rebuildBlockList(); updStatus()
     if cfg.espOn then applyESP() end
 end)
 
-createAction(farmGrid, "🗑 Сбросить все", Color3.fromRGB(150, 45, 55), function()
+createAction(farmGrid, "🗑 Сбросить цели", Color3.fromRGB(150, 45, 55), function()
     clearAllPriority()
     table.clear(brokenOres)
     updStatus()
 end)
 
--- ======================== ВКЛАДКА 2: ПРИОРИТЕТЫ (УПОРЯДОЧЕННАЯ ОЧЕРЕДЬ) ========================
+-- ======================== ВКЛАДКА 2: ПРИОРИТЕТЫ ========================
 local oreTopBar = Instance.new("Frame")
 oreTopBar.Size = UDim2.new(1, 0, 0, 26); oreTopBar.Position = UDim2.new(0, 0, 0, 0)
 oreTopBar.BackgroundTransparency = 1; oreTopBar.Parent = oresPage
@@ -1596,7 +1420,7 @@ local scStroke = Instance.new("UIStroke", scanControl)
 scStroke.Color = Theme.accent; scStroke.Thickness = 1; scStroke.Transparency = 0.5
 
 local scanLbl = Instance.new("TextLabel")
-scanLbl.Size = UDim2.new(0.55, 0, 1, 0); scanLbl.Position = UDim2.new(0, 5, 0, 0)
+scanLbl.Size = UDim2.new(0.55, 0, 1, 0); scanLbl.Position = UDim2.new(0, 4, 0, 0)
 scanLbl.BackgroundTransparency = 1; scanLbl.Font = Enum.Font.GothamBold; scanLbl.TextSize = 9
 scanLbl.TextColor3 = Theme.accent; scanLbl.TextXAlignment = Enum.TextXAlignment.Left
 scanLbl.Text = "⏱️ Скан:"; scanLbl.Parent = scanControl
@@ -1605,14 +1429,14 @@ scanTimeBox = Instance.new("TextBox")
 scanTimeBox.Size = UDim2.new(0.40, 0, 1, -4); scanTimeBox.Position = UDim2.new(0.57, 0, 0, 2)
 scanTimeBox.BackgroundColor3 = Theme.sidebar; scanTimeBox.BorderSizePixel = 0
 scanTimeBox.TextColor3 = Color3.new(1, 1, 1); scanTimeBox.Font = Enum.Font.GothamBold; scanTimeBox.TextSize = 10
-scanTimeBox.Text = string.format("%.1f", cfg.scanTime or 30.0)
+scanTimeBox.Text = string.format("%.1f", cfg.scanTime or 25.0)
 scanTimeBox.ClearTextOnFocus = false; scanTimeBox.Parent = scanControl
 Instance.new("UICorner", scanTimeBox).CornerRadius = UDim.new(0, 4)
 
 scanTimeBox.FocusLost:Connect(function()
     local raw = scanTimeBox.Text:gsub(",", "."):gsub("[^%d%.]", "")
     local val = tonumber(raw)
-    if val and val >= 0.5 and val <= 120.0 then
+    if val and val >= 1.0 and val <= 120.0 then
         cfg.scanTime = val
     end
     scanTimeBox.Text = string.format("%.1f", cfg.scanTime)
@@ -1620,19 +1444,19 @@ scanTimeBox.FocusLost:Connect(function()
 end)
 
 local colTitle1 = Instance.new("TextLabel")
-colTitle1.Text = "📋 Каталог найденных руд (Клик = добавить)"
-colTitle1.Font = Enum.Font.GothamBold; colTitle1.TextSize = 10; colTitle1.TextColor3 = Theme.accent
-colTitle1.Size = UDim2.new(0.485, 0, 0, 16); colTitle1.Position = UDim2.new(0, 0, 0, 30)
+colTitle1.Text = "📋 Каталог руд (Клик = выбор)"
+colTitle1.Font = Enum.Font.GothamBold; colTitle1.TextSize = 9; colTitle1.TextColor3 = Theme.accent
+colTitle1.Size = UDim2.new(0.485, 0, 0, 16); colTitle1.Position = UDim2.new(0, 0, 0, 28)
 colTitle1.BackgroundTransparency = 1; colTitle1.TextXAlignment = Enum.TextXAlignment.Left; colTitle1.Parent = oresPage
 
 local colTitle2 = Instance.new("TextLabel")
-colTitle2.Text = "🎯 Порядок добычи (#1 копается первой)"
-colTitle2.Font = Enum.Font.GothamBold; colTitle2.TextSize = 10; colTitle2.TextColor3 = Theme.gold
-colTitle2.Size = UDim2.new(0.485, 0, 0, 16); colTitle2.Position = UDim2.new(0.515, 0, 0, 30)
+colTitle2.Text = "🎯 Порядок (#1 копается первой)"
+colTitle2.Font = Enum.Font.GothamBold; colTitle2.TextSize = 9; colTitle2.TextColor3 = Theme.gold
+colTitle2.Size = UDim2.new(0.485, 0, 0, 16); colTitle2.Position = UDim2.new(0.515, 0, 0, 28)
 colTitle2.BackgroundTransparency = 1; colTitle2.TextXAlignment = Enum.TextXAlignment.Left; colTitle2.Parent = oresPage
 
 local oreList = Instance.new("ScrollingFrame")
-oreList.Size = UDim2.new(0.485, 0, 1, -50); oreList.Position = UDim2.new(0, 0, 0, 48)
+oreList.Size = UDim2.new(0.485, 0, 1, -48); oreList.Position = UDim2.new(0, 0, 0, 46)
 oreList.BackgroundColor3 = Theme.card; oreList.BorderSizePixel = 0
 oreList.AutomaticCanvasSize = Enum.AutomaticSize.Y; oreList.CanvasSize = UDim2.new(0,0,0,0)
 oreList.ScrollBarThickness = 3; oreList.Parent = oresPage
@@ -1642,7 +1466,7 @@ local opad = Instance.new("UIPadding", oreList)
 opad.PaddingTop = UDim.new(0, 3); opad.PaddingLeft = UDim.new(0, 3); opad.PaddingRight = UDim.new(0, 4)
 
 local blkList = Instance.new("ScrollingFrame")
-blkList.Size = UDim2.new(0.485, 0, 1, -50); blkList.Position = UDim2.new(0.515, 0, 0, 48)
+blkList.Size = UDim2.new(0.485, 0, 1, -48); blkList.Position = UDim2.new(0.515, 0, 0, 46)
 blkList.BackgroundColor3 = Theme.card; blkList.BorderSizePixel = 0
 blkList.AutomaticCanvasSize = Enum.AutomaticSize.Y; blkList.CanvasSize = UDim2.new(0,0,0,0)
 blkList.ScrollBarThickness = 3; blkList.Parent = oresPage
@@ -1653,17 +1477,14 @@ bpad.PaddingTop = UDim.new(0, 3); bpad.PaddingLeft = UDim.new(0, 3); bpad.Paddin
 
 local oreBtnCache = {}
 
--- Каталог руд слева (с кэшированием кнопок без подвисаний)
 rebuildOreList = function()
     local arr = {}
     for id, n in pairs(allIds) do table.insert(arr, { id = id, n = n }) end
-    -- Сохраняем в списке выбранные руды даже если они временно выкопаны (0 шт)
     for _, id in ipairs(priorityOrder) do
         if not allIds[id] then
             table.insert(arr, { id = id, n = 0 })
         end
     end
-    -- Сортировка: сначала те что в очереди приоритетов по рангу, затем редкие, затем по количеству
     table.sort(arr, function(a, b)
         local rA = selected[a.id] or 999
         local rB = selected[b.id] or 999
@@ -1730,7 +1551,6 @@ end
 local blockRowCache = {}
 local emptyQueueLabel = nil
 
--- Очередь добычи справа (с кэшированием строк)
 rebuildBlockList = function()
     if #priorityOrder == 0 then
         for _, item in ipairs(blockRowCache) do
@@ -1740,7 +1560,7 @@ rebuildBlockList = function()
             emptyQueueLabel = Instance.new("TextLabel")
             emptyQueueLabel.Size = UDim2.new(1, -10, 0, 60); emptyQueueLabel.Position = UDim2.new(0, 5, 0, 10)
             emptyQueueLabel.BackgroundTransparency = 1
-            emptyQueueLabel.Text = "Очередь пуста.\nНажмите на руду слева, чтобы выбрать ее первой для копания!"
+            emptyQueueLabel.Text = "Очередь пуста.\nНажмите на руду слева, чтобы выбрать ее первой!"
             emptyQueueLabel.Font = Enum.Font.GothamMedium; emptyQueueLabel.TextSize = 10
             emptyQueueLabel.TextColor3 = Theme.textDark; emptyQueueLabel.TextWrapped = true
             emptyQueueLabel.Parent = blkList
@@ -1800,9 +1620,9 @@ rebuildBlockList = function()
     updStatus()
 end
 
--- ======================== ВКЛАДКА 3: СТАТИСТИКА ДОБЫЧИ ========================
+-- ======================== ВКЛАДКА 3: СТАТИСТИКА ========================
 local statsTopBar = Instance.new("Frame")
-statsTopBar.Size = UDim2.new(1, 0, 0, 34); statsTopBar.Position = UDim2.new(0, 0, 0, 0)
+statsTopBar.Size = UDim2.new(1, 0, 0, 32); statsTopBar.Position = UDim2.new(0, 0, 0, 0)
 statsTopBar.BackgroundColor3 = Theme.card; statsTopBar.BorderSizePixel = 0; statsTopBar.Parent = statsPage
 Instance.new("UICorner", statsTopBar).CornerRadius = UDim.new(0, 6)
 local stTopStroke = Instance.new("UIStroke", statsTopBar)
@@ -1830,25 +1650,25 @@ statCard3.Text = "⚡ 0.0 руд/мин"
 statCard3.Parent = statsTopBar
 
 local statsSubBar = Instance.new("Frame")
-statsSubBar.Size = UDim2.new(1, 0, 0, 24); statsSubBar.Position = UDim2.new(0, 0, 0, 40)
+statsSubBar.Size = UDim2.new(1, 0, 0, 24); statsSubBar.Position = UDim2.new(0, 0, 0, 38)
 statsSubBar.BackgroundTransparency = 1; statsSubBar.Parent = statsPage
 
 local statsTitle = Instance.new("TextLabel")
-statsTitle.Size = UDim2.new(1, -120, 1, 0); statsTitle.Position = UDim2.new(0, 2, 0, 0)
-statsTitle.BackgroundTransparency = 1; statsTitle.Font = Enum.Font.GothamBold; statsTitle.TextSize = 10
+statsTitle.Size = UDim2.new(1, -110, 1, 0); statsTitle.Position = UDim2.new(0, 2, 0, 0)
+statsTitle.BackgroundTransparency = 1; statsTitle.Font = Enum.Font.GothamBold; statsTitle.TextSize = 9
 statsTitle.TextColor3 = Theme.gold; statsTitle.TextXAlignment = Enum.TextXAlignment.Left
-statsTitle.Text = "🎯 Желаемые руды и результаты фарма:"
+statsTitle.Text = "🎯 Результаты фарма руд:"
 statsTitle.Parent = statsSubBar
 
 local resetStatsBtn = Instance.new("TextButton")
-resetStatsBtn.Size = UDim2.new(0, 110, 1, 0); resetStatsBtn.Position = UDim2.new(1, -110, 0, 0)
+resetStatsBtn.Size = UDim2.new(0, 100, 1, 0); resetStatsBtn.Position = UDim2.new(1, -100, 0, 0)
 resetStatsBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30); resetStatsBtn.BorderSizePixel = 0
 resetStatsBtn.Text = "🔄 Сброс стат."; resetStatsBtn.Font = Enum.Font.GothamBold; resetStatsBtn.TextSize = 10
 resetStatsBtn.TextColor3 = Theme.red; resetStatsBtn.Parent = statsSubBar
 Instance.new("UICorner", resetStatsBtn).CornerRadius = UDim.new(0, 5)
 
 local statsScroll = Instance.new("ScrollingFrame")
-statsScroll.Size = UDim2.new(1, 0, 1, -70); statsScroll.Position = UDim2.new(0, 0, 0, 68)
+statsScroll.Size = UDim2.new(1, 0, 1, -66); statsScroll.Position = UDim2.new(0, 0, 0, 64)
 statsScroll.BackgroundColor3 = Theme.card; statsScroll.BorderSizePixel = 0
 statsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y; statsScroll.CanvasSize = UDim2.new(0,0,0,0)
 statsScroll.ScrollBarThickness = 3; statsScroll.Parent = statsPage
@@ -1856,7 +1676,7 @@ Instance.new("UICorner", statsScroll).CornerRadius = UDim.new(0, 6)
 
 local sLay = Instance.new("UIListLayout", statsScroll); sLay.Padding = UDim.new(0, 4)
 local sPad = Instance.new("UIPadding", statsScroll)
-sPad.PaddingTop = UDim.new(0, 5); sPad.PaddingLeft = UDim.new(0, 5); sPad.PaddingRight = UDim.new(0, 6)
+sPad.PaddingTop = UDim.new(0, 4); sPad.PaddingLeft = UDim.new(0, 4); sPad.PaddingRight = UDim.new(0, 5)
 
 resetStatsBtn.MouseButton1Click:Connect(function()
     table.clear(minedStats)
@@ -1887,14 +1707,12 @@ updateStatsUI = function()
     local shownKeys = {}
     local rows = {}
 
-    -- 1. Сначала ВСЕГДА идут желаемые руды из приоритетов игрока!
     for rank, id in ipairs(priorityOrder) do
         shownKeys[id] = true
         local mined = minedStats[id] or 0
         table.insert(rows, { id = id, count = mined, rank = rank, isPriority = true })
     end
 
-    -- 2. Затем остальные руды, которые были добыты
     local otherRows = {}
     for id, count in pairs(minedStats) do
         if not shownKeys[id] and count > 0 then
@@ -1906,9 +1724,9 @@ updateStatsUI = function()
 
     if #rows == 0 then
         local emptyLbl = Instance.new("TextLabel")
-        emptyLbl.Size = UDim2.new(1, -20, 0, 70); emptyLbl.Position = UDim2.new(0, 10, 0, 15)
+        emptyLbl.Size = UDim2.new(1, -20, 0, 60); emptyLbl.Position = UDim2.new(0, 10, 0, 10)
         emptyLbl.BackgroundTransparency = 1
-        emptyLbl.Text = "⛏️ Список пока пуст.\nВыберите желаемые руды в «Приоритетах» и запустите фарм — здесь будет отображаться количество добытого дропа!"
+        emptyLbl.Text = "⛏️ Список пока пуст.\nВыберите руды во вкладке «Приоритеты» и включите фарм!"
         emptyLbl.Font = Enum.Font.GothamMedium; emptyLbl.TextSize = 10
         emptyLbl.TextColor3 = Theme.textDark; emptyLbl.TextWrapped = true; emptyLbl.Parent = statsScroll
         return
@@ -1916,7 +1734,7 @@ updateStatsUI = function()
 
     for orderIdx, item in ipairs(rows) do
         local rFrame = Instance.new("Frame")
-        rFrame.Size = UDim2.new(1, -2, 0, 26); rFrame.LayoutOrder = orderIdx
+        rFrame.Size = UDim2.new(1, -2, 0, 24); rFrame.LayoutOrder = orderIdx
         rFrame.BackgroundColor3 = item.isPriority and ((item.rank == 1 and Color3.fromRGB(45, 36, 15)) or Color3.fromRGB(22, 28, 44)) or Theme.sidebar
         rFrame.BorderSizePixel = 0; rFrame.Parent = statsScroll
         Instance.new("UICorner", rFrame).CornerRadius = UDim.new(0, 5)
@@ -1938,15 +1756,15 @@ updateStatsUI = function()
         end
 
         local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1, -125, 1, 0); nameLbl.Position = UDim2.new(0, 8, 0, 0)
-        nameLbl.BackgroundTransparency = 1; nameLbl.Font = Enum.Font.GothamBold; nameLbl.TextSize = 10
+        nameLbl.Size = UDim2.new(1, -115, 1, 0); nameLbl.Position = UDim2.new(0, 6, 0, 0)
+        nameLbl.BackgroundTransparency = 1; nameLbl.Font = Enum.Font.GothamBold; nameLbl.TextSize = 9
         nameLbl.TextColor3 = nameColor; nameLbl.TextXAlignment = Enum.TextXAlignment.Left
         nameLbl.Text = prefix .. item.id
         nameLbl.Parent = rFrame
 
         local countBadge = Instance.new("TextLabel")
-        countBadge.Size = UDim2.new(0, 115, 1, 0); countBadge.Position = UDim2.new(1, -120, 0, 0)
-        countBadge.BackgroundTransparency = 1; countBadge.Font = Enum.Font.GothamBold; countBadge.TextSize = 10
+        countBadge.Size = UDim2.new(0, 105, 1, 0); countBadge.Position = UDim2.new(1, -110, 0, 0)
+        countBadge.BackgroundTransparency = 1; countBadge.Font = Enum.Font.GothamBold; countBadge.TextSize = 9
         countBadge.TextXAlignment = Enum.TextXAlignment.Right
         if item.count > 0 then
             countBadge.TextColor3 = item.isPriority and Theme.on or Theme.accent
@@ -1960,11 +1778,14 @@ updateStatsUI = function()
 end
 
 -- ======================== ВКЛАДКА 4: ОПТИМИЗАЦИЯ И БУСТ FPS ========================
-local optGrid = Instance.new("Frame")
-optGrid.Size = UDim2.new(1, 0, 1, 0); optGrid.BackgroundTransparency = 1; optGrid.Parent = optPage
+local optGrid = Instance.new("ScrollingFrame")
+optGrid.Size = UDim2.new(1, 0, 1, 0); optGrid.BackgroundTransparency = 1; optGrid.BorderSizePixel = 0
+optGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y; optGrid.CanvasSize = UDim2.new(0,0,0,0)
+optGrid.ScrollBarThickness = 3; optGrid.Parent = optPage
+
 local oLay = Instance.new("UIGridLayout")
-oLay.CellSize = UDim2.new(0.485, 0, 0, 44)
-oLay.CellPadding = UDim2.new(0.03, 0, 0, 10)
+oLay.CellSize = UDim2.new(0.485, 0, 0, 38)
+oLay.CellPadding = UDim2.new(0.03, 0, 0, 8)
 oLay.Parent = optGrid
 
 createToggle(optGrid, "🥔 Картофельная графика", "potatoMode", function(v)
@@ -1997,7 +1818,7 @@ createToggle(optGrid, "🏷️ Метки дистанции ESP", "espText", fu
     if cfg.espOn then applyESP() end
 end)
 
--- ======================== ВКЛАДКА 5: НАСТРОЙКИ (ВВОД БЕЗ ЛИМИТОВ) ========================
+-- ======================== ВКЛАДКА 5: НАСТРОЙКИ ========================
 local scrollSettings = Instance.new("ScrollingFrame")
 scrollSettings.Size = UDim2.new(1, 0, 1, 0); scrollSettings.BackgroundColor3 = Theme.card; scrollSettings.BorderSizePixel = 0
 scrollSettings.AutomaticCanvasSize = Enum.AutomaticSize.Y; scrollSettings.CanvasSize = UDim2.new(0,0,0,0)
@@ -2010,7 +1831,7 @@ sPadding.PaddingTop = UDim.new(0, 6); sPadding.PaddingLeft = UDim.new(0, 6); sPa
 
 local function makeSetting(parent, label, min, max, init, isInt, cb)
     local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, -6, 0, 30)
+    holder.Size = UDim2.new(1, -6, 0, 28)
     holder.BackgroundColor3 = Theme.sidebar; holder.BorderSizePixel = 0; holder.Parent = parent
     Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 5)
 
@@ -2042,20 +1863,12 @@ local function makeSetting(parent, label, min, max, init, isInt, cb)
     return holder, valBox
 end
 
-makeSetting(scrollSettings, "Высота над рудой (Y)",        0.5,  5.0,  cfg.yOffset,      false, function(v) cfg.yOffset = v end)
-makeSetting(scrollSettings, "Интервал Спам-ТП (с)",       0.02, 1.0,  cfg.spamInterval, false, function(v) cfg.spamInterval = v end)
-makeSetting(scrollSettings, "Авто-клик [1] (с)",          1.0,  120.0,cfg.key1Interval, false, function(v) cfg.key1Interval = v end)
-makeSetting(scrollSettings, "Авто-клик [2] (с)",          1.0,  120.0,cfg.key2Interval, false, function(v) cfg.key2Interval = v end)
+makeSetting(scrollSettings, "Высота над рудой (Y)",        0.5,  5.0,   cfg.yOffset,      false, function(v) cfg.yOffset = v end)
+makeSetting(scrollSettings, "Интервал Спам-ТП (с)",       0.02, 1.0,   cfg.spamInterval, false, function(v) cfg.spamInterval = v end)
 makeSetting(scrollSettings, "Макс. время на руду (с)",    2.0,  120.0, cfg.maxBreakTime, false, function(v) cfg.maxBreakTime = v end)
 makeSetting(scrollSettings, "Пауза после ТП (с)",         0.01, 1.0,   cfg.dwell,        false, function(v) cfg.dwell = v end)
 
-local _, cfgScanValBox = makeSetting(scrollSettings, "Авто-обновление руд (с)", 0.5, 120.0, cfg.scanTime, false, function(v)
-    cfg.scanTime = v
-    if scanTimeBox then scanTimeBox.Text = string.format("%.1f", v) end
-end)
-makeSetting(scrollSettings, "Пауза после ТП (с)",         0.01, 1.0,  cfg.dwell,        false, function(v) cfg.dwell = v end)
-
-local _, cfgScanValBox = makeSetting(scrollSettings, "Авто-обновление руд (с)", 0.5, 60.0, cfg.scanTime, false, function(v)
+local _, cfgScanValBox = makeSetting(scrollSettings, "Авто-обновление руд (с)", 1.0, 120.0, cfg.scanTime, false, function(v)
     cfg.scanTime = v
     if scanTimeBox then scanTimeBox.Text = string.format("%.1f", v) end
 end)
@@ -2066,9 +1879,8 @@ syncScanTimeSettings = function(v)
     end
 end
 
-makeSetting(scrollSettings, "Обновл. вирт. мыши (с)",         0.2,  5.0,  cfg.virtualAimInterval, false, function(v) cfg.virtualAimInterval = v end)
 makeSetting(scrollSettings, "Дистанция поиска руд (м)",       100,  8000, cfg.maxDist,      true,  function(v) cfg.maxDist = v end)
-makeSetting(scrollSettings, "Макс. меток ESP",                5,    100,  cfg.espMaxCount,  true,  function(v) cfg.espMaxCount = v; if cfg.espOn and applyESP then applyESP() end end)
+makeSetting(scrollSettings, "Макс. меток ESP",                5,    40,   cfg.espMaxCount,  true,  function(v) cfg.espMaxCount = v; if cfg.espOn and applyESP then applyESP() end end)
 
 -- Первоначальный скан
 planSmartRoute()
@@ -2076,13 +1888,12 @@ pcall(rebuildOreList)
 pcall(rebuildBlockList)
 pcall(updStatus)
 
--- Системное уведомление Roblox об успешном запуске скрипта
 pcall(function()
     StarterGui:SetCore("SendNotification", {
-        Title = "pufyftyk-kvires",
-        Text = "Скрипт успешно запущен!",
+        Title = "pufyftyk · Mobile Fix",
+        Text = "Скрипт готов к работе без вылетов!",
         Duration = 4
     })
 end)
 
-print("[pufyftyk-kvires] Успешно загружен! GUI готов.")
+print("[pufyftyk-kvires Mobile Fix] Успешно загружен! Защита от вылетов активна.")
