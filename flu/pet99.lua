@@ -1007,15 +1007,9 @@ local function setupInstantEggAnimationBypass()
                     local ok, mod = pcall(require, mObj)
                     if ok and type(mod) == "table" then
                         for _, fnName in ipairs({"PlayEggAnimation", "OpenEgg", "PlayAnimation"}) do
-                            if type(mod[fnName]) == "function" then
-                                local origFn = env["Orig_" .. modName .. "_" .. fnName] or mod[fnName]
-                                env["Orig_" .. modName .. "_" .. fnName] = origFn
-                                mod[fnName] = function(...)
-                                    if State.InstantEggOpen and (State.AutoEggs or State.FullAutoFarm) then
-                                        return true
-                                    end
-                                    return origFn(...)
-                                end
+                            local origKey = "Orig_" .. modName .. "_" .. fnName
+                            if type(env[origKey]) == "function" then
+                                mod[fnName] = env[origKey]
                             end
                         end
                     end
@@ -1023,42 +1017,150 @@ local function setupInstantEggAnimationBypass()
             end
         end
     end)
+    pcall(function()
+        if not getsenv or type(env.Orig_Senv_PlayEggAnimation) ~= "function" then return end
+        local pscripts = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not pscripts then return end
+        for _, desc in ipairs(pscripts:GetDescendants()) do
+            if desc:IsA("LocalScript") and string.find(string.lower(desc.Name), "egg") and string.find(string.lower(desc.Name), "frontend") then
+                local ok, senv = pcall(getsenv, desc)
+                if ok and type(senv) == "table" then
+                    senv.PlayEggAnimation = env.Orig_Senv_PlayEggAnimation
+                end
+            end
+        end
+    end)
 end
 
 setupInstantEggAnimationBypass()
+State.TapEggUntil = tick() + 3.0
 
-local function clearCameraEggModelsAndTap()
+local function areEggsRenderingOnCamera()
     local cam = Workspace.CurrentCamera
     if not cam then return false end
-    local foundEggOnCam = false
     for _, child in ipairs(cam:GetChildren()) do
-        local cName = string.lower(child.Name)
-        if string.find(cName, "egg") or string.find(cName, "hatch") or child:IsA("Model") or child:IsA("Folder") then
-            foundEggOnCam = true
-            if State.InstantEggOpen then
-                pcall(function() child:Destroy() end)
+        if child:IsA("Model") or child:IsA("BasePart") then
+            return true
+        elseif child:IsA("Folder") and #child:GetChildren() > 0 then
+            return true
+        end
+    end
+    local debris = Workspace:FindFirstChild("__DEBRIS")
+    if debris then
+        for _, child in ipairs(debris:GetChildren()) do
+            local cn = string.lower(child.Name)
+            if string.find(cn, "egg") or string.find(cn, "hatch") then
+                return true
             end
         end
     end
-    if foundEggOnCam and VirtualUser then
+    return false
+end
+
+local function clearCameraEggModelsAndTap()
+    if UserInputService:GetFocusedTextBox() then return false end
+    local hasEggOnCam = areEggsRenderingOnCamera()
+    if hasEggOnCam then
+        State.TapEggUntil = math.max(State.TapEggUntil or 0, tick() + 0.85)
+    end
+
+    local shouldTapNow = hasEggOnCam or (tick() < (State.TapEggUntil or 0))
+    if not shouldTapNow then
+        return false
+    end
+
+    local cam = Workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(1000, 600)
+    local tx = math.floor(vp.X * 0.5)
+    local ty = math.floor(vp.Y * 0.24)
+
+    if MainFrame and MainFrame.Visible then
+        local mp = MainFrame.AbsolutePosition
+        local ms = MainFrame.AbsoluteSize
+        if tx >= mp.X - 15 and tx <= mp.X + ms.X + 15 and ty >= mp.Y - 15 and ty <= mp.Y + ms.Y + 15 then
+            if mp.Y > 75 then
+                ty = math.floor(math.max(62, mp.Y - 20))
+            else
+                tx = math.floor(math.clamp(mp.X - 40, 85, vp.X - 85))
+                ty = math.floor(vp.Y * 0.24)
+            end
+        end
+    end
+
+    pressKeyE(0.015)
+
+    if VirtualUser then
         pcall(function()
             VirtualUser:CaptureController()
-            VirtualUser:ClickButton1(Vector2.new(0, 0))
+            VirtualUser:ClickButton1(Vector2.new(tx, ty))
         end)
     end
-    return foundEggOnCam
+
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(tx, ty, 0, true, game, 1)
+            task.wait(0.01)
+            VirtualInputManager:SendMouseButtonEvent(tx, ty, 0, false, game, 1)
+        end)
+    end
+
+    if getconnections then
+        pcall(function()
+            local mouse = LocalPlayer:GetMouse()
+            if mouse then
+                for _, conn in ipairs(getconnections(mouse.Button1Down)) do
+                    if conn.Function then task.spawn(conn.Function, tx, ty) end
+                end
+                for _, conn in ipairs(getconnections(mouse.Button1Up)) do
+                    if conn.Function then task.spawn(conn.Function, tx, ty) end
+                end
+            end
+            for _, conn in ipairs(getconnections(UserInputService.TouchTap)) do
+                if conn.Function then task.spawn(conn.Function, {Vector2.new(tx, ty)}, false) end
+            end
+            for _, conn in ipairs(getconnections(UserInputService.TouchTapInWorld)) do
+                if conn.Function then task.spawn(conn.Function, Vector2.new(tx, ty), false) end
+            end
+        end)
+    end
+
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pgui then return end
+        for _, gui in ipairs(pgui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HalloweenEventGui" and gui.Name ~= "Message" then
+                local gName = string.lower(gui.Name)
+                if string.find(gName, "egg") or string.find(gName, "hatch") or string.find(gName, "open") or string.find(gName, "anim") then
+                    for _, d in ipairs(gui:GetDescendants()) do
+                        if d:IsA("GuiButton") and d.Visible then
+                            local dn = string.lower(d.Name)
+                            if not string.find(dn, "close") and not string.find(dn, "cancel") and not string.find(dn, "exit") and not string.find(dn, "auto") then
+                                fireSafeSignal(d)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    return true
 end
 
 task.spawn(function()
     while State.Running do
         if (State.AutoEggs or State.FullAutoFarm) and not State.IsVisitingHouses then
-            clearCameraEggModelsAndTap()
-            task.wait(0.1)
+            if clearCameraEggModelsAndTap() then
+                task.wait(0.04)
+            else
+                task.wait(0.08)
+            end
         else
-            task.wait(0.3)
+            task.wait(0.25)
         end
     end
 end)
+
 
 task.spawn(function()
     while State.Running do
@@ -1435,7 +1537,8 @@ local function invokeEggBatch(remoteObj, eggId, batchCount)
         State.TotalEggsHatched = State.TotalEggsHatched + batchCount
         State.TotalEggBatches = State.TotalEggBatches + 1
         State.ConsecutiveHatchFails = 0
-        clearCameraEggModelsAndTap()
+        State.TapEggUntil = tick() + 3.2
+        task.spawn(clearCameraEggModelsAndTap)
         task.delay(0.08, function()
             local afterSnap = getAllPlayerCurrencies()
             recordBatchCurrencySpend(eggId, beforeSnap, afterSnap)
@@ -1573,7 +1676,16 @@ task.spawn(function()
     while State.Running do
         if (State.AutoEggs or State.FullAutoFarm) and not State.IsVisitingHouses then
             fastHatchOnce()
-            task.wait(State.EggHatchDelay or 2.0)
+            local waitDeadline = tick() + (State.EggHatchDelay or 2.0)
+            while tick() < waitDeadline and State.Running and not State.IsVisitingHouses do
+                clearCameraEggModelsAndTap()
+                task.wait(0.06)
+            end
+            local extraFinishDeadline = tick() + 1.8
+            while areEggsRenderingOnCamera() and tick() < extraFinishDeadline and State.Running and not State.IsVisitingHouses do
+                clearCameraEggModelsAndTap()
+                task.wait(0.05)
+            end
         else
             task.wait(0.25)
         end
@@ -2236,7 +2348,7 @@ BlackOverlayFrame.Name = "BlackScreenOverlay"
 BlackOverlayFrame.Size = UDim2.new(1, 0, 1, 0)
 BlackOverlayFrame.BackgroundColor3 = Color3.fromRGB(15, 13, 25)
 BlackOverlayFrame.BorderSizePixel = 0
-BlackOverlayFrame.Active = true
+BlackOverlayFrame.Active = false
 BlackOverlayFrame.Visible = false
 BlackOverlayFrame.ZIndex = 10
 BlackOverlayFrame.Parent = ScreenGui
@@ -2413,7 +2525,7 @@ MainFrame.Size = UDim2.new(0, 445, 0, 370)
 MainFrame.Position = UDim2.new(0.5, -222, 0.5, -185)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
+MainFrame.Active = false
 MainFrame.ZIndex = 30
 MainFrame.Parent = ScreenGui
 addCornerAndStroke(MainFrame, 8, Colors.Stroke, 1.5)
