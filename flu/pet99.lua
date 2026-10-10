@@ -90,7 +90,10 @@ local UILang = {
         exitBlack = "Exit Black Screen (Enable 3D)",
         openMenu = "Menu",
         tpBlack = "Teleport to Farm Coords (7538.1, 15.7, 21965.5)",
-        checkHousesBlack = "Check & Open Ready Houses Now"
+        checkHousesBlack = "Check & Open Ready Houses Now",
+        houseReadyShort = "READY",
+        houseLockedShort = "LOCKED",
+        houseTimersHeader = "House Timers (Each House):"
     },
     UK = {
         windowTitle = "PS99 Hatch Wars",
@@ -112,7 +115,7 @@ local UILang = {
         addHousePt = "Додати точку дому",
         resetHouseTimers = "Скинути таймери",
         autoMinigame = "Авто-капча дверей та закриття помилок",
-        blackScreenBtn = "Чорний екран статистики (3D ВИМК)",
+        blackScreenBtn = "Екран статистики (3D ВИМК)",
         render3DBtn = "3D Графіка гри",
         langBtn = "Мова: УКР (АНГЛ -> УКР -> РУС)",
         jumpBtn = "Анти-АФК стрибок (кожні 20с)",
@@ -126,10 +129,13 @@ local UILang = {
         statEggs = "Відкрито яєць",
         statHouses = "Відкрито домиків",
         statLollipop = "Цукерки (Lollipop)",
-        exitBlack = "Вийти з чорного екрану (Увімкнути 3D)",
+        exitBlack = "Вийти з екрану статистики (3D УВІМК)",
         openMenu = "Меню",
         tpBlack = "Телепорт на координати (7538.1, 15.7, 21965.5)",
-        checkHousesBlack = "Перевірити і відкрити доступні домики"
+        checkHousesBlack = "Перевірити і відкрити доступні домики",
+        houseReadyShort = "ГОТОВО",
+        houseLockedShort = "ЗАКРИТО",
+        houseTimersHeader = "Таймери кожного домика:"
     },
     RU = {
         windowTitle = "PS99 Hatch Wars",
@@ -151,7 +157,7 @@ local UILang = {
         addHousePt = "Добавить точку дома",
         resetHouseTimers = "Сбросить таймеры",
         autoMinigame = "Авто-капча дверей и закрытие ошибок",
-        blackScreenBtn = "Черный экран статистики (3D ВЫКЛ)",
+        blackScreenBtn = "Экран статистики (3D ВЫКЛ)",
         render3DBtn = "3D Графика игры",
         langBtn = "Язык: РУС (АНГЛ -> УКР -> РУС)",
         jumpBtn = "Анти-АФК прыжок (каждые 20с)",
@@ -165,10 +171,13 @@ local UILang = {
         statEggs = "Открыто яиц",
         statHouses = "Открыто домиков",
         statLollipop = "Конфеты (Lollipop)",
-        exitBlack = "Выйти из черного экрана (Включить 3D)",
+        exitBlack = "Выйти с экрана статистики (3D ВКЛ)",
         openMenu = "Меню",
         tpBlack = "Телепорт на координаты (7538.1, 15.7, 21965.5)",
-        checkHousesBlack = "Проверить и открыть доступные домики"
+        checkHousesBlack = "Проверить и открыть доступные домики",
+        houseReadyShort = "ГОТОВО",
+        houseLockedShort = "ЗАКРЫТО",
+        houseTimersHeader = "Таймеры каждого домика:"
     }
 }
 
@@ -219,6 +228,7 @@ local State = {
     CustomEggCount = 79,
     MaxHatchDetected = 0,
     WorkingEggAmount = 79,
+    ConsecutiveHatchFails = 0,
     CachedEggRemoteName = nil,
     CachedEggId = nil,
     LearnedEggId = nil,
@@ -229,10 +239,12 @@ local State = {
     LastCapturedEggArgs = nil,
     SavedEggCFrame = DefaultSpawnCFrame,
     MaxUnlockedHouses = 0,
-    HouseCooldownDefault = 600,
+    HouseCooldownDefault = 210,
     HouseCooldownMap = {},
     LockedHouseInfo = {},
     ConfirmedUnlockedHouses = {},
+    HouseKnownList = {},
+    NextAutoHouseCheckTime = tick() + 14,
     AllowConfirmPurchasePopup = false,
     LastPopupWasError = false,
     LastPopupPurchased = false,
@@ -326,6 +338,12 @@ local StatGoatValue = nil
 local StatLollipopValue = nil
 local StatStatusValue = nil
 
+local DashHouseCells = {}
+local MenuFarmHouseCells = {}
+local MenuHousesTabCells = {}
+local MenuFarmTimersTitle = nil
+local MenuHousesTimersTitle = nil
+
 local OrigGameText = setmetatable({}, { __mode = "k" })
 
 local function L()
@@ -401,6 +419,9 @@ local function refreshAllMenuLabels()
     if TeleportNowOnBlackBtn then TeleportNowOnBlackBtn.Text = t.tpBlack end
     if RunHousesOnBlackBtn then RunHousesOnBlackBtn.Text = t.checkHousesBlack end
 
+    if MenuFarmTimersTitle then MenuFarmTimersTitle.Text = t.houseTimersHeader end
+    if MenuHousesTimersTitle then MenuHousesTimersTitle.Text = t.houseTimersHeader end
+
     if LangCycleBtnFarm then LangCycleBtnFarm.Text = t.langBtn end
     if LangCycleBtnSettings then LangCycleBtnSettings.Text = t.langBtn end
     if LangCycleBtnBlack then LangCycleBtnBlack.Text = t.langBtn end
@@ -408,11 +429,11 @@ local function refreshAllMenuLabels()
     for idx, btnList in pairs(LangDirectBtns) do
         for _, b in ipairs(btnList) do
             if idx == State.LanguageIndex then
-                b.BackgroundColor3 = Color3.fromRGB(45, 115, 75)
-                b.TextColor3 = Color3.fromRGB(245, 247, 250)
+                b.BackgroundColor3 = Color3.fromRGB(46, 184, 114)
+                b.TextColor3 = Color3.fromRGB(255, 255, 255)
             else
-                b.BackgroundColor3 = Color3.fromRGB(32, 35, 44)
-                b.TextColor3 = Color3.fromRGB(165, 172, 185)
+                b.BackgroundColor3 = Color3.fromRGB(45, 40, 72)
+                b.TextColor3 = Color3.fromRGB(190, 185, 220)
             end
         end
     end
@@ -1800,7 +1821,53 @@ trackConn(LocalPlayer.CharacterAdded:Connect(function()
     end
 end))
 
+local function moveIntoEggHatchRange(eggPos, eggObj)
+    if not eggPos then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local baseCF = State.SavedEggCFrame or DefaultSpawnCFrame
+    local groundY = baseCF.Position.Y
+    local myFlat = Vector3.new(hrp.Position.X, 0, hrp.Position.Z)
+    local eggFlat = Vector3.new(eggPos.X, 0, eggPos.Z)
+    local flatDist = (myFlat - eggFlat).Magnitude
+
+    if flatDist > 9.5 or math.abs(hrp.Position.Y - groundY) > 8 then
+        local refFlat = Vector3.new(baseCF.Position.X, 0, baseCF.Position.Z)
+        local dir = refFlat - eggFlat
+        if dir.Magnitude < 0.5 then
+            dir = Vector3.new(0, 0, 1)
+        else
+            dir = dir.Unit
+        end
+        local standPos = Vector3.new(eggPos.X + dir.X * 6.5, groundY, eggPos.Z + dir.Z * 6.5)
+        local lookTarget = Vector3.new(eggPos.X, groundY, eggPos.Z)
+        local targetCF = CFrame.lookAt(standPos, lookTarget)
+        ensureSafetyFloorAt(standPos)
+        pcall(function()
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = targetCF
+        end)
+        task.wait(0.12)
+    end
+
+    if eggObj and fireproximityprompt then
+        pcall(function()
+            for _, d in ipairs(eggObj:GetDescendants()) do
+                if d:IsA("ProximityPrompt") then
+                    d.HoldDuration = 0
+                    d.RequiresLineOfSight = false
+                    d.MaxActivationDistance = 35
+                end
+            end
+        end)
+    end
+end
+
 local function invokeEggBatch(remoteObj, eggId, batchCount)
+    if not remoteObj or not eggId then return false, "nil" end
     local beforeSnap = getAllPlayerCurrencies()
     local ok, res, extra = pcall(function()
         if remoteObj:IsA("RemoteFunction") then
@@ -1813,6 +1880,7 @@ local function invokeEggBatch(remoteObj, eggId, batchCount)
     if ok and res ~= false and res ~= nil then
         State.TotalEggsHatched = State.TotalEggsHatched + batchCount
         State.TotalEggBatches = State.TotalEggBatches + 1
+        State.ConsecutiveHatchFails = 0
         clearCameraEggModelsAndTap()
         task.delay(0.08, function()
             local afterSnap = getAllPlayerCurrencies()
@@ -1825,28 +1893,78 @@ local function invokeEggBatch(remoteObj, eggId, batchCount)
     return false, tostring(extra or res or "")
 end
 
+local function tryClientModuleEggHatch(bestCand, batchCount)
+    local hatched = false
+    pcall(function()
+        local lib = ReplicatedStorage:FindFirstChild("Library")
+        local client = lib and lib:FindFirstChild("Client")
+        if not client then return end
+        for _, modName in ipairs({"CustomEggCmds", "EggCmds"}) do
+            local m = client:FindFirstChild(modName)
+            if m then
+                local ok, mod = pcall(require, m)
+                if ok and type(mod) == "table" then
+                    for _, fnName in ipairs({"Hatch", "RequestHatch", "OpenEgg", "RequestPurchase"}) do
+                        if type(mod[fnName]) == "function" then
+                            local okH, resH = pcall(mod[fnName], bestCand.uid, batchCount)
+                            if okH and resH ~= false and resH ~= nil then
+                                hatched = true
+                                break
+                            end
+                            if bestCand.attrId then
+                                local okH2, resH2 = pcall(mod[fnName], bestCand.attrId, batchCount)
+                                if okH2 and resH2 ~= false and resH2 ~= nil then
+                                    hatched = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if hatched then break end
+        end
+    end)
+    if hatched then
+        State.TotalEggsHatched = State.TotalEggsHatched + batchCount
+        State.TotalEggBatches = State.TotalEggBatches + 1
+        State.ConsecutiveHatchFails = 0
+        clearCameraEggModelsAndTap()
+        task.delay(0.08, function()
+            updatePetsAndLollipopsInventory()
+            clearCameraEggModelsAndTap()
+        end)
+    end
+    return hatched
+end
+
 local function probeMaxEggCountForOtherPlayers(remoteObj, eggId)
-    local ladder = { 99, 90, 84, 79, 75, 64, 50, 35, 25, 15, 8, 4 }
+    local ladder = { 99, 90, 84, 79, 75, 64, 50, 35, 25, 15, 8, 4, 1 }
     for _, amt in ipairs(ladder) do
         local success = invokeEggBatch(remoteObj, eggId, amt)
         if success then
-            local low = amt + 1
-            local high = math.min(amt + 20, 120)
-            local best = amt
-            while low <= high do
-                local mid = math.floor((low + high) / 2)
-                task.wait(2.0)
-                local okM = invokeEggBatch(remoteObj, eggId, mid)
-                if okM then
-                    best = mid
-                    low = mid + 1
-                else
-                    high = mid - 1
+            if amt > 1 then
+                local low = amt + 1
+                local high = math.min(amt + 15, 110)
+                local best = amt
+                while low <= high do
+                    local mid = math.floor((low + high) / 2)
+                    task.wait(1.8)
+                    local okM = invokeEggBatch(remoteObj, eggId, mid)
+                    if okM then
+                        best = mid
+                        low = mid + 1
+                    else
+                        high = mid - 1
+                    end
                 end
+                State.WorkingEggAmount = best
+                State.MaxHatchDetected = best
+                return true, best
+            else
+                State.WorkingEggAmount = 1
+                return true, 1
             end
-            State.WorkingEggAmount = best
-            State.MaxHatchDetected = best
-            return true, best
         end
     end
     return false, 0
@@ -1859,6 +1977,22 @@ local function fastHatchOnce()
     local didHatch = false
     pcall(function()
         local targetAmt = getTargetEggBatchSize()
+        local cands = findNearestEggCandidates(95)
+
+        if #cands == 0 and State.SavedEggCFrame then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and (hrp.Position - State.SavedEggCFrame.Position).Magnitude > 16 then
+                teleportSafelyTo(State.SavedEggCFrame)
+                task.wait(0.15)
+                cands = findNearestEggCandidates(120)
+            end
+        end
+
+        local best = cands[1]
+        if best and best.pos then
+            moveIntoEggHatchRange(best.pos, best.obj)
+        end
 
         if State.CachedEggRemoteName and State.CachedEggId then
             local r = findRemote(State.CachedEggRemoteName)
@@ -1878,34 +2012,21 @@ local function fastHatchOnce()
                     setStatusText(string.format("Hatched: %d eggs (total: %s)", targetAmt, formatNumber(State.TotalEggsHatched)), nil)
                     return
                 else
-                    collectAllOrbsAndLootbagsNow()
-                    farmNearbyBreakables()
-                    setStatusText(string.format("Waiting coins/CD for %d eggs...", targetAmt), nil)
-                    return
+                    State.ConsecutiveHatchFails = (State.ConsecutiveHatchFails or 0) + 1
+                    if State.ConsecutiveHatchFails >= 2 then
+                        State.CachedEggRemoteName = nil
+                        State.CachedEggId = nil
+                    else
+                        collectAllOrbsAndLootbagsNow()
+                        farmNearbyBreakables()
+                        setStatusText(string.format("Waiting coins/CD for %d eggs...", targetAmt), nil)
+                        return
+                    end
                 end
             end
         end
 
-        local cands = findNearestEggCandidates(75)
-        if #cands == 0 and State.SavedEggCFrame then
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp and (hrp.Position - State.SavedEggCFrame.Position).Magnitude > 18 then
-                pcall(function() hrp.CFrame = State.SavedEggCFrame end)
-                task.wait(0.15)
-                cands = findNearestEggCandidates(75)
-            end
-        end
-
-        if #cands > 0 then
-            local best = cands[1]
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp and not State.SavedEggCFrame then
-                State.SavedEggCFrame = hrp.CFrame
-                saveCoordsToDisk(hrp.CFrame)
-            end
-
+        if best then
             local remotesToTry = {"CustomEggs_Hatch", "Eggs_RequestPurchase"}
             local idsToTry = {}
             if best.uid then table.insert(idsToTry, best.uid) end
@@ -1922,25 +2043,59 @@ local function fastHatchOnce()
                             didHatch = true
                             setStatusText(string.format("Hatched: %s (%dx | total %s)", tostring(best.attrId or idVal), targetAmt, formatNumber(State.TotalEggsHatched)), nil)
                             return
-                        elseif State.CustomEggCount == 0 then
-                            local okProbe, bestCount = probeMaxEggCountForOtherPlayers(r, idVal)
-                            if okProbe then
+                        end
+
+                        local det = detectPlayerMaxEggHatch()
+                        if det and det >= 1 and det ~= targetAmt then
+                            local okDet = invokeEggBatch(r, idVal, det)
+                            if okDet then
                                 State.CachedEggRemoteName = rName
                                 State.CachedEggId = idVal
+                                State.WorkingEggAmount = det
                                 didHatch = true
-                                setStatusText(string.format("Auto-max: %s (%dx)", tostring(best.attrId or idVal), bestCount), nil)
+                                setStatusText(string.format("Hatched: %s (%dx | total %s)", tostring(best.attrId or idVal), det, formatNumber(State.TotalEggsHatched)), nil)
                                 return
                             end
                         end
+
+                        local okProbe, bestCount = probeMaxEggCountForOtherPlayers(r, idVal)
+                        if okProbe then
+                            State.CachedEggRemoteName = rName
+                            State.CachedEggId = idVal
+                            if EggCountInput and State.CustomEggCount ~= bestCount then
+                                State.CustomEggCount = bestCount
+                                EggCountInput.Text = tostring(bestCount)
+                            end
+                            didHatch = true
+                            setStatusText(string.format("Hatched: %s (%dx | total %s)", tostring(best.attrId or idVal), bestCount, formatNumber(State.TotalEggsHatched)), nil)
+                            return
+                        end
                     end
                 end
+            end
+
+            if tryClientModuleEggHatch(best, targetAmt) then
+                didHatch = true
+                setStatusText(string.format("Hatched via client: %dx (total %s)", targetAmt, formatNumber(State.TotalEggsHatched)), nil)
+                return
+            end
+
+            if best.obj then
+                pcall(function()
+                    for _, d in ipairs(best.obj:GetDescendants()) do
+                        if d:IsA("ProximityPrompt") and fireproximityprompt then
+                            fireproximityprompt(d)
+                        end
+                    end
+                end)
+                pressKeyE(0.08)
             end
 
             collectAllOrbsAndLootbagsNow()
             farmNearbyBreakables()
             setStatusText(string.format("Farming coins for %d eggs...", targetAmt), nil)
         else
-            setStatusText("Stand near egg and click Save Position", nil)
+            setStatusText("Searching for egg at farm coords...", nil)
         end
     end)
 
@@ -1954,7 +2109,7 @@ task.spawn(function()
             fastHatchOnce()
             task.wait(State.EggHatchDelay or 2.0)
         else
-            task.wait(0.25)
+            task.wait(0.2)
         end
     end
 end)
@@ -2014,12 +2169,13 @@ local function inspectDoorCloseUp(house)
     local isLocked = false
     local unlockCost = nil
     local liveCooldown = nil
+    local hasReadySignal = false
 
     local function checkRawString(raw)
         if not raw or raw == "" then return end
         local low = string.lower(raw)
         local cd = parseCooldownFromText(raw)
-        if cd and cd > 0 then
+        if cd and cd > 0 and cd <= 3600 then
             liveCooldown = cd
             return
         end
@@ -2029,6 +2185,38 @@ local function inspectDoorCloseUp(house)
             if c and c > 0 then
                 unlockCost = c
             end
+        elseif string.find(low, "trick or treat") or string.find(low, "knock") or string.find(low, "відкрити домик") or string.find(low, "открыть домик") or string.find(low, "claim") then
+            hasReadySignal = true
+        end
+    end
+
+    local function checkObjAttributes(obj)
+        if not obj then return end
+        for attrName, attrVal in pairs(obj:GetAttributes()) do
+            local alow = string.lower(tostring(attrName))
+            if (alow == "locked" and attrVal == true) or (alow == "unlocked" and attrVal == false) then
+                isLocked = true
+            elseif string.find(alow, "price") or string.find(alow, "cost") then
+                local n = tonumber(attrVal)
+                if n and n > 0 then
+                    isLocked = true
+                    unlockCost = n
+                end
+            elseif string.find(alow, "cooldown") or string.find(alow, "timer") or string.find(alow, "timeleft") or string.find(alow, "remaining") or string.find(alow, "ready") or string.find(alow, "next") then
+                if type(attrVal) == "number" and attrVal > 0 then
+                    local nowOs = os.time()
+                    local nowTick = tick()
+                    if attrVal > nowOs and attrVal < nowOs + 3600 then
+                        liveCooldown = math.floor(attrVal - nowOs)
+                    elseif attrVal > nowTick and attrVal < nowTick + 3600 then
+                        liveCooldown = math.floor(attrVal - nowTick)
+                    elseif attrVal <= 1800 then
+                        liveCooldown = math.floor(attrVal)
+                    end
+                elseif type(attrVal) == "string" then
+                    checkRawString(attrVal)
+                end
+            end
         end
     end
 
@@ -2036,24 +2224,29 @@ local function inspectDoorCloseUp(house)
         if house.prompt and house.prompt.Parent then
             checkRawString(house.prompt.ActionText)
             checkRawString(house.prompt.ObjectText)
-            local pAttr = tonumber(house.prompt:GetAttribute("Price")) or tonumber(house.prompt:GetAttribute("Cost")) or tonumber(house.prompt:GetAttribute("UnlockCost"))
-            if pAttr and pAttr > 0 then
-                isLocked = true
-                unlockCost = pAttr
-            end
-            if house.prompt:GetAttribute("Locked") == true or house.prompt:GetAttribute("Unlocked") == false then
-                isLocked = true
-            end
+            checkObjAttributes(house.prompt)
         end
 
         if house.instance then
-            if house.instance:GetAttribute("Locked") == true or house.instance:GetAttribute("Unlocked") == false then
-                isLocked = true
-            end
-            local mCost = tonumber(house.instance:GetAttribute("Price")) or tonumber(house.instance:GetAttribute("Cost")) or tonumber(house.instance:GetAttribute("UnlockCost"))
-            if mCost and mCost > 0 then
-                isLocked = true
-                unlockCost = mCost
+            checkObjAttributes(house.instance)
+            for _, sub in ipairs(house.instance:GetDescendants()) do
+                if sub:IsA("TextLabel") and sub.Text ~= "" then
+                    checkRawString(sub.Text)
+                elseif sub:IsA("ProximityPrompt") then
+                    checkRawString(sub.ActionText)
+                    checkRawString(sub.ObjectText)
+                    checkObjAttributes(sub)
+                elseif sub:IsA("ValueBase") then
+                    local vn = string.lower(sub.Name)
+                    if string.find(vn, "cooldown") or string.find(vn, "timer") or string.find(vn, "time") then
+                        local v = tonumber(sub.Value)
+                        if v and v > 0 and v <= 1800 then
+                            liveCooldown = math.floor(v)
+                        elseif type(sub.Value) == "string" then
+                            checkRawString(sub.Value)
+                        end
+                    end
+                end
             end
         end
 
@@ -2063,10 +2256,11 @@ local function inspectDoorCloseUp(house)
                 if pPos and (pPos - house.pos).Magnitude <= 14 then
                     checkRawString(d.ActionText)
                     checkRawString(d.ObjectText)
+                    checkObjAttributes(d)
                 end
             elseif (d:IsA("BillboardGui") or d:IsA("SurfaceGui")) and d.Enabled then
                 local bPos = getObjectPosition(d.Adornee or d.Parent)
-                if bPos and (bPos - house.pos).Magnitude <= 15 then
+                if bPos and (bPos - house.pos).Magnitude <= 16 then
                     for _, sub in ipairs(d:GetDescendants()) do
                         if sub:IsA("TextLabel") and isGuiActuallyVisible(sub) and sub.Text ~= "" then
                             checkRawString(sub.Text)
@@ -2077,7 +2271,7 @@ local function inspectDoorCloseUp(house)
         end
     end)
 
-    return isLocked, unlockCost, liveCooldown
+    return isLocked, unlockCost, liveCooldown, hasReadySignal
 end
 
 local function findGroundDoorPosition(modelOrPart, playerGroundY)
@@ -2228,6 +2422,27 @@ local function scanAllHousesWithState(playerGroundY, originPos)
     for idx, rh in ipairs(rawHouses) do
         local key = rh.key
         local displayName = "House" .. idx
+
+        local liveLocked, liveCost, liveCd, liveReady = inspectDoorCloseUp(rh)
+        if liveCd and liveCd > 0 then
+            State.HouseCooldownMap[key] = now + liveCd
+            State.ConfirmedUnlockedHouses[key] = true
+            State.LockedHouseInfo[key] = nil
+        elseif liveLocked and not State.ConfirmedUnlockedHouses[key] then
+            local prevInfo = State.LockedHouseInfo[key]
+            State.LockedHouseInfo[key] = {
+                locked = true,
+                lollipopsAtAttempt = (prevInfo and prevInfo.lollipopsAtAttempt) or curLollipops,
+                requiredCost = liveCost or (prevInfo and prevInfo.requiredCost),
+                lastTryTime = (prevInfo and prevInfo.lastTryTime) or 0
+            }
+        elseif liveReady and not liveLocked then
+            local curEnd = State.HouseCooldownMap[key] or 0
+            if curEnd - now > 15 then
+                State.HouseCooldownMap[key] = 0
+            end
+        end
+
         local readyAt = State.HouseCooldownMap[key] or 0
         local remCd = math.max(0, readyAt - now)
 
@@ -2239,12 +2454,13 @@ local function scanAllHousesWithState(playerGroundY, originPos)
         if lockedMem and lockedMem.locked and not State.ConfirmedUnlockedHouses[key] then
             isLocked = true
             unlockCost = lockedMem.requiredCost
-            if State.AutoBuyHouses then
+            local sinceLastTry = now - (lockedMem.lastTryTime or 0)
+            if State.AutoBuyHouses and sinceLastTry >= 60 then
                 local prevLolli = lockedMem.lollipopsAtAttempt or 0
                 if unlockCost and unlockCost > 0 then
                     canTryUnlockNow = (curLollipops >= unlockCost)
                 else
-                    canTryUnlockNow = (curLollipops > prevLolli and (now - (lockedMem.lastTryTime or 0) >= 35))
+                    canTryUnlockNow = (curLollipops > prevLolli)
                 end
             end
         end
@@ -2256,7 +2472,7 @@ local function scanAllHousesWithState(playerGroundY, originPos)
             isReady = true
         end
 
-        table.insert(houses, {
+        local entry = {
             index = idx,
             key = key,
             name = displayName,
@@ -2270,7 +2486,12 @@ local function scanAllHousesWithState(playerGroundY, originPos)
             canTryUnlockNow = canTryUnlockNow,
             remainingCd = remCd,
             isReady = isReady
-        })
+        }
+        table.insert(houses, entry)
+    end
+
+    if #houses > 0 then
+        State.HouseKnownList = houses
     end
 
     if State.MaxUnlockedHouses > 0 and #houses > State.MaxUnlockedHouses then
@@ -2387,6 +2608,36 @@ local function fireHouseRemotes(house, tryBuyToo)
     end)
 end
 
+local function formatShortHouseTimer(sec)
+    local s = math.max(0, math.floor(tonumber(sec) or 0))
+    local m = math.floor(s / 60)
+    local r = s % 60
+    return string.format("%02d:%02d", m, r)
+end
+
+local function buildCompactTimersSummary(housesList)
+    if not housesList or #housesList == 0 then
+        return "Houses: scanning..."
+    end
+    local now = tick()
+    local parts = {}
+    local t = L()
+    for i, h in ipairs(housesList) do
+        local key = h.key
+        local lockedMem = State.LockedHouseInfo[key]
+        local isLocked = (lockedMem and lockedMem.locked and not State.ConfirmedUnlockedHouses[key]) or false
+        local rem = math.max(0, (State.HouseCooldownMap[key] or 0) - now)
+        if isLocked then
+            table.insert(parts, string.format("H%d:%s", i, t.houseLockedShort))
+        elseif rem > 0 then
+            table.insert(parts, string.format("H%d:%s", i, formatShortHouseTimer(rem)))
+        else
+            table.insert(parts, string.format("H%d:%s", i, t.houseReadyShort))
+        end
+    end
+    return table.concat(parts, " | ")
+end
+
 local function visitReadyHousesAndReturn(forceAll)
     if State.IsVisitingHouses then return end
 
@@ -2409,28 +2660,14 @@ local function visitReadyHousesAndReturn(forceAll)
     end
 
     local housesToProcess = {}
-    local minCd = 999999
-    local onTimerCount = 0
-    local lockedCount = 0
-
     for _, h in ipairs(allHouses) do
         if h.isReady or forceAll then
             table.insert(housesToProcess, h)
-        elseif h.isLocked then
-            lockedCount = lockedCount + 1
-        else
-            onTimerCount = onTimerCount + 1
-            if h.remainingCd < minCd then
-                minCd = h.remainingCd
-            end
         end
     end
 
     if #housesToProcess == 0 then
-        local mins = math.floor(minCd / 60)
-        local secs = math.floor(minCd % 60)
-        if minCd >= 999999 then mins, secs = 0, 0 end
-        setStatusText(nil, string.format("Houses on 10m timer: %d | Locked: %d | Next: %02d:%02d", onTimerCount, lockedCount, mins, secs))
+        setStatusText(nil, buildCompactTimersSummary(allHouses))
         return
     end
 
@@ -2447,15 +2684,15 @@ local function visitReadyHousesAndReturn(forceAll)
             local _, _, _, lollipopsBefore = updatePetsAndLollipopsInventory()
             local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
             teleportSafelyTo(doorGroundCF)
-            task.wait(0.3)
+            task.wait(0.28)
 
             local closeLocked, closeCost, closeCd = inspectDoorCloseUp(house)
 
-            if closeCd and closeCd > 0 and not State.ConfirmedUnlockedHouses[house.key] then
+            if closeCd and closeCd > 0 then
                 State.ConfirmedUnlockedHouses[house.key] = true
                 State.LockedHouseInfo[house.key] = nil
                 State.HouseCooldownMap[house.key] = tick() + closeCd
-                addLog("INFO", string.format("%s already on timer (%ds), skipping.", tostring(house.name), closeCd))
+                addLog("INFO", string.format("%s timer synced: %s", tostring(house.name), formatShortHouseTimer(closeCd)))
             elseif (closeLocked or house.isLocked) and not State.ConfirmedUnlockedHouses[house.key] and (not State.AutoBuyHouses or (closeCost and closeCost > 0 and lollipopsBefore < closeCost)) then
                 local reqCost = closeCost or house.unlockCost
                 State.LockedHouseInfo[house.key] = {
@@ -2465,7 +2702,6 @@ local function visitReadyHousesAndReturn(forceAll)
                     lastTryTime = tick()
                 }
                 setStatusText(nil, string.format("Skipping locked %s (Lollipops: %s/%s)", tostring(house.name), formatNumber(lollipopsBefore), tostring(reqCost or "?")))
-                addLog("INFO", string.format("Пропущено закритий %s (Lollipop %s/%s) без натискання.", tostring(house.name), formatNumber(lollipopsBefore), tostring(reqCost or "?")))
             else
                 State.LastPopupWasError = false
                 State.LastPopupPurchased = false
@@ -2516,9 +2752,18 @@ local function visitReadyHousesAndReturn(forceAll)
                 collectAllOrbsAndLootbagsNow()
 
                 local _, _, _, lollipopsAfter = updatePetsAndLollipopsInventory()
+                local postLocked, postCost, postCd = inspectDoorCloseUp(house)
 
-                if State.LastPopupWasError and not State.LastPopupPurchased and lollipopsAfter <= lollipopsBefore then
-                    local reqCost = State.LastPopupCostNumber or closeCost or house.unlockCost
+                if postCd and postCd > 0 then
+                    State.ConfirmedUnlockedHouses[house.key] = true
+                    State.LockedHouseInfo[house.key] = nil
+                    if not State.LastHouseWasOnCooldown then
+                        State.TotalHousesOpened = State.TotalHousesOpened + 1
+                    end
+                    State.HouseCooldownMap[house.key] = tick() + postCd
+                    addLog("OK", string.format("%s opened! Live timer: %s", tostring(house.name), formatShortHouseTimer(postCd)))
+                elseif State.LastPopupWasError and not State.LastPopupPurchased and lollipopsAfter <= lollipopsBefore then
+                    local reqCost = State.LastPopupCostNumber or postCost or closeCost or house.unlockCost
                     State.LockedHouseInfo[house.key] = {
                         locked = true,
                         lollipopsAtAttempt = lollipopsAfter,
@@ -2526,18 +2771,18 @@ local function visitReadyHousesAndReturn(forceAll)
                         lastTryTime = tick()
                     }
                     State.ConfirmedUnlockedHouses[house.key] = nil
-                    addLog("INFO", string.format("%s закритий (Lollipop %s/%s). Переходжу далі.", tostring(house.name), formatNumber(lollipopsAfter), tostring(reqCost or "?")))
                 elseif State.LastHouseWasOnCooldown and lollipopsAfter <= lollipopsBefore then
                     State.ConfirmedUnlockedHouses[house.key] = true
                     State.LockedHouseInfo[house.key] = nil
-                    local cdToSet = State.LastParsedCooldownSecs or 180
+                    local cdToSet = State.LastParsedCooldownSecs or State.HouseCooldownDefault or 210
                     State.HouseCooldownMap[house.key] = tick() + cdToSet
                 else
                     State.ConfirmedUnlockedHouses[house.key] = true
                     State.LockedHouseInfo[house.key] = nil
                     State.TotalHousesOpened = State.TotalHousesOpened + 1
-                    State.HouseCooldownMap[house.key] = tick() + (State.HouseCooldownDefault or 600)
-                    addLog("OK", string.format("Відкрито %s! Таймер 10:00 запущено.", tostring(house.name)))
+                    local fallbackCd = State.LastParsedCooldownSecs or State.HouseCooldownDefault or 210
+                    State.HouseCooldownMap[house.key] = tick() + fallbackCd
+                    addLog("OK", string.format("Відкрито %s! Таймер: %s", tostring(house.name), formatShortHouseTimer(fallbackCd)))
                 end
             end
         end
@@ -2553,20 +2798,20 @@ local function visitReadyHousesAndReturn(forceAll)
     if returnCF and State.Running then
         teleportSafelyTo(returnCF)
         pcall(useOnlyMagnetFlagIfNoneActive)
-        setStatusText(nil, string.format("Returned to egg (waiting %.0fs)...", stepWait))
-        task.wait(stepWait)
     end
 
+    State.NextAutoHouseCheckTime = tick() + 18
     State.IsVisitingHouses = false
+    setStatusText(nil, buildCompactTimersSummary(State.HouseKnownList))
 end
 
 task.spawn(function()
     while State.Running do
-        if State.FullAutoFarm and not State.IsVisitingHouses then
+        if State.FullAutoFarm and not State.IsVisitingHouses and (tick() >= (State.NextAutoHouseCheckTime or 0)) then
             pcall(function()
                 visitReadyHousesAndReturn(false)
             end)
-            task.wait(1.5)
+            task.wait(2.0)
         else
             task.wait(0.5)
         end
@@ -2637,24 +2882,26 @@ ScreenGui.DisplayOrder = 999999
 ScreenGui.Parent = ParentGui
 
 local Colors = {
-    Bg = Color3.fromRGB(20, 22, 28),
-    Header = Color3.fromRGB(26, 29, 36),
-    Card = Color3.fromRGB(32, 35, 44),
-    CardBright = Color3.fromRGB(38, 42, 52),
-    Stroke = Color3.fromRGB(62, 68, 82),
-    Accent = Color3.fromRGB(68, 125, 205),
-    Green = Color3.fromRGB(45, 115, 75),
-    Red = Color3.fromRGB(130, 50, 50),
-    Text = Color3.fromRGB(235, 238, 244),
-    SubText = Color3.fromRGB(160, 166, 178),
-    InputBg = Color3.fromRGB(15, 17, 22)
+    Bg = Color3.fromRGB(28, 25, 46),
+    Header = Color3.fromRGB(39, 34, 66),
+    Card = Color3.fromRGB(45, 40, 72),
+    CardBright = Color3.fromRGB(58, 51, 92),
+    Stroke = Color3.fromRGB(108, 92, 168),
+    Accent = Color3.fromRGB(238, 130, 48),
+    Blue = Color3.fromRGB(88, 132, 238),
+    Green = Color3.fromRGB(46, 184, 114),
+    Red = Color3.fromRGB(208, 72, 82),
+    Gold = Color3.fromRGB(252, 192, 68),
+    Text = Color3.fromRGB(248, 246, 255),
+    SubText = Color3.fromRGB(192, 186, 224),
+    InputBg = Color3.fromRGB(21, 18, 36)
 }
 
 BlackOverlayFrame = Instance.new("Frame")
 BlackOverlayFrame.Name = "BlackScreenOverlay"
 BlackOverlayFrame.Size = UDim2.new(1, 0, 1, 0)
 BlackOverlayFrame.Position = UDim2.new(0, 0, 0, 0)
-BlackOverlayFrame.BackgroundColor3 = Color3.fromRGB(10, 11, 14)
+BlackOverlayFrame.BackgroundColor3 = Color3.fromRGB(15, 13, 25)
 BlackOverlayFrame.BorderSizePixel = 0
 BlackOverlayFrame.Active = true
 BlackOverlayFrame.Visible = false
@@ -2662,30 +2909,38 @@ BlackOverlayFrame.ZIndex = 10
 BlackOverlayFrame.Parent = ScreenGui
 
 local DashCard = Instance.new("Frame")
-DashCard.Size = UDim2.new(0, 460, 0, 350)
-DashCard.Position = UDim2.new(0.5, -230, 0.5, -175)
+DashCard.Size = UDim2.new(0, 476, 0, 412)
+DashCard.Position = UDim2.new(0.5, -238, 0.5, -206)
 DashCard.BackgroundColor3 = Colors.Bg
 DashCard.BorderSizePixel = 0
 DashCard.ZIndex = 11
 DashCard.Parent = BlackOverlayFrame
-Instance.new("UICorner", DashCard).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", DashCard).CornerRadius = UDim.new(0, 8)
 local DashStroke = Instance.new("UIStroke", DashCard)
 DashStroke.Color = Colors.Stroke
-DashStroke.Thickness = 1
+DashStroke.Thickness = 1.5
+
+local DashTopBar = Instance.new("Frame")
+DashTopBar.Size = UDim2.new(1, 0, 0, 34)
+DashTopBar.BackgroundColor3 = Colors.Header
+DashTopBar.BorderSizePixel = 0
+DashTopBar.ZIndex = 12
+DashTopBar.Parent = DashCard
+Instance.new("UICorner", DashTopBar).CornerRadius = UDim.new(0, 8)
 
 DashTitle = Instance.new("TextLabel")
-DashTitle.Size = UDim2.new(1, -24, 0, 26)
-DashTitle.Position = UDim2.new(0, 12, 0, 8)
+DashTitle.Size = UDim2.new(1, -24, 1, 0)
+DashTitle.Position = UDim2.new(0, 12, 0, 0)
 DashTitle.BackgroundTransparency = 1
 DashTitle.Text = "HATCH WARS AFK  |  3D RENDERING OFF"
-DashTitle.TextColor3 = Colors.Text
+DashTitle.TextColor3 = Colors.Gold
 DashTitle.Font = Enum.Font.GothamBold
 DashTitle.TextSize = 13
 DashTitle.TextXAlignment = Enum.TextXAlignment.Left
-DashTitle.ZIndex = 12
-DashTitle.Parent = DashCard
+DashTitle.ZIndex = 13
+DashTitle.Parent = DashTopBar
 
-local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, heightPx)
+local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, heightPx, valColor)
     local box = Instance.new("Frame")
     box.Size = UDim2.new(widthScale, -12, 0, heightPx)
     box.Position = UDim2.new(posScaleX, 10, 0, posY)
@@ -2693,13 +2948,13 @@ local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale
     box.BorderSizePixel = 0
     box.ZIndex = 12
     box.Parent = parent
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 5)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
     local st = Instance.new("UIStroke", box)
     st.Color = Colors.Stroke
     st.Thickness = 1
 
     local lblTitle = Instance.new("TextLabel")
-    lblTitle.Size = UDim2.new(1, -12, 0, 16)
+    lblTitle.Size = UDim2.new(1, -12, 0, 15)
     lblTitle.Position = UDim2.new(0, 6, 0, 4)
     lblTitle.BackgroundTransparency = 1
     lblTitle.Text = title
@@ -2711,11 +2966,11 @@ local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale
     lblTitle.Parent = box
 
     local lblVal = Instance.new("TextLabel")
-    lblVal.Size = UDim2.new(1, -12, 0, heightPx - 22)
-    lblVal.Position = UDim2.new(0, 6, 0, 20)
+    lblVal.Size = UDim2.new(1, -12, 0, heightPx - 20)
+    lblVal.Position = UDim2.new(0, 6, 0, 19)
     lblVal.BackgroundTransparency = 1
     lblVal.Text = initVal
-    lblVal.TextColor3 = Colors.Text
+    lblVal.TextColor3 = valColor or Colors.Text
     lblVal.Font = Enum.Font.GothamBold
     lblVal.TextSize = 14
     lblVal.TextXAlignment = Enum.TextXAlignment.Left
@@ -2725,23 +2980,74 @@ local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale
     return lblVal, lblTitle
 end
 
-StatTimeValue, StatTimeTitle = createStatBox(DashCard, "Farm Time", "00:00:00", 0, 40, 0.333, 52)
-StatEggsValue, StatEggsTitle = createStatBox(DashCard, "Eggs Hatched", "0 (0)", 0.333, 40, 0.333, 52)
-StatHousesValue, StatHousesTitle = createStatBox(DashCard, "Houses Opened", "0", 0.666, 40, 0.334, 52)
+StatTimeValue, StatTimeTitle = createStatBox(DashCard, "Farm Time", "00:00:00", 0, 42, 0.333, 48, Colors.Text)
+StatEggsValue, StatEggsTitle = createStatBox(DashCard, "Eggs Hatched", "0 (0)", 0.333, 42, 0.333, 48, Colors.Gold)
+StatHousesValue, StatHousesTitle = createStatBox(DashCard, "Houses Opened", "0", 0.666, 42, 0.334, 48, Colors.Green)
 
-StatDominusValue = createStatBox(DashCard, "Headless Dominus", "+0 (0)", 0, 100, 0.25, 52)
-StatWendigoValue = createStatBox(DashCard, "Wendigo", "+0 (0)", 0.25, 100, 0.25, 52)
-StatGoatValue = createStatBox(DashCard, "Grinning Goat", "+0 (0)", 0.50, 100, 0.25, 52)
-StatLollipopValue, StatLollipopTitle = createStatBox(DashCard, "Lollipops", "0", 0.75, 100, 0.25, 52)
+StatDominusValue = createStatBox(DashCard, "Headless Dominus", "+0 (0)", 0, 96, 0.25, 48, Colors.Text)
+StatWendigoValue = createStatBox(DashCard, "Wendigo", "+0 (0)", 0.25, 96, 0.25, 48, Colors.Text)
+StatGoatValue = createStatBox(DashCard, "Grinning Goat", "+0 (0)", 0.50, 96, 0.25, 48, Colors.Text)
+StatLollipopValue, StatLollipopTitle = createStatBox(DashCard, "Lollipops", "0", 0.75, 96, 0.25, 48, Colors.Gold)
+
+local function buildEightHouseTimersGrid(parentFrame, posY, layoutOrder, outCellsTable, zBase)
+    local container = Instance.new("Frame")
+    if layoutOrder then
+        container.LayoutOrder = layoutOrder
+        container.Size = UDim2.new(1, -6, 0, 56)
+    else
+        container.Size = UDim2.new(1, -20, 0, 56)
+        container.Position = UDim2.new(0, 10, 0, posY)
+    end
+    container.BackgroundTransparency = 1
+    container.ZIndex = zBase
+    container.Parent = parentFrame
+
+    for i = 1, 8 do
+        local col = (i - 1) % 4
+        local row = math.floor((i - 1) / 4)
+        local cell = Instance.new("Frame")
+        cell.Size = UDim2.new(0.25, -4, 0, 25)
+        cell.Position = UDim2.new(col * 0.25, 2, 0, row * 29)
+        cell.BackgroundColor3 = Colors.Card
+        cell.BorderSizePixel = 0
+        cell.ZIndex = zBase + 1
+        cell.Parent = container
+        Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 5)
+        local cellStroke = Instance.new("UIStroke", cell)
+        cellStroke.Color = Colors.Stroke
+        cellStroke.Thickness = 1
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -6, 1, 0)
+        lbl.Position = UDim2.new(0, 3, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = string.format("H%d: 00:00", i)
+        lbl.TextColor3 = Colors.Text
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 11
+        lbl.ZIndex = zBase + 2
+        lbl.Parent = cell
+
+        outCellsTable[i] = {
+            frame = cell,
+            stroke = cellStroke,
+            label = lbl
+        }
+    end
+
+    return container
+end
+
+buildEightHouseTimersGrid(DashCard, 152, nil, DashHouseCells, 12)
 
 local StatusBanner = Instance.new("Frame")
-StatusBanner.Size = UDim2.new(1, -20, 0, 48)
-StatusBanner.Position = UDim2.new(0, 10, 0, 160)
+StatusBanner.Size = UDim2.new(1, -20, 0, 44)
+StatusBanner.Position = UDim2.new(0, 10, 0, 214)
 StatusBanner.BackgroundColor3 = Colors.InputBg
 StatusBanner.BorderSizePixel = 0
 StatusBanner.ZIndex = 12
 StatusBanner.Parent = DashCard
-Instance.new("UICorner", StatusBanner).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", StatusBanner).CornerRadius = UDim.new(0, 6)
 local BannerStroke = Instance.new("UIStroke", StatusBanner)
 BannerStroke.Color = Colors.Stroke
 BannerStroke.Thickness = 1
@@ -2761,7 +3067,7 @@ StatStatusValue.Parent = StatusBanner
 
 ExitBlackBtn = Instance.new("TextButton")
 ExitBlackBtn.Size = UDim2.new(0.42, -8, 0, 34)
-ExitBlackBtn.Position = UDim2.new(0, 10, 0, 218)
+ExitBlackBtn.Position = UDim2.new(0, 10, 0, 266)
 ExitBlackBtn.BackgroundColor3 = Colors.Green
 ExitBlackBtn.Text = "Exit Black Screen (3D ON)"
 ExitBlackBtn.TextColor3 = Colors.Text
@@ -2769,31 +3075,31 @@ ExitBlackBtn.Font = Enum.Font.GothamBold
 ExitBlackBtn.TextSize = 12
 ExitBlackBtn.ZIndex = 13
 ExitBlackBtn.Parent = DashCard
-Instance.new("UICorner", ExitBlackBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", ExitBlackBtn).CornerRadius = UDim.new(0, 6)
 
 OpenMenuOnBlackBtn = Instance.new("TextButton")
 OpenMenuOnBlackBtn.Size = UDim2.new(0.24, -6, 0, 34)
-OpenMenuOnBlackBtn.Position = UDim2.new(0.42, 4, 0, 218)
-OpenMenuOnBlackBtn.BackgroundColor3 = Colors.CardBright
+OpenMenuOnBlackBtn.Position = UDim2.new(0.42, 4, 0, 266)
+OpenMenuOnBlackBtn.BackgroundColor3 = Colors.Blue
 OpenMenuOnBlackBtn.Text = "Menu"
 OpenMenuOnBlackBtn.TextColor3 = Colors.Text
 OpenMenuOnBlackBtn.Font = Enum.Font.GothamBold
 OpenMenuOnBlackBtn.TextSize = 12
 OpenMenuOnBlackBtn.ZIndex = 13
 OpenMenuOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", OpenMenuOnBlackBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", OpenMenuOnBlackBtn).CornerRadius = UDim.new(0, 6)
 
 LangCycleBtnBlack = Instance.new("TextButton")
 LangCycleBtnBlack.Size = UDim2.new(0.34, -10, 0, 34)
-LangCycleBtnBlack.Position = UDim2.new(0.66, 0, 0, 218)
-LangCycleBtnBlack.BackgroundColor3 = Colors.Card
+LangCycleBtnBlack.Position = UDim2.new(0.66, 0, 0, 266)
+LangCycleBtnBlack.BackgroundColor3 = Colors.CardBright
 LangCycleBtnBlack.Text = "Language: EN"
 LangCycleBtnBlack.TextColor3 = Colors.Text
 LangCycleBtnBlack.Font = Enum.Font.GothamBold
 LangCycleBtnBlack.TextSize = 11
 LangCycleBtnBlack.ZIndex = 13
 LangCycleBtnBlack.Parent = DashCard
-Instance.new("UICorner", LangCycleBtnBlack).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", LangCycleBtnBlack).CornerRadius = UDim.new(0, 6)
 
 bindButton(LangCycleBtnBlack, function()
     cycleGameLanguage()
@@ -2801,19 +3107,19 @@ end)
 
 TeleportNowOnBlackBtn = Instance.new("TextButton")
 TeleportNowOnBlackBtn.Size = UDim2.new(1, -20, 0, 32)
-TeleportNowOnBlackBtn.Position = UDim2.new(0, 10, 0, 260)
-TeleportNowOnBlackBtn.BackgroundColor3 = Colors.Card
+TeleportNowOnBlackBtn.Position = UDim2.new(0, 10, 0, 308)
+TeleportNowOnBlackBtn.BackgroundColor3 = Colors.CardBright
 TeleportNowOnBlackBtn.Text = "Teleport to Coords (7538.1, 15.7, 21965.5)"
 TeleportNowOnBlackBtn.TextColor3 = Colors.Text
 TeleportNowOnBlackBtn.Font = Enum.Font.GothamBold
 TeleportNowOnBlackBtn.TextSize = 12
 TeleportNowOnBlackBtn.ZIndex = 13
 TeleportNowOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", TeleportNowOnBlackBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", TeleportNowOnBlackBtn).CornerRadius = UDim.new(0, 6)
 
 RunHousesOnBlackBtn = Instance.new("TextButton")
-RunHousesOnBlackBtn.Size = UDim2.new(1, -20, 0, 32)
-RunHousesOnBlackBtn.Position = UDim2.new(0, 10, 0, 300)
+RunHousesOnBlackBtn.Size = UDim2.new(1, -20, 0, 34)
+RunHousesOnBlackBtn.Position = UDim2.new(0, 10, 0, 348)
 RunHousesOnBlackBtn.BackgroundColor3 = Colors.Accent
 RunHousesOnBlackBtn.Text = "Check & Open Ready Houses Now"
 RunHousesOnBlackBtn.TextColor3 = Colors.Text
@@ -2821,7 +3127,7 @@ RunHousesOnBlackBtn.Font = Enum.Font.GothamBold
 RunHousesOnBlackBtn.TextSize = 12
 RunHousesOnBlackBtn.ZIndex = 13
 RunHousesOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", RunHousesOnBlackBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", RunHousesOnBlackBtn).CornerRadius = UDim.new(0, 6)
 
 bindButton(RunHousesOnBlackBtn, function()
     task.spawn(function()
@@ -2829,13 +3135,61 @@ bindButton(RunHousesOnBlackBtn, function()
     end)
 end)
 
+local function updateHouseTimerCellList(cellList, housesData, nowTick)
+    local t = L()
+    for i = 1, 8 do
+        local cellObj = cellList[i]
+        if cellObj and cellObj.label then
+            local h = housesData and housesData[i]
+            if h then
+                local key = h.key
+                local lockedMem = State.LockedHouseInfo[key]
+                local isLocked = (lockedMem and lockedMem.locked and not State.ConfirmedUnlockedHouses[key]) or false
+                local rem = math.max(0, (State.HouseCooldownMap[key] or 0) - nowTick)
+
+                if isLocked then
+                    local costTxt = (lockedMem and lockedMem.requiredCost) and formatNumber(lockedMem.requiredCost) or t.houseLockedShort
+                    cellObj.label.Text = string.format("H%d: %s", i, costTxt)
+                    cellObj.label.TextColor3 = Color3.fromRGB(255, 140, 145)
+                    cellObj.frame.BackgroundColor3 = Color3.fromRGB(64, 34, 48)
+                    cellObj.stroke.Color = Colors.Red
+                elseif rem > 0 then
+                    cellObj.label.Text = string.format("H%d: %s", i, formatShortHouseTimer(rem))
+                    cellObj.label.TextColor3 = Colors.Gold
+                    cellObj.frame.BackgroundColor3 = Colors.Card
+                    cellObj.stroke.Color = Colors.Stroke
+                else
+                    cellObj.label.Text = string.format("H%d: %s", i, t.houseReadyShort)
+                    cellObj.label.TextColor3 = Color3.fromRGB(140, 255, 190)
+                    cellObj.frame.BackgroundColor3 = Color3.fromRGB(32, 72, 56)
+                    cellObj.stroke.Color = Colors.Green
+                end
+            else
+                cellObj.label.Text = string.format("H%d: 00:00", i)
+                cellObj.label.TextColor3 = Colors.SubText
+                cellObj.frame.BackgroundColor3 = Colors.Card
+                cellObj.stroke.Color = Colors.Stroke
+            end
+        end
+    end
+end
+
 task.spawn(function()
     local lastInvCheck = 0
+    local lastLiveHouseScan = 0
     while State.Running do
         local now = tick()
         if now - lastInvCheck >= 2.0 then
             lastInvCheck = now
             updatePetsAndLollipopsInventory()
+        end
+
+        if (now - lastLiveHouseScan >= 3.5) and not State.IsVisitingHouses then
+            lastLiveHouseScan = now
+            pcall(function()
+                local refCF = State.SavedEggCFrame or DefaultSpawnCFrame
+                scanAllHousesWithState(refCF.Position.Y, refCF.Position)
+            end)
         end
 
         if StatTimeValue then
@@ -2873,89 +3227,98 @@ task.spawn(function()
             StatLollipopValue.Text = formatNumber(State.CurrentLollipops)
         end
 
+        local knownHouses = State.HouseKnownList
+        updateHouseTimerCellList(DashHouseCells, knownHouses, now)
+        updateHouseTimerCellList(MenuFarmHouseCells, knownHouses, now)
+        updateHouseTimerCellList(MenuHousesTabCells, knownHouses, now)
+
+        if not State.IsVisitingHouses and knownHouses and #knownHouses > 0 then
+            setStatusText(nil, buildCompactTimersSummary(knownHouses))
+        end
+
         task.wait(0.5)
     end
 end)
 
 local FloatBtn = Instance.new("TextButton")
 FloatBtn.Name = "FloatToggle"
-FloatBtn.Size = UDim2.new(0, 48, 0, 36)
-FloatBtn.Position = UDim2.new(0, 14, 0.5, -18)
-FloatBtn.BackgroundColor3 = Colors.CardBright
+FloatBtn.Size = UDim2.new(0, 56, 0, 38)
+FloatBtn.Position = UDim2.new(0, 14, 0.5, -19)
+FloatBtn.BackgroundColor3 = Colors.Accent
 FloatBtn.Text = "MENU"
-FloatBtn.TextSize = 11
+FloatBtn.TextSize = 12
 FloatBtn.Font = Enum.Font.GothamBold
 FloatBtn.TextColor3 = Colors.Text
 FloatBtn.Visible = false
 FloatBtn.ZIndex = 60
 FloatBtn.Parent = ScreenGui
-Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(0, 8)
 local FloatStroke = Instance.new("UIStroke", FloatBtn)
-FloatStroke.Color = Colors.Stroke
+FloatStroke.Color = Colors.Text
 FloatStroke.Thickness = 1
 
 MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 430, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -215, 0.5, -170)
+MainFrame.Size = UDim2.new(0, 445, 0, 370)
+MainFrame.Position = UDim2.new(0.5, -222, 0.5, -185)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.ZIndex = 30
 MainFrame.Parent = ScreenGui
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Color = Colors.Stroke
-MainStroke.Thickness = 1
+MainStroke.Thickness = 1.5
 
 local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 34)
+TopBar.Size = UDim2.new(1, 0, 0, 36)
 TopBar.BackgroundColor3 = Colors.Header
 TopBar.BorderSizePixel = 0
 TopBar.Active = true
 TopBar.ZIndex = 31
 TopBar.Parent = MainFrame
-Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
 
 TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -130, 1, 0)
+TitleLabel.Size = UDim2.new(1, -135, 1, 0)
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Text = "PS99 Hatch Wars"
-TitleLabel.TextColor3 = Colors.Text
+TitleLabel.TextColor3 = Colors.Gold
 TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 13
+TitleLabel.TextSize = 14
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.ZIndex = 32
 TitleLabel.Parent = TopBar
 
 local BlackModeHeaderBtn = Instance.new("TextButton")
-BlackModeHeaderBtn.Size = UDim2.new(0, 42, 0, 24)
-BlackModeHeaderBtn.Position = UDim2.new(1, -110, 0, 5)
-BlackModeHeaderBtn.BackgroundColor3 = Colors.Card
+BlackModeHeaderBtn.Size = UDim2.new(0, 48, 0, 24)
+BlackModeHeaderBtn.Position = UDim2.new(1, -116, 0, 6)
+BlackModeHeaderBtn.BackgroundColor3 = Colors.Blue
 BlackModeHeaderBtn.Text = "3D OFF"
 BlackModeHeaderBtn.TextColor3 = Colors.Text
 BlackModeHeaderBtn.Font = Enum.Font.GothamBold
 BlackModeHeaderBtn.TextSize = 10
 BlackModeHeaderBtn.ZIndex = 33
 BlackModeHeaderBtn.Parent = TopBar
-Instance.new("UICorner", BlackModeHeaderBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", BlackModeHeaderBtn).CornerRadius = UDim.new(0, 5)
 
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 28, 0, 24)
-MinBtn.Position = UDim2.new(1, -64, 0, 5)
-MinBtn.BackgroundColor3 = Colors.Card
+MinBtn.Position = UDim2.new(1, -64, 0, 6)
+MinBtn.BackgroundColor3 = Colors.CardBright
 MinBtn.Text = "_"
 MinBtn.TextColor3 = Colors.Text
 MinBtn.Font = Enum.Font.GothamBold
 MinBtn.TextSize = 12
 MinBtn.ZIndex = 33
 MinBtn.Parent = TopBar
-Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 5)
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 28, 0, 24)
-CloseBtn.Position = UDim2.new(1, -32, 0, 5)
+CloseBtn.Position = UDim2.new(1, -32, 0, 6)
 CloseBtn.BackgroundColor3 = Colors.Red
 CloseBtn.Text = "X"
 CloseBtn.TextColor3 = Colors.Text
@@ -2963,7 +3326,7 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 12
 CloseBtn.ZIndex = 33
 CloseBtn.Parent = TopBar
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 5)
 
 do
     local dragging = false
@@ -3031,8 +3394,8 @@ bindButton(TeleportNowOnBlackBtn, function()
 end)
 
 local TabBar = Instance.new("Frame")
-TabBar.Size = UDim2.new(1, -16, 0, 28)
-TabBar.Position = UDim2.new(0, 8, 0, 38)
+TabBar.Size = UDim2.new(1, -16, 0, 30)
+TabBar.Position = UDim2.new(0, 8, 0, 40)
 TabBar.BackgroundTransparency = 1
 TabBar.ZIndex = 31
 TabBar.Parent = MainFrame
@@ -3048,7 +3411,7 @@ local function createTabButton(text, posScale, widthScale)
     b.TextSize = 12
     b.ZIndex = 32
     b.Parent = TabBar
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
     return b
 end
 
@@ -3058,8 +3421,8 @@ TabSettingsBtn = createTabButton("Settings", 0.50, 0.25)
 TabLogsBtn = createTabButton("Logs", 0.75, 0.25)
 
 local ContentArea = Instance.new("Frame")
-ContentArea.Size = UDim2.new(1, -16, 1, -74)
-ContentArea.Position = UDim2.new(0, 8, 0, 70)
+ContentArea.Size = UDim2.new(1, -16, 1, -78)
+ContentArea.Position = UDim2.new(0, 8, 0, 74)
 ContentArea.BackgroundTransparency = 1
 ContentArea.ZIndex = 31
 ContentArea.Parent = MainFrame
@@ -3081,7 +3444,7 @@ local function createPage()
     layout.Parent = page
 
     trackConn(layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 14)
     end))
 
     return page
@@ -3123,15 +3486,15 @@ FullAutoToggle.Font = Enum.Font.GothamBold
 FullAutoToggle.TextSize = 12
 FullAutoToggle.ZIndex = 33
 FullAutoToggle.Parent = PageFarm
-Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 6)
 
 EggStatusLabel = Instance.new("TextLabel")
 EggStatusLabel.LayoutOrder = 2
 EggStatusLabel.Size = UDim2.new(1, -6, 0, 16)
 EggStatusLabel.BackgroundTransparency = 1
 EggStatusLabel.Text = "Eggs: Ready"
-EggStatusLabel.TextColor3 = Colors.SubText
-EggStatusLabel.Font = Enum.Font.Gotham
+EggStatusLabel.TextColor3 = Colors.Gold
+EggStatusLabel.Font = Enum.Font.GothamBold
 EggStatusLabel.TextSize = 11
 EggStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 EggStatusLabel.ZIndex = 33
@@ -3141,13 +3504,27 @@ HouseStatusLabel = Instance.new("TextLabel")
 HouseStatusLabel.LayoutOrder = 3
 HouseStatusLabel.Size = UDim2.new(1, -6, 0, 16)
 HouseStatusLabel.BackgroundTransparency = 1
-HouseStatusLabel.Text = "Houses: Ready (10m timer after open)"
+HouseStatusLabel.Text = "Houses: Ready"
 HouseStatusLabel.TextColor3 = Colors.SubText
 HouseStatusLabel.Font = Enum.Font.Gotham
 HouseStatusLabel.TextSize = 11
 HouseStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 HouseStatusLabel.ZIndex = 33
 HouseStatusLabel.Parent = PageFarm
+
+MenuFarmTimersTitle = Instance.new("TextLabel")
+MenuFarmTimersTitle.LayoutOrder = 4
+MenuFarmTimersTitle.Size = UDim2.new(1, -6, 0, 15)
+MenuFarmTimersTitle.BackgroundTransparency = 1
+MenuFarmTimersTitle.Text = "House Timers (Each House):"
+MenuFarmTimersTitle.TextColor3 = Colors.SubText
+MenuFarmTimersTitle.Font = Enum.Font.GothamBold
+MenuFarmTimersTitle.TextSize = 11
+MenuFarmTimersTitle.TextXAlignment = Enum.TextXAlignment.Left
+MenuFarmTimersTitle.ZIndex = 33
+MenuFarmTimersTitle.Parent = PageFarm
+
+buildEightHouseTimersGrid(PageFarm, 0, 5, MenuFarmHouseCells, 33)
 
 bindButton(FullAutoToggle, function()
     State.FullAutoFarm = not State.FullAutoFarm
@@ -3167,7 +3544,7 @@ bindButton(FullAutoToggle, function()
 end)
 
 MagnetFlagToggleBtn = Instance.new("TextButton")
-MagnetFlagToggleBtn.LayoutOrder = 4
+MagnetFlagToggleBtn.LayoutOrder = 6
 MagnetFlagToggleBtn.Size = UDim2.new(1, -6, 0, 30)
 MagnetFlagToggleBtn.BackgroundColor3 = Colors.Green
 MagnetFlagToggleBtn.TextColor3 = Colors.Text
@@ -3175,7 +3552,7 @@ MagnetFlagToggleBtn.Font = Enum.Font.GothamBold
 MagnetFlagToggleBtn.TextSize = 12
 MagnetFlagToggleBtn.ZIndex = 33
 MagnetFlagToggleBtn.Parent = PageFarm
-Instance.new("UICorner", MagnetFlagToggleBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", MagnetFlagToggleBtn).CornerRadius = UDim.new(0, 6)
 
 bindButton(MagnetFlagToggleBtn, function()
     State.AutoMagnetFlag = not State.AutoMagnetFlag
@@ -3196,7 +3573,7 @@ local function createLanguageSelectorBlock(parentPage, orderIdx, isFarmRef)
     cycleBtn.TextSize = 12
     cycleBtn.ZIndex = 33
     cycleBtn.Parent = parentPage
-    Instance.new("UICorner", cycleBtn).CornerRadius = UDim.new(0, 5)
+    Instance.new("UICorner", cycleBtn).CornerRadius = UDim.new(0, 6)
 
     if isFarmRef then
         LangCycleBtnFarm = cycleBtn
@@ -3227,7 +3604,7 @@ local function createLanguageSelectorBlock(parentPage, orderIdx, isFarmRef)
         b.TextSize = 11
         b.ZIndex = 34
         b.Parent = row
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
         LangDirectBtns[idx] = LangDirectBtns[idx] or {}
         table.insert(LangDirectBtns[idx], b)
         bindButton(b, function()
@@ -3236,10 +3613,10 @@ local function createLanguageSelectorBlock(parentPage, orderIdx, isFarmRef)
     end
 end
 
-createLanguageSelectorBlock(PageFarm, 5, true)
+createLanguageSelectorBlock(PageFarm, 7, true)
 
 OnlyEggsToggle = Instance.new("TextButton")
-OnlyEggsToggle.LayoutOrder = 7
+OnlyEggsToggle.LayoutOrder = 9
 OnlyEggsToggle.Size = UDim2.new(1, -6, 0, 30)
 OnlyEggsToggle.BackgroundColor3 = Colors.Card
 OnlyEggsToggle.TextColor3 = Colors.Text
@@ -3247,7 +3624,7 @@ OnlyEggsToggle.Font = Enum.Font.GothamBold
 OnlyEggsToggle.TextSize = 12
 OnlyEggsToggle.ZIndex = 33
 OnlyEggsToggle.Parent = PageFarm
-Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 6)
 
 bindButton(OnlyEggsToggle, function()
     State.AutoEggs = not State.AutoEggs
@@ -3261,7 +3638,7 @@ bindButton(OnlyEggsToggle, function()
 end)
 
 InstantAnimToggle = Instance.new("TextButton")
-InstantAnimToggle.LayoutOrder = 8
+InstantAnimToggle.LayoutOrder = 10
 InstantAnimToggle.Size = UDim2.new(1, -6, 0, 30)
 InstantAnimToggle.BackgroundColor3 = Colors.Green
 InstantAnimToggle.TextColor3 = Colors.Text
@@ -3269,7 +3646,7 @@ InstantAnimToggle.Font = Enum.Font.GothamBold
 InstantAnimToggle.TextSize = 12
 InstantAnimToggle.ZIndex = 33
 InstantAnimToggle.Parent = PageFarm
-Instance.new("UICorner", InstantAnimToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", InstantAnimToggle).CornerRadius = UDim.new(0, 6)
 
 bindButton(InstantAnimToggle, function()
     State.InstantEggOpen = not State.InstantEggOpen
@@ -3283,19 +3660,19 @@ bindButton(InstantAnimToggle, function()
 end)
 
 EggCountInput = Instance.new("TextBox")
-EggCountInput.LayoutOrder = 9
+EggCountInput.LayoutOrder = 11
 EggCountInput.Size = UDim2.new(1, -6, 0, 28)
 EggCountInput.BackgroundColor3 = Colors.InputBg
 EggCountInput.Text = "79"
 EggCountInput.PlaceholderText = "Egg batch size (79, or 0 = Auto)"
 EggCountInput.PlaceholderColor3 = Colors.SubText
-EggCountInput.TextColor3 = Colors.Text
+EggCountInput.TextColor3 = Colors.Gold
 EggCountInput.Font = Enum.Font.GothamBold
 EggCountInput.TextSize = 12
 EggCountInput.ClearTextOnFocus = false
 EggCountInput.ZIndex = 33
 EggCountInput.Parent = PageFarm
-Instance.new("UICorner", EggCountInput).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", EggCountInput).CornerRadius = UDim.new(0, 5)
 
 local autoDetectedOnStart = detectPlayerMaxEggHatch()
 if autoDetectedOnStart and autoDetectedOnStart > 1 then
@@ -3325,7 +3702,7 @@ trackConn(EggCountInput.FocusLost:Connect(function()
 end))
 
 local PosRow = Instance.new("Frame")
-PosRow.LayoutOrder = 10
+PosRow.LayoutOrder = 12
 PosRow.Size = UDim2.new(1, -6, 0, 30)
 PosRow.BackgroundTransparency = 1
 PosRow.ZIndex = 33
@@ -3340,18 +3717,18 @@ SaveEggPosBtn.Font = Enum.Font.GothamBold
 SaveEggPosBtn.TextSize = 12
 SaveEggPosBtn.ZIndex = 34
 SaveEggPosBtn.Parent = PosRow
-Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 5)
 
 ReturnToEggBtn = Instance.new("TextButton")
 ReturnToEggBtn.Size = UDim2.new(0.5, -3, 1, 0)
 ReturnToEggBtn.Position = UDim2.new(0.5, 3, 0, 0)
-ReturnToEggBtn.BackgroundColor3 = Colors.Accent
+ReturnToEggBtn.BackgroundColor3 = Colors.Blue
 ReturnToEggBtn.TextColor3 = Colors.Text
 ReturnToEggBtn.Font = Enum.Font.GothamBold
 ReturnToEggBtn.TextSize = 12
 ReturnToEggBtn.ZIndex = 34
 ReturnToEggBtn.Parent = PosRow
-Instance.new("UICorner", ReturnToEggBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", ReturnToEggBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(SaveEggPosBtn, function()
     local char = LocalPlayer.Character
@@ -3373,8 +3750,22 @@ bindButton(ReturnToEggBtn, function()
     task.spawn(enterHalloweenEventAndGoToCoords)
 end)
 
+MenuHousesTimersTitle = Instance.new("TextLabel")
+MenuHousesTimersTitle.LayoutOrder = 1
+MenuHousesTimersTitle.Size = UDim2.new(1, -6, 0, 16)
+MenuHousesTimersTitle.BackgroundTransparency = 1
+MenuHousesTimersTitle.Text = "House Timers (Each House):"
+MenuHousesTimersTitle.TextColor3 = Colors.Gold
+MenuHousesTimersTitle.Font = Enum.Font.GothamBold
+MenuHousesTimersTitle.TextSize = 11
+MenuHousesTimersTitle.TextXAlignment = Enum.TextXAlignment.Left
+MenuHousesTimersTitle.ZIndex = 33
+MenuHousesTimersTitle.Parent = PageHouses
+
+buildEightHouseTimersGrid(PageHouses, 0, 2, MenuHousesTabCells, 33)
+
 RunHousesNowBtn = Instance.new("TextButton")
-RunHousesNowBtn.LayoutOrder = 1
+RunHousesNowBtn.LayoutOrder = 3
 RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 34)
 RunHousesNowBtn.BackgroundColor3 = Colors.Accent
 RunHousesNowBtn.TextColor3 = Colors.Text
@@ -3382,7 +3773,7 @@ RunHousesNowBtn.Font = Enum.Font.GothamBold
 RunHousesNowBtn.TextSize = 12
 RunHousesNowBtn.ZIndex = 33
 RunHousesNowBtn.Parent = PageHouses
-Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 6)
 
 bindButton(RunHousesNowBtn, function()
     task.spawn(function()
@@ -3391,7 +3782,7 @@ bindButton(RunHousesNowBtn, function()
 end)
 
 AutoBuyHouseToggle = Instance.new("TextButton")
-AutoBuyHouseToggle.LayoutOrder = 2
+AutoBuyHouseToggle.LayoutOrder = 4
 AutoBuyHouseToggle.Size = UDim2.new(1, -6, 0, 32)
 AutoBuyHouseToggle.BackgroundColor3 = Colors.Green
 AutoBuyHouseToggle.TextColor3 = Colors.Text
@@ -3399,7 +3790,7 @@ AutoBuyHouseToggle.Font = Enum.Font.GothamBold
 AutoBuyHouseToggle.TextSize = 12
 AutoBuyHouseToggle.ZIndex = 33
 AutoBuyHouseToggle.Parent = PageHouses
-Instance.new("UICorner", AutoBuyHouseToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", AutoBuyHouseToggle).CornerRadius = UDim.new(0, 6)
 
 bindButton(AutoBuyHouseToggle, function()
     State.AutoBuyHouses = not State.AutoBuyHouses
@@ -3408,7 +3799,7 @@ bindButton(AutoBuyHouseToggle, function()
 end)
 
 local RouteRow = Instance.new("Frame")
-RouteRow.LayoutOrder = 3
+RouteRow.LayoutOrder = 5
 RouteRow.Size = UDim2.new(1, -6, 0, 30)
 RouteRow.BackgroundTransparency = 1
 RouteRow.ZIndex = 33
@@ -3423,7 +3814,7 @@ AddPointBtn.Font = Enum.Font.GothamBold
 AddPointBtn.TextSize = 11
 AddPointBtn.ZIndex = 34
 AddPointBtn.Parent = RouteRow
-Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 5)
 
 ClearPointsBtn = Instance.new("TextButton")
 ClearPointsBtn.Size = UDim2.new(0.4, -3, 1, 0)
@@ -3434,7 +3825,7 @@ ClearPointsBtn.Font = Enum.Font.GothamBold
 ClearPointsBtn.TextSize = 11
 ClearPointsBtn.ZIndex = 34
 ClearPointsBtn.Parent = RouteRow
-Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(AddPointBtn, function()
     local char = LocalPlayer.Character
@@ -3453,7 +3844,7 @@ bindButton(ClearPointsBtn, function()
 end)
 
 local LimitRow = Instance.new("Frame")
-LimitRow.LayoutOrder = 4
+LimitRow.LayoutOrder = 6
 LimitRow.Size = UDim2.new(1, -6, 0, 28)
 LimitRow.BackgroundTransparency = 1
 LimitRow.ZIndex = 33
@@ -3471,7 +3862,7 @@ local function makeLimitBtn(label, val, idx)
     b.TextSize = 11
     b.ZIndex = 34
     b.Parent = LimitRow
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
     LimitBtns[val] = b
     bindButton(b, function()
         State.MaxUnlockedHouses = val
@@ -3488,7 +3879,7 @@ makeLimitBtn("4", 4, 4)
 makeLimitBtn("All", 0, 5)
 
 AutoCapToggle = Instance.new("TextButton")
-AutoCapToggle.LayoutOrder = 5
+AutoCapToggle.LayoutOrder = 7
 AutoCapToggle.Size = UDim2.new(1, -6, 0, 30)
 AutoCapToggle.BackgroundColor3 = Colors.Green
 AutoCapToggle.TextColor3 = Colors.Text
@@ -3496,7 +3887,7 @@ AutoCapToggle.Font = Enum.Font.GothamBold
 AutoCapToggle.TextSize = 12
 AutoCapToggle.ZIndex = 33
 AutoCapToggle.Parent = PageHouses
-Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 6)
 
 bindButton(AutoCapToggle, function()
     State.AutoMinigame = not State.AutoMinigame
@@ -3513,7 +3904,7 @@ BlackToggleBtnInSettings.Font = Enum.Font.GothamBold
 BlackToggleBtnInSettings.TextSize = 12
 BlackToggleBtnInSettings.ZIndex = 33
 BlackToggleBtnInSettings.Parent = PageSettings
-Instance.new("UICorner", BlackToggleBtnInSettings).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", BlackToggleBtnInSettings).CornerRadius = UDim.new(0, 6)
 
 bindButton(BlackToggleBtnInSettings, function()
     setBlackScreenMode(not State.BlackScreenActive)
@@ -3528,7 +3919,7 @@ Render3DToggleBtn.Font = Enum.Font.GothamBold
 Render3DToggleBtn.TextSize = 12
 Render3DToggleBtn.ZIndex = 33
 Render3DToggleBtn.Parent = PageSettings
-Instance.new("UICorner", Render3DToggleBtn).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", Render3DToggleBtn).CornerRadius = UDim.new(0, 6)
 
 bindButton(Render3DToggleBtn, function()
     set3DRendering(not State.Rendering3DEnabled)
@@ -3545,7 +3936,7 @@ JumpToggle.Font = Enum.Font.GothamBold
 JumpToggle.TextSize = 12
 JumpToggle.ZIndex = 33
 JumpToggle.Parent = PageSettings
-Instance.new("UICorner", JumpToggle).CornerRadius = UDim.new(0, 5)
+Instance.new("UICorner", JumpToggle).CornerRadius = UDim.new(0, 6)
 
 bindButton(JumpToggle, function()
     State.AutoJump20s = not State.AutoJump20s
@@ -3573,18 +3964,18 @@ CoordsInputBox.TextSize = 11
 CoordsInputBox.ClearTextOnFocus = false
 CoordsInputBox.ZIndex = 34
 CoordsInputBox.Parent = CoordsRow
-Instance.new("UICorner", CoordsInputBox).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", CoordsInputBox).CornerRadius = UDim.new(0, 5)
 
 SetCoordsManualBtn = Instance.new("TextButton")
 SetCoordsManualBtn.Size = UDim2.new(0.34, -3, 1, 0)
 SetCoordsManualBtn.Position = UDim2.new(0.66, 3, 0, 0)
-SetCoordsManualBtn.BackgroundColor3 = Colors.Accent
+SetCoordsManualBtn.BackgroundColor3 = Colors.Blue
 SetCoordsManualBtn.TextColor3 = Colors.Text
 SetCoordsManualBtn.Font = Enum.Font.GothamBold
 SetCoordsManualBtn.TextSize = 11
 SetCoordsManualBtn.ZIndex = 34
 SetCoordsManualBtn.Parent = CoordsRow
-Instance.new("UICorner", SetCoordsManualBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", SetCoordsManualBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(SetCoordsManualBtn, function()
     local raw = CoordsInputBox.Text or ""
@@ -3617,7 +4008,7 @@ HouseDelayInput.TextSize = 11
 HouseDelayInput.ClearTextOnFocus = true
 HouseDelayInput.ZIndex = 34
 HouseDelayInput.Parent = DelaysRow
-Instance.new("UICorner", HouseDelayInput).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", HouseDelayInput).CornerRadius = UDim.new(0, 5)
 
 trackConn(HouseDelayInput.FocusLost:Connect(function()
     local v = tonumber(string.match(HouseDelayInput.Text or "", "([%d%.]+)"))
@@ -3638,7 +4029,7 @@ EggDelayInput.TextSize = 11
 EggDelayInput.ClearTextOnFocus = true
 EggDelayInput.ZIndex = 34
 EggDelayInput.Parent = DelaysRow
-Instance.new("UICorner", EggDelayInput).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", EggDelayInput).CornerRadius = UDim.new(0, 5)
 
 trackConn(EggDelayInput.FocusLost:Connect(function()
     local v = tonumber(string.match(EggDelayInput.Text or "", "([%d%.]+)"))
@@ -3662,18 +4053,18 @@ CopyLogsBtn.Font = Enum.Font.GothamBold
 CopyLogsBtn.TextSize = 12
 CopyLogsBtn.ZIndex = 34
 CopyLogsBtn.Parent = LogBtnsRow
-Instance.new("UICorner", CopyLogsBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", CopyLogsBtn).CornerRadius = UDim.new(0, 5)
 
 DiagEventBtn = Instance.new("TextButton")
 DiagEventBtn.Size = UDim2.new(0.34, -3, 1, 0)
 DiagEventBtn.Position = UDim2.new(0.34, 2, 0, 0)
-DiagEventBtn.BackgroundColor3 = Colors.Accent
+DiagEventBtn.BackgroundColor3 = Colors.Blue
 DiagEventBtn.TextColor3 = Colors.Text
 DiagEventBtn.Font = Enum.Font.GothamBold
 DiagEventBtn.TextSize = 12
 DiagEventBtn.ZIndex = 34
 DiagEventBtn.Parent = LogBtnsRow
-Instance.new("UICorner", DiagEventBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", DiagEventBtn).CornerRadius = UDim.new(0, 5)
 
 ClearLogsBtn = Instance.new("TextButton")
 ClearLogsBtn.Size = UDim2.new(0.32, -3, 1, 0)
@@ -3684,21 +4075,21 @@ ClearLogsBtn.Font = Enum.Font.GothamBold
 ClearLogsBtn.TextSize = 12
 ClearLogsBtn.ZIndex = 34
 ClearLogsBtn.Parent = LogBtnsRow
-Instance.new("UICorner", ClearLogsBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", ClearLogsBtn).CornerRadius = UDim.new(0, 5)
 
 LogScrollFrame = Instance.new("ScrollingFrame")
 LogScrollFrame.LayoutOrder = 2
-LogScrollFrame.Size = UDim2.new(1, -6, 0, 200)
+LogScrollFrame.Size = UDim2.new(1, -6, 0, 210)
 LogScrollFrame.BackgroundColor3 = Colors.InputBg
 LogScrollFrame.BorderSizePixel = 0
 LogScrollFrame.ScrollBarThickness = 4
 LogScrollFrame.ScrollBarImageColor3 = Colors.Stroke
 LogScrollFrame.ZIndex = 33
 LogScrollFrame.Parent = PageLogs
-Instance.new("UICorner", LogScrollFrame).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", LogScrollFrame).CornerRadius = UDim.new(0, 5)
 
 LogBoxLabel = Instance.new("TextLabel")
-LogBoxLabel.Size = UDim2.new(1, -12, 0, 195)
+LogBoxLabel.Size = UDim2.new(1, -12, 0, 205)
 LogBoxLabel.Position = UDim2.new(0, 6, 0, 4)
 LogBoxLabel.BackgroundTransparency = 1
 LogBoxLabel.Text = ""
@@ -3764,12 +4155,18 @@ refreshAllMenuLabels()
 
 task.spawn(function()
     pcall(enterHalloweenEventAndGoToCoords)
+    State.NextAutoHouseCheckTime = tick() + 14
     State.FullAutoFarm = true
     refreshAllMenuLabels()
+    pcall(function()
+        local refCF = State.SavedEggCFrame or DefaultSpawnCFrame
+        scanAllHousesWithState(refCF.Position.Y, refCF.Position)
+    end)
     if #findNearestEggCandidates(120) > 0 then
         setBlackScreenMode(true)
         MainFrame.Visible = false
         FloatBtn.Visible = true
+        task.spawn(fastHatchOnce)
     else
         setBlackScreenMode(false)
         MainFrame.Visible = true
