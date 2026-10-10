@@ -37,12 +37,12 @@ local function bindButton(btn, callback)
     local lastFire = 0
     trackConn(btn.MouseButton1Click:Connect(function()
         local now = tick()
-        if busy or (now - lastFire < 0.25) then return end
+        if busy or (now - lastFire < 0.22) then return end
         busy = true
         lastFire = now
         task.spawn(function()
             pcall(callback)
-            task.wait(0.06)
+            task.wait(0.05)
             busy = false
         end)
     end))
@@ -50,10 +50,157 @@ end
 
 local DefaultSpawnCFrame = CFrame.new(7538.1, 15.7, 21965.5)
 
-local LanguageOrder = {
-    { code = "en-us", short = "EN", label = "🇬🇧 АНГЛ (EN)" },
-    { code = "uk-ua", short = "UK", label = "🇺🇦 УКР (UA)" },
-    { code = "ru-ru", short = "RU", label = "🇷🇺 РУС (RU)" }
+local LangCodes = { "EN", "UK", "RU" }
+
+local UILang = {
+    EN = {
+        windowTitle = "PS99 Hatch Wars",
+        tabFarm = "Farm",
+        tabHouses = "Houses",
+        tabSettings = "Settings",
+        tabLogs = "Logs",
+        on = "ON",
+        off = "OFF",
+        fullAuto = "Auto Farm (Eggs + Coins + Houses)",
+        onlyEggs = "Auto Eggs Only (No Houses)",
+        instantEgg = "Fast Egg Open (Skip Animation)",
+        magnetFlag = "Auto Magnet Flag (1 at a time)",
+        savePos = "Save Position",
+        savedPos = "Position Saved!",
+        tpPos = "Teleport to Coords",
+        runHousesNow = "Check & Open Houses Now",
+        autoBuyHouses = "Auto Buy Houses (Lollipop)",
+        addHousePt = "Add House Point",
+        resetHouseTimers = "Reset Timers / Locks",
+        autoMinigame = "Auto Door Minigame & Close Errors",
+        blackScreenBtn = "Black Screen Stats (Disable 3D)",
+        render3DBtn = "3D World Rendering",
+        langBtn = "Language: EN (EN -> UK -> RU)",
+        jumpBtn = "Anti-AFK Jump (Every 20s)",
+        applyCoords = "Teleport",
+        copyLogs = "Copy",
+        copiedLogs = "Copied",
+        scanBtn = "Scan",
+        clearLogs = "Clear",
+        dashHeader = "HATCH WARS AFK  |  3D RENDERING OFF",
+        statTime = "Farm Time",
+        statEggs = "Eggs Hatched",
+        statHouses = "Houses Opened",
+        statLollipop = "Lollipops",
+        exitBlack = "Exit Black Screen (Enable 3D)",
+        openMenu = "Menu",
+        tpBlack = "Teleport to Farm Coords (7538.1, 15.7, 21965.5)",
+        checkHousesBlack = "Check & Open Ready Houses Now"
+    },
+    UK = {
+        windowTitle = "PS99 Hatch Wars",
+        tabFarm = "Фарм",
+        tabHouses = "Домики",
+        tabSettings = "Налашт.",
+        tabLogs = "Логи",
+        on = "УВІМК",
+        off = "ВИМК",
+        fullAuto = "Авто-Фарм (Яйця + Монети + Домики)",
+        onlyEggs = "Тільки Яйця (без домиків)",
+        instantEgg = "Швидке відкриття яєць (без анімації)",
+        magnetFlag = "Авто Магніт-Флаг (без дублів)",
+        savePos = "Зберегти позицію",
+        savedPos = "Збережено!",
+        tpPos = "На координати",
+        runHousesNow = "Перевірити та відкрити домики зараз",
+        autoBuyHouses = "Авто-купівля домиків за цукерки",
+        addHousePt = "Додати точку дому",
+        resetHouseTimers = "Скинути таймери",
+        autoMinigame = "Авто-капча дверей та закриття помилок",
+        blackScreenBtn = "Чорний екран статистики (3D ВИМК)",
+        render3DBtn = "3D Графіка гри",
+        langBtn = "Мова: УКР (АНГЛ -> УКР -> РУС)",
+        jumpBtn = "Анти-АФК стрибок (кожні 20с)",
+        applyCoords = "Телепорт",
+        copyLogs = "Копіювати",
+        copiedLogs = "Скопійовано",
+        scanBtn = "Сканер",
+        clearLogs = "Очистити",
+        dashHeader = "HATCH WARS AFK  |  3D ГРАФІКУ ВИМКНЕНО",
+        statTime = "Час фарму",
+        statEggs = "Відкрито яєць",
+        statHouses = "Відкрито домиків",
+        statLollipop = "Цукерки (Lollipop)",
+        exitBlack = "Вийти з чорного екрану (Увімкнути 3D)",
+        openMenu = "Меню",
+        tpBlack = "Телепорт на координати (7538.1, 15.7, 21965.5)",
+        checkHousesBlack = "Перевірити і відкрити доступні домики"
+    },
+    RU = {
+        windowTitle = "PS99 Hatch Wars",
+        tabFarm = "Фарм",
+        tabHouses = "Домики",
+        tabSettings = "Настр.",
+        tabLogs = "Логи",
+        on = "ВКЛ",
+        off = "ВЫКЛ",
+        fullAuto = "Авто-Фарм (Яйца + Монеты + Домики)",
+        onlyEggs = "Только Яйца (без домиков)",
+        instantEgg = "Быстрое открытие яиц (без анимации)",
+        magnetFlag = "Авто Магнит-Флаг (без дублей)",
+        savePos = "Сохранить позицию",
+        savedPos = "Сохранено!",
+        tpPos = "На координаты",
+        runHousesNow = "Проверить и открыть домики сейчас",
+        autoBuyHouses = "Авто-покупка домиков за конфеты",
+        addHousePt = "Добавить точку дома",
+        resetHouseTimers = "Сбросить таймеры",
+        autoMinigame = "Авто-капча дверей и закрытие ошибок",
+        blackScreenBtn = "Черный экран статистики (3D ВЫКЛ)",
+        render3DBtn = "3D Графика игры",
+        langBtn = "Язык: РУС (АНГЛ -> УКР -> РУС)",
+        jumpBtn = "Анти-АФК прыжок (каждые 20с)",
+        applyCoords = "Телепорт",
+        copyLogs = "Копировать",
+        copiedLogs = "Скопировано",
+        scanBtn = "Сканер",
+        clearLogs = "Очистить",
+        dashHeader = "HATCH WARS AFK  |  3D ГРАФИКА ОТКЛЮЧЕНА",
+        statTime = "Время фарма",
+        statEggs = "Открыто яиц",
+        statHouses = "Открыто домиков",
+        statLollipop = "Конфеты (Lollipop)",
+        exitBlack = "Выйти из черного экрана (Включить 3D)",
+        openMenu = "Меню",
+        tpBlack = "Телепорт на координаты (7538.1, 15.7, 21965.5)",
+        checkHousesBlack = "Проверить и открыть доступные домики"
+    }
+}
+
+local GameTextTranslations = {
+    { en = "Not enough Lollipops", uk = "Недостатньо цукерок Lollipop", ru = "Недостаточно конфет Lollipop" },
+    { en = "Not enough", uk = "Недостатньо", ru = "Недостаточно" },
+    { en = "Unlock this house", uk = "Розблокувати цей домик", ru = "Разблокировать этот домик" },
+    { en = "Trick or Treat", uk = "Відкрити домик", ru = "Открыть домик" },
+    { en = "Unlocked", uk = "Відкрито", ru = "Открыто" },
+    { en = "Locked", uk = "Закрито", ru = "Закрыто" },
+    { en = "Unlock", uk = "Купити", ru = "Купить" },
+    { en = "Cooldown", uk = "Перезарядка", ru = "Перезарядка" },
+    { en = "Purchase", uk = "Купити", ru = "Купить" },
+    { en = "Confirm", uk = "Підтвердити", ru = "Подтвердить" },
+    { en = "Cancel", uk = "Скасувати", ru = "Отмена" },
+    { en = "Close", uk = "Закрити", ru = "Закрыть" },
+    { en = "Inventory", uk = "Інвентар", ru = "Инвентарь" },
+    { en = "Teleport", uk = "Телепорт", ru = "Телепорт" },
+    { en = "Settings", uk = "Налаштування", ru = "Настройки" },
+    { en = "Rewards", uk = "Нагороди", ru = "Награды" },
+    { en = "Trading", uk = "Обмін", ru = "Обмен" },
+    { en = "Exclusive", uk = "Магазин", ru = "Магазин" },
+    { en = "Mastery", uk = "Майстерність", ru = "Мастерство" },
+    { en = "Upgrades", uk = "Покращення", ru = "Улучшения" },
+    { en = "Pets", uk = "Пети", ru = "Петы" },
+    { en = "Items", uk = "Предмети", ru = "Предметы" },
+    { en = "Flags", uk = "Флаги", ru = "Флаги" },
+    { en = "Eggs", uk = "Яйця", ru = "Яйца" },
+    { en = "Open", uk = "Відкрити", ru = "Открыть" },
+    { en = "Buy", uk = "Купити", ru = "Купить" },
+    { en = "Yes", uk = "Так", ru = "Да" },
+    { en = "No", uk = "Ні", ru = "Нет" }
 }
 
 local State = {
@@ -115,7 +262,7 @@ local State = {
         GrinningGoat = 0
     },
     CurrentLollipops = 0,
-    CurrentActionText = "Ініціалізація...",
+    CurrentActionText = "Ready",
     Logs = {},
     MaxLogs = 250
 }
@@ -130,14 +277,45 @@ local EggCountInput = nil
 local CoordsInputBox = nil
 local BlackOverlayFrame = nil
 local MainFrame = nil
+
+local TitleLabel = nil
+local TabFarmBtn = nil
+local TabHousesBtn = nil
+local TabSettingsBtn = nil
+local TabLogsBtn = nil
+local FullAutoToggle = nil
+local OnlyEggsToggle = nil
+local InstantAnimToggle = nil
+local MagnetFlagToggleBtn = nil
+local SaveEggPosBtn = nil
+local ReturnToEggBtn = nil
+local RunHousesNowBtn = nil
+local AutoBuyHouseToggle = nil
+local AddPointBtn = nil
+local ClearPointsBtn = nil
+local AutoCapToggle = nil
 local BlackToggleBtnInSettings = nil
 local Render3DToggleBtn = nil
-local FullAutoToggle = nil
-local MagnetFlagToggleBtn = nil
+local JumpToggle = nil
+local SetCoordsManualBtn = nil
+local CopyLogsBtn = nil
+local DiagEventBtn = nil
+local ClearLogsBtn = nil
+local DashTitle = nil
+local ExitBlackBtn = nil
+local OpenMenuOnBlackBtn = nil
+local TeleportNowOnBlackBtn = nil
+local RunHousesOnBlackBtn = nil
+
 local LangCycleBtnFarm = nil
 local LangCycleBtnSettings = nil
 local LangCycleBtnBlack = nil
 local LangDirectBtns = {}
+
+local StatTimeTitle = nil
+local StatEggsTitle = nil
+local StatHousesTitle = nil
+local StatLollipopTitle = nil
 
 local StatTimeValue = nil
 local StatEggsValue = nil
@@ -148,58 +326,93 @@ local StatGoatValue = nil
 local StatLollipopValue = nil
 local StatStatusValue = nil
 
-local OrigTextMap = setmetatable({}, { __mode = "k" })
+local OrigGameText = setmetatable({}, { __mode = "k" })
 
-local WordDictUK = {
-    ["Locked"] = "Закрито",
-    ["Unlock"] = "Розблокувати",
-    ["Open"] = "Відкрити",
-    ["Cooldown"] = "Перезарядка",
-    ["Ready"] = "Готово",
-    ["Yes"] = "Так",
-    ["No"] = "Ні",
-    ["Cancel"] = "Скасувати",
-    ["Buy"] = "Купити",
-    ["Purchase"] = "Придбати",
-    ["Leave"] = "Вийти",
-    ["Teleport"] = "Телепорт"
-}
+local function L()
+    local code = LangCodes[State.LanguageIndex] or "EN"
+    return UILang[code] or UILang.EN
+end
 
-local WordDictRU = {
-    ["Locked"] = "Закрыто",
-    ["Unlock"] = "Разблокировать",
-    ["Open"] = "Открыть",
-    ["Cooldown"] = "Перезарядка",
-    ["Ready"] = "Готово",
-    ["Yes"] = "Да",
-    ["No"] = "Нет",
-    ["Cancel"] = "Отмена",
-    ["Buy"] = "Купить",
-    ["Purchase"] = "Купить",
-    ["Leave"] = "Выйти",
-    ["Teleport"] = "Телепорт"
-}
+local function translateSingleGameString(rawText, langIdx)
+    if not rawText or rawText == "" then return rawText end
+    local res = rawText
+    if langIdx == 1 then
+        for _, entry in ipairs(GameTextTranslations) do
+            res = string.gsub(res, entry.uk, entry.en)
+            res = string.gsub(res, entry.ru, entry.en)
+        end
+        return res
+    elseif langIdx == 2 then
+        for _, entry in ipairs(GameTextTranslations) do
+            res = string.gsub(res, entry.ru, entry.en)
+            res = string.gsub(res, entry.en, entry.uk)
+        end
+        return res
+    elseif langIdx == 3 then
+        for _, entry in ipairs(GameTextTranslations) do
+            res = string.gsub(res, entry.uk, entry.en)
+            res = string.gsub(res, entry.en, entry.ru)
+        end
+        return res
+    end
+    return res
+end
 
-local function updateLanguageButtonsUI()
-    local cur = LanguageOrder[State.LanguageIndex] or LanguageOrder[1]
-    local cycleTxt = string.format("🌐 Мова гри: %s  (АНГЛ ➔ УКР ➔ РУС)", cur.label)
-    if LangCycleBtnFarm then
-        LangCycleBtnFarm.Text = cycleTxt
-    end
-    if LangCycleBtnSettings then
-        LangCycleBtnSettings.Text = cycleTxt
-    end
-    if LangCycleBtnBlack then
-        LangCycleBtnBlack.Text = string.format("🌐 Мова: %s", cur.label)
-    end
+local function refreshAllMenuLabels()
+    local t = L()
+    local onOff = function(val) return val and ("[" .. t.on .. "]") or ("[" .. t.off .. "]") end
+
+    if TitleLabel then TitleLabel.Text = t.windowTitle end
+    if TabFarmBtn then TabFarmBtn.Text = t.tabFarm end
+    if TabHousesBtn then TabHousesBtn.Text = t.tabHouses end
+    if TabSettingsBtn then TabSettingsBtn.Text = t.tabSettings end
+    if TabLogsBtn then TabLogsBtn.Text = t.tabLogs end
+
+    if FullAutoToggle then FullAutoToggle.Text = t.fullAuto .. ": " .. onOff(State.FullAutoFarm) end
+    if OnlyEggsToggle then OnlyEggsToggle.Text = t.onlyEggs .. ": " .. onOff(State.AutoEggs) end
+    if InstantAnimToggle then InstantAnimToggle.Text = t.instantEgg .. ": " .. onOff(State.InstantEggOpen) end
+    if MagnetFlagToggleBtn then MagnetFlagToggleBtn.Text = t.magnetFlag .. ": " .. onOff(State.AutoMagnetFlag) end
+    if SaveEggPosBtn then SaveEggPosBtn.Text = t.savePos end
+    if ReturnToEggBtn then ReturnToEggBtn.Text = t.tpPos end
+
+    if RunHousesNowBtn then RunHousesNowBtn.Text = t.runHousesNow end
+    if AutoBuyHouseToggle then AutoBuyHouseToggle.Text = t.autoBuyHouses .. ": " .. onOff(State.AutoBuyHouses) end
+    if AddPointBtn then AddPointBtn.Text = t.addHousePt .. " (" .. #State.CustomHousePoints .. ")" end
+    if ClearPointsBtn then ClearPointsBtn.Text = t.resetHouseTimers end
+    if AutoCapToggle then AutoCapToggle.Text = t.autoMinigame .. ": " .. onOff(State.AutoMinigame) end
+
+    if BlackToggleBtnInSettings then BlackToggleBtnInSettings.Text = t.blackScreenBtn .. ": " .. onOff(State.BlackScreenActive) end
+    if Render3DToggleBtn then Render3DToggleBtn.Text = t.render3DBtn .. ": " .. onOff(State.Rendering3DEnabled) end
+    if JumpToggle then JumpToggle.Text = t.jumpBtn .. ": " .. onOff(State.AutoJump20s) end
+    if SetCoordsManualBtn then SetCoordsManualBtn.Text = t.applyCoords end
+
+    if CopyLogsBtn then CopyLogsBtn.Text = t.copyLogs end
+    if DiagEventBtn then DiagEventBtn.Text = t.scanBtn end
+    if ClearLogsBtn then ClearLogsBtn.Text = t.clearLogs end
+
+    if DashTitle then DashTitle.Text = t.dashHeader end
+    if StatTimeTitle then StatTimeTitle.Text = t.statTime end
+    if StatEggsTitle then StatEggsTitle.Text = t.statEggs end
+    if StatHousesTitle then StatHousesTitle.Text = t.statHouses end
+    if StatLollipopTitle then StatLollipopTitle.Text = t.statLollipop end
+
+    if ExitBlackBtn then ExitBlackBtn.Text = t.exitBlack end
+    if OpenMenuOnBlackBtn then OpenMenuOnBlackBtn.Text = t.openMenu end
+    if TeleportNowOnBlackBtn then TeleportNowOnBlackBtn.Text = t.tpBlack end
+    if RunHousesOnBlackBtn then RunHousesOnBlackBtn.Text = t.checkHousesBlack end
+
+    if LangCycleBtnFarm then LangCycleBtnFarm.Text = t.langBtn end
+    if LangCycleBtnSettings then LangCycleBtnSettings.Text = t.langBtn end
+    if LangCycleBtnBlack then LangCycleBtnBlack.Text = t.langBtn end
+
     for idx, btnList in pairs(LangDirectBtns) do
         for _, b in ipairs(btnList) do
             if idx == State.LanguageIndex then
-                b.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-                b.TextColor3 = Color3.new(1, 1, 1)
+                b.BackgroundColor3 = Color3.fromRGB(45, 115, 75)
+                b.TextColor3 = Color3.fromRGB(245, 247, 250)
             else
-                b.BackgroundColor3 = Color3.fromRGB(22, 19, 32)
-                b.TextColor3 = Color3.fromRGB(175, 168, 200)
+                b.BackgroundColor3 = Color3.fromRGB(32, 35, 44)
+                b.TextColor3 = Color3.fromRGB(165, 172, 185)
             end
         end
     end
@@ -207,12 +420,13 @@ end
 
 local function applyGameLanguageNow(langIndex)
     if langIndex then
-        State.LanguageIndex = ((langIndex - 1) % #LanguageOrder) + 1
+        State.LanguageIndex = ((langIndex - 1) % 3) + 1
     end
-    local langInfo = LanguageOrder[State.LanguageIndex] or LanguageOrder[1]
-    local localeCode = langInfo.code
-    local isEnglish = (State.LanguageIndex == 1)
-    updateLanguageButtonsUI()
+    local idx = State.LanguageIndex
+    local localeMap = { "en-us", "uk-ua", "ru-ru" }
+    local localeCode = localeMap[idx] or "en-us"
+
+    refreshAllMenuLabels()
 
     pcall(function()
         if setscriptable then
@@ -224,47 +438,28 @@ local function applyGameLanguageNow(langIndex)
         pcall(function() LocalPlayer.LocaleId = localeCode end)
     end)
 
-    local activeTranslator = nil
-    if not isEnglish then
-        pcall(function()
-            activeTranslator = LocalizationService:GetTranslatorForLocaleAsync(localeCode)
-        end)
-    end
-
-    local function processGuiLabel(lbl)
-        if not (lbl:IsA("TextLabel") or lbl:IsA("TextButton")) then return end
-        local curTxt = lbl.Text
-        if not curTxt or curTxt == "" then return end
-        if not OrigTextMap[lbl] then
-            OrigTextMap[lbl] = curTxt
-        end
-        local baseTxt = OrigTextMap[lbl]
-
-        if isEnglish then
-            lbl.AutoLocalize = false
-            if lbl.Text ~= baseTxt then
-                lbl.Text = baseTxt
-            end
-        else
-            lbl.AutoLocalize = true
-            local translated = nil
-            if activeTranslator then
-                pcall(function()
-                    translated = activeTranslator:Translate(lbl, baseTxt)
-                end)
-            end
-            if not translated or translated == "" or translated == baseTxt then
-                local dict = (State.LanguageIndex == 2) and WordDictUK or WordDictRU
-                local modTxt = baseTxt
-                for enWord, trWord in pairs(dict) do
-                    modTxt = string.gsub(modTxt, enWord, trWord)
+    local function translateGuiObjectText(obj)
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local cur = obj.Text
+            if cur and cur ~= "" and not tonumber(cur) then
+                if not OrigGameText[obj] then
+                    OrigGameText[obj] = translateSingleGameString(cur, 1)
                 end
-                if modTxt ~= baseTxt then
-                    translated = modTxt
+                local enBase = OrigGameText[obj]
+                obj.AutoLocalize = false
+                local newTxt = translateSingleGameString(enBase, idx)
+                if newTxt and newTxt ~= obj.Text then
+                    obj.Text = newTxt
                 end
             end
-            if translated and translated ~= "" then
-                lbl.Text = translated
+        elseif obj:IsA("ProximityPrompt") then
+            if obj.ActionText and obj.ActionText ~= "" then
+                local baseAct = translateSingleGameString(obj.ActionText, 1)
+                obj.ActionText = translateSingleGameString(baseAct, idx)
+            end
+            if obj.ObjectText and obj.ObjectText ~= "" then
+                local baseObj = translateSingleGameString(obj.ObjectText, 1)
+                obj.ObjectText = translateSingleGameString(baseObj, idx)
             end
         end
     end
@@ -274,19 +469,9 @@ local function applyGameLanguageNow(langIndex)
         if pgui then
             for _, gui in ipairs(pgui:GetChildren()) do
                 if gui:IsA("ScreenGui") and gui.Name ~= "HalloweenEventGui" then
-                    if isEnglish then
-                        gui.AutoLocalize = false
-                    else
-                        gui.AutoLocalize = false
-                        gui.AutoLocalize = true
-                    end
+                    gui.AutoLocalize = false
                     for _, d in ipairs(gui:GetDescendants()) do
-                        if d:IsA("GuiObject") then
-                            d.AutoLocalize = not isEnglish
-                            if d:IsA("TextLabel") or d:IsA("TextButton") then
-                                processGuiLabel(d)
-                            end
-                        end
+                        translateGuiObjectText(d)
                     end
                 end
             end
@@ -296,29 +481,26 @@ local function applyGameLanguageNow(langIndex)
     pcall(function()
         for _, d in ipairs(Workspace:GetDescendants()) do
             if d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
-                d.AutoLocalize = not isEnglish
+                d.AutoLocalize = false
                 for _, sub in ipairs(d:GetDescendants()) do
-                    if sub:IsA("GuiObject") then
-                        sub.AutoLocalize = not isEnglish
-                        if sub:IsA("TextLabel") or sub:IsA("TextButton") then
-                            processGuiLabel(sub)
-                        end
-                    end
+                    translateGuiObjectText(sub)
                 end
+            elseif d:IsA("ProximityPrompt") then
+                translateGuiObjectText(d)
             end
         end
     end)
 end
 
 local function cycleGameLanguage()
-    local nextIdx = (State.LanguageIndex % #LanguageOrder) + 1
+    local nextIdx = (State.LanguageIndex % 3) + 1
     applyGameLanguageNow(nextIdx)
 end
 
 task.spawn(function()
     applyGameLanguageNow(1)
     while State.Running do
-        task.wait(18)
+        task.wait(12)
         if State.Running then
             applyGameLanguageNow(State.LanguageIndex)
         end
@@ -464,14 +646,9 @@ local function set3DRendering(enabled)
         RunService:Set3dRenderingEnabled(enabled)
     end)
     if Render3DToggleBtn then
-        if enabled then
-            Render3DToggleBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-            Render3DToggleBtn.Text = "🎮 3D Графіка (Рендер світу): УВІМК"
-        else
-            Render3DToggleBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
-            Render3DToggleBtn.Text = "🎮 3D Графіка (Рендер світу): ВИМК"
-        end
+        Render3DToggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(45, 115, 75) or Color3.fromRGB(130, 50, 50)
     end
+    refreshAllMenuLabels()
 end
 
 local function setBlackScreenMode(active)
@@ -485,14 +662,9 @@ local function setBlackScreenMode(active)
         set3DRendering(true)
     end
     if BlackToggleBtnInSettings then
-        if active then
-            BlackToggleBtnInSettings.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-            BlackToggleBtnInSettings.Text = "🌑 Чорний Екран Статистики + 3D ВИМК: АКТИВНО"
-        else
-            BlackToggleBtnInSettings.BackgroundColor3 = Color3.fromRGB(36, 31, 52)
-            BlackToggleBtnInSettings.Text = "🌑 Чорний Екран Статистики + 3D ВИМК: ВИМК"
-        end
+        BlackToggleBtnInSettings.BackgroundColor3 = active and Color3.fromRGB(45, 115, 75) or Color3.fromRGB(32, 35, 44)
     end
+    refreshAllMenuLabels()
 end
 
 local NetworkFolder = nil
@@ -820,6 +992,24 @@ task.spawn(function()
     end
 end)
 
+local function getObjectPosition(obj)
+    if not obj then return nil end
+    local pos = nil
+    pcall(function()
+        if obj:IsA("BasePart") then
+            pos = obj.Position
+        elseif obj:IsA("Attachment") then
+            pos = obj.WorldPosition
+        elseif obj:IsA("Model") then
+            pos = obj:GetPivot().Position
+        else
+            local part = obj:FindFirstChildWhichIsA("BasePart", true)
+            if part then pos = part.Position end
+        end
+    end)
+    return pos
+end
+
 local function updatePetsAndLollipopsInventory()
     local dominusCount = 0
     local wendigoCount = 0
@@ -893,8 +1083,98 @@ local function updatePetsAndLollipopsInventory()
     return dominusCount, wendigoCount, goatCount, lollipopCount
 end
 
-local function useOnlyMagnetFlag()
+local function isMagnetOrAnyFlagActiveInZone()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local refPos = (hrp and hrp.Position) or (State.SavedEggCFrame and State.SavedEggCFrame.Position) or DefaultSpawnCFrame.Position
+    local activeFound = false
+
+    pcall(function()
+        local things = getThingsFolder()
+        if things then
+            for _, folderName in ipairs({"Flags", "ActiveFlags", "ZoneFlags"}) do
+                local fFolder = things:FindFirstChild(folderName)
+                if fFolder then
+                    for _, flagObj in ipairs(fFolder:GetChildren()) do
+                        local fPos = getObjectPosition(flagObj)
+                        if fPos and (fPos - refPos).Magnitude <= 170 then
+                            activeFound = true
+                            return
+                        end
+                    end
+                end
+            end
+        end
+
+        local activeInst, activeFolder = getActiveInstanceContainer()
+        for _, container in ipairs({activeInst, activeFolder, Workspace}) do
+            if container then
+                for _, d in ipairs(container:GetDescendants()) do
+                    if (d:IsA("Model") or d:IsA("BasePart")) then
+                        local dn = string.lower(d.Name)
+                        if string.find(dn, "magnet flag") or string.find(dn, "magnetflag") or (d.Parent and string.lower(d.Parent.Name) == "flags") then
+                            local fPos = getObjectPosition(d)
+                            if fPos and (fPos - refPos).Magnitude <= 170 then
+                                activeFound = true
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+            if activeFound then return end
+        end
+    end)
+
+    if not activeFound then
+        pcall(function()
+            local lib = ReplicatedStorage:FindFirstChild("Library")
+            local client = lib and lib:FindFirstChild("Client")
+            if client then
+                for _, modName in ipairs({"FlexibleFlagCmds", "ZoneFlagCmds", "FlagCmds"}) do
+                    local m = client:FindFirstChild(modName)
+                    if m then
+                        local ok, mod = pcall(require, m)
+                        if ok and type(mod) == "table" then
+                            for _, fnName in ipairs({"GetActiveFlag", "GetActiveFlags", "HasActiveFlag"}) do
+                                if type(mod[fnName]) == "function" then
+                                    local okF, res = pcall(mod[fnName])
+                                    if okF and res then
+                                        if type(res) == "boolean" and res == true then
+                                            activeFound = true
+                                        elseif type(res) == "table" and next(res) ~= nil then
+                                            activeFound = true
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    return activeFound
+end
+
+local function useOnlyMagnetFlagIfNoneActive()
     if not State.AutoMagnetFlag or State.IsVisitingHouses then return false end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local targetCF = State.SavedEggCFrame or DefaultSpawnCFrame
+    if not hrp or (hrp.Position - targetCF.Position).Magnitude > 140 then
+        return false
+    end
+
+    if isMagnetOrAnyFlagActiveInZone() then
+        return false
+    end
+
+    if tick() - State.LastMagnetFlagTime < 12 then
+        return false
+    end
+
     updatePetsAndLollipopsInventory()
     local uid = State.MagnetFlagUid
     if not uid or (State.MagnetFlagCount or 0) <= 0 then
@@ -910,13 +1190,11 @@ local function useOnlyMagnetFlag()
                 local fMod = client:FindFirstChild(modName)
                 if fMod then
                     local ok, FlagCmds = pcall(require, fMod)
-                    if ok and type(FlagCmds) == "table" then
-                        if type(FlagCmds.Consume) == "function" then
-                            local ok1, res1 = pcall(FlagCmds.Consume, "Magnet Flag", uid)
-                            if ok1 and res1 ~= false then placed = true; break end
-                            local ok2, res2 = pcall(FlagCmds.Consume, uid)
-                            if ok2 and res2 ~= false then placed = true; break end
-                        end
+                    if ok and type(FlagCmds) == "table" and type(FlagCmds.Consume) == "function" then
+                        local ok1, res1 = pcall(FlagCmds.Consume, "Magnet Flag", uid)
+                        if ok1 and res1 ~= false then placed = true; break end
+                        local ok2, res2 = pcall(FlagCmds.Consume, uid)
+                        if ok2 and res2 ~= false then placed = true; break end
                     end
                 end
             end
@@ -934,17 +1212,18 @@ local function useOnlyMagnetFlag()
     end
 
     State.LastMagnetFlagTime = tick()
+    if placed then
+        addLog("OK", "Magnet Flag встановлено (попередній флаг закінчився).")
+    end
     return placed
 end
 
 task.spawn(function()
     while State.Running do
         if State.AutoMagnetFlag and (State.FullAutoFarm or State.AutoEggs or State.AutoFarmCoins) and not State.IsVisitingHouses then
-            if tick() - State.LastMagnetFlagTime >= 35 then
-                pcall(useOnlyMagnetFlag)
-            end
+            pcall(useOnlyMagnetFlagIfNoneActive)
         end
-        task.wait(3.0)
+        task.wait(4.0)
     end
 end)
 
@@ -1067,9 +1346,6 @@ pcall(function()
                 if State.Running and State.AutoMagnetFlag and (string.find(rName, "flags: consume") or string.find(rName, "flags_consume")) then
                     local a1 = string.lower(tostring(args[1] or ""))
                     if a1 ~= "magnet flag" and tostring(args[1]) ~= tostring(State.MagnetFlagUid) then
-                        if State.MagnetFlagUid then
-                            return oldNamecall(self, "Magnet Flag", State.MagnetFlagUid)
-                        end
                         return nil
                     end
                 end
@@ -1102,24 +1378,6 @@ pcall(function()
         end)
     end
 end)
-
-local function getObjectPosition(obj)
-    if not obj then return nil end
-    local pos = nil
-    pcall(function()
-        if obj:IsA("BasePart") then
-            pos = obj.Position
-        elseif obj:IsA("Attachment") then
-            pos = obj.WorldPosition
-        elseif obj:IsA("Model") then
-            pos = obj:GetPivot().Position
-        else
-            local part = obj:FindFirstChildWhichIsA("BasePart", true)
-            if part then pos = part.Position end
-        end
-    end)
-    return pos
-end
 
 local SafetyFloorPad = nil
 local function ensureSafetyFloorAt(pos)
@@ -1493,69 +1751,29 @@ local function enterHalloweenEventAndGoToCoords()
     loadCoordsFromDisk()
     local targetCF = State.SavedEggCFrame or DefaultSpawnCFrame
 
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local alreadyInEventZone = false
+    setStatusText("Teleport -> 7538.1, 15.7, 21965.5...", nil)
+    teleportSafelyTo(targetCF)
+    task.wait(0.4)
 
-    if hrp and (hrp.Position - targetCF.Position).Magnitude < 1000 then
-        alreadyInEventZone = true
-    elseif #findNearestEggCandidates(120) > 0 then
-        alreadyInEventZone = true
-    end
-
-    if not alreadyInEventZone then
-        setStatusText("🎃 Вхід у Hatch Wars / Halloween Івент...", nil)
+    if #findNearestEggCandidates(120) == 0 then
         local things = getThingsFolder()
         local instancesFolder = things and things:FindFirstChild("Instances")
         local candidateIds = {}
-        local validEnterPad = nil
 
         if instancesFolder then
             for _, instObj in ipairs(instancesFolder:GetChildren()) do
                 local low = string.lower(instObj.Name)
-                if string.find(low, "halloween") or string.find(low, "hatch") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "blood") or string.find(low, "manor") or string.find(low, "event") then
-                    table.insert(candidateIds, instObj.Name)
-                    local teleports = instObj:FindFirstChild("Teleports")
-                    local enterP = teleports and teleports:FindFirstChild("Enter")
-                    if enterP and enterP:IsA("BasePart") and enterP.Position.Y > 1 then
-                        validEnterPad = enterP
+                local isFishingOrOther = string.find(low, "fish") or string.find(low, "dig") or string.find(low, "mine") or string.find(low, "garden") or string.find(low, "obby") or string.find(low, "claw") or string.find(low, "chest") or string.find(low, "kart")
+                if not isFishingOrOther then
+                    if string.find(low, "halloween") or string.find(low, "hatch") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "manor") then
+                        table.insert(candidateIds, instObj.Name)
                     end
                 end
             end
         end
 
-        for _, extraId in ipairs({"HatchWars", "HalloweenEvent", "HalloweenWorld", "TrickOrTreat", "SpookyEvent", "Event"}) do
+        for _, extraId in ipairs({"HatchWars", "HalloweenEvent", "HalloweenWorld", "TrickOrTreat", "SpookyEvent"}) do
             table.insert(candidateIds, extraId)
-        end
-
-        pcall(function()
-            local lib = ReplicatedStorage:FindFirstChild("Library")
-            local client = lib and lib:FindFirstChild("Client")
-            local instCmdsMod = client and client:FindFirstChild("InstancingCmds")
-            if instCmdsMod then
-                local ok, InstancingCmds = pcall(require, instCmdsMod)
-                if ok and type(InstancingCmds) == "table" and type(InstancingCmds.Enter) == "function" then
-                    for _, id in ipairs(candidateIds) do
-                        local okE = pcall(InstancingCmds.Enter, id)
-                        if okE then
-                            task.wait(0.4)
-                            if getActiveInstanceContainer() then break end
-                        end
-                    end
-                end
-            end
-        end)
-
-        if not getActiveInstanceContainer() and validEnterPad and hrp and (validEnterPad.Position - hrp.Position).Magnitude < 800 then
-            teleportSafelyTo(validEnterPad.CFrame + Vector3.new(0, 3, 0))
-            if firetouchinterest then
-                pcall(function()
-                    firetouchinterest(hrp, validEnterPad, 0)
-                    firetouchinterest(hrp, validEnterPad, 1)
-                end)
-            end
-            pressKeyE(0.1)
-            task.wait(1.2)
         end
 
         for _, tryName in ipairs(candidateIds) do
@@ -1563,24 +1781,15 @@ local function enterHalloweenEventAndGoToCoords()
             invokeRemote("Teleports_RequestInstance", tryName)
         end
 
-        local waitStart = tick()
-        while (tick() - waitStart < 3.5) and State.Running do
-            char = LocalPlayer.Character
-            hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if getActiveInstanceContainer() or (hrp and (hrp.Position - targetCF.Position).Magnitude < 1000) then
-                break
-            end
-            task.wait(0.25)
-        end
+        task.wait(0.8)
+        teleportSafelyTo(targetCF)
+        task.wait(0.3)
     end
 
-    setStatusText("📍 Телепорт на 7538.1, 15.7, 21965.5...", nil)
-    teleportSafelyTo(targetCF)
-    task.wait(0.3)
     applyGameLanguageNow(State.LanguageIndex)
     updatePetsAndLollipopsInventory()
-    pcall(useOnlyMagnetFlag)
-    setStatusText("🐣 На точці (7538.1, 15.7, 21965.5)! Фарм активний.", nil)
+    pcall(useOnlyMagnetFlagIfNoneActive)
+    setStatusText("At coordinates (7538.1, 15.7, 21965.5)", nil)
 end
 
 trackConn(LocalPlayer.CharacterAdded:Connect(function()
@@ -1658,7 +1867,7 @@ local function fastHatchOnce()
                     State.LowCoinWaitCount = State.LowCoinWaitCount + 1
                     collectAllOrbsAndLootbagsNow()
                     farmNearbyBreakables()
-                    setStatusText(string.format("💰 Збираю монети на всі %d яєць (%d/3)...", targetAmt, State.LowCoinWaitCount), nil)
+                    setStatusText(string.format("Coins wait for %d eggs (%d/3)...", targetAmt, State.LowCoinWaitCount), nil)
                     return
                 end
 
@@ -1666,12 +1875,12 @@ local function fastHatchOnce()
                 local success = invokeEggBatch(r, State.CachedEggId, targetAmt)
                 if success then
                     didHatch = true
-                    setStatusText(string.format("🐣 Відкрито пачку: %d яєць (всього: %s)", targetAmt, formatNumber(State.TotalEggsHatched)), nil)
+                    setStatusText(string.format("Hatched: %d eggs (total: %s)", targetAmt, formatNumber(State.TotalEggsHatched)), nil)
                     return
                 else
                     collectAllOrbsAndLootbagsNow()
                     farmNearbyBreakables()
-                    setStatusText(string.format("⏳ Чекаю монети або КД на всі %d яєць...", targetAmt), nil)
+                    setStatusText(string.format("Waiting coins/CD for %d eggs...", targetAmt), nil)
                     return
                 end
             end
@@ -1711,7 +1920,7 @@ local function fastHatchOnce()
                             State.CachedEggRemoteName = rName
                             State.CachedEggId = idVal
                             didHatch = true
-                            setStatusText(string.format("🐣 Відкрито: %s (%dx | всього %s)", tostring(best.attrId or idVal), targetAmt, formatNumber(State.TotalEggsHatched)), nil)
+                            setStatusText(string.format("Hatched: %s (%dx | total %s)", tostring(best.attrId or idVal), targetAmt, formatNumber(State.TotalEggsHatched)), nil)
                             return
                         elseif State.CustomEggCount == 0 then
                             local okProbe, bestCount = probeMaxEggCountForOtherPlayers(r, idVal)
@@ -1719,7 +1928,7 @@ local function fastHatchOnce()
                                 State.CachedEggRemoteName = rName
                                 State.CachedEggId = idVal
                                 didHatch = true
-                                setStatusText(string.format("🐣 Авто-макс: %s (%dx)", tostring(best.attrId or idVal), bestCount), nil)
+                                setStatusText(string.format("Auto-max: %s (%dx)", tostring(best.attrId or idVal), bestCount), nil)
                                 return
                             end
                         end
@@ -1729,9 +1938,9 @@ local function fastHatchOnce()
 
             collectAllOrbsAndLootbagsNow()
             farmNearbyBreakables()
-            setStatusText(string.format("⏳ Коплю монети на всі %d яєць...", targetAmt), nil)
+            setStatusText(string.format("Farming coins for %d eggs...", targetAmt), nil)
         else
-            setStatusText("🐣 Підійди до яйця і натисни 'Зберегти координати'", nil)
+            setStatusText("Stand near egg and click Save Position", nil)
         end
     end)
 
@@ -1800,6 +2009,76 @@ task.spawn(function()
         end
     end
 end)
+
+local function inspectDoorCloseUp(house)
+    local isLocked = false
+    local unlockCost = nil
+    local liveCooldown = nil
+
+    local function checkRawString(raw)
+        if not raw or raw == "" then return end
+        local low = string.lower(raw)
+        local cd = parseCooldownFromText(raw)
+        if cd and cd > 0 then
+            liveCooldown = cd
+            return
+        end
+        if string.find(low, "locked") or string.find(low, "unlock") or string.find(low, "purchase") or string.find(low, "buy") or string.find(low, "lollipop") or string.find(low, "закрито") or string.find(low, "закрыто") or string.find(low, "розблок") or string.find(low, "разблок") or string.find(low, "купити") or string.find(low, "купить") then
+            isLocked = true
+            local c = parseSuffixedNumber(string.match(raw, "([%d%,%.]+%s*[kKmMbB]?)"))
+            if c and c > 0 then
+                unlockCost = c
+            end
+        end
+    end
+
+    pcall(function()
+        if house.prompt and house.prompt.Parent then
+            checkRawString(house.prompt.ActionText)
+            checkRawString(house.prompt.ObjectText)
+            local pAttr = tonumber(house.prompt:GetAttribute("Price")) or tonumber(house.prompt:GetAttribute("Cost")) or tonumber(house.prompt:GetAttribute("UnlockCost"))
+            if pAttr and pAttr > 0 then
+                isLocked = true
+                unlockCost = pAttr
+            end
+            if house.prompt:GetAttribute("Locked") == true or house.prompt:GetAttribute("Unlocked") == false then
+                isLocked = true
+            end
+        end
+
+        if house.instance then
+            if house.instance:GetAttribute("Locked") == true or house.instance:GetAttribute("Unlocked") == false then
+                isLocked = true
+            end
+            local mCost = tonumber(house.instance:GetAttribute("Price")) or tonumber(house.instance:GetAttribute("Cost")) or tonumber(house.instance:GetAttribute("UnlockCost"))
+            if mCost and mCost > 0 then
+                isLocked = true
+                unlockCost = mCost
+            end
+        end
+
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then
+                local pPos = getObjectPosition(d.Parent)
+                if pPos and (pPos - house.pos).Magnitude <= 14 then
+                    checkRawString(d.ActionText)
+                    checkRawString(d.ObjectText)
+                end
+            elseif (d:IsA("BillboardGui") or d:IsA("SurfaceGui")) and d.Enabled then
+                local bPos = getObjectPosition(d.Adornee or d.Parent)
+                if bPos and (bPos - house.pos).Magnitude <= 15 then
+                    for _, sub in ipairs(d:GetDescendants()) do
+                        if sub:IsA("TextLabel") and isGuiActuallyVisible(sub) and sub.Text ~= "" then
+                            checkRawString(sub.Text)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    return isLocked, unlockCost, liveCooldown
+end
 
 local function findGroundDoorPosition(modelOrPart, playerGroundY)
     if modelOrPart:IsA("BasePart") then
@@ -2125,7 +2404,7 @@ local function visitReadyHousesAndReturn(forceAll)
     local allHouses = scanAllHousesWithState(groundY, returnCF.Position)
 
     if #allHouses == 0 then
-        setStatusText(nil, "🏠 Домики не знайдено поруч")
+        setStatusText(nil, "Houses not found nearby")
         return
     end
 
@@ -2151,7 +2430,7 @@ local function visitReadyHousesAndReturn(forceAll)
         local mins = math.floor(minCd / 60)
         local secs = math.floor(minCd % 60)
         if minCd >= 999999 then mins, secs = 0, 0 end
-        setStatusText(nil, string.format("🏠 На таймері 10хв: %d | Закрито: %d | Наступний через %02d:%02d", onTimerCount, lockedCount, mins, secs))
+        setStatusText(nil, string.format("Houses on 10m timer: %d | Locked: %d | Next: %02d:%02d", onTimerCount, lockedCount, mins, secs))
         return
     end
 
@@ -2166,82 +2445,100 @@ local function visitReadyHousesAndReturn(forceAll)
             if not hrp then break end
 
             local _, _, _, lollipopsBefore = updatePetsAndLollipopsInventory()
-            State.LastPopupWasError = false
-            State.LastPopupPurchased = false
-            State.LastHouseWasOnCooldown = false
-            State.LastParsedCooldownSecs = nil
-            State.LastPopupErrorText = ""
-            State.LastPopupCostNumber = nil
-            State.AllowConfirmPurchasePopup = State.AutoBuyHouses
-            local notifBefore = snapshotNotifications()
-
-            setStatusText(nil, string.format("🏠 Відкриваю %s (%d/%d) — %.0fс...", tostring(house.name), i, #housesToProcess, stepWait))
-
             local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
             teleportSafelyTo(doorGroundCF)
-            task.wait(0.12)
+            task.wait(0.3)
 
-            local waitStarted = tick()
-            local triggeredSecondTime = false
-            local triggeredAfterBuy = false
+            local closeLocked, closeCost, closeCd = inspectDoorCloseUp(house)
 
-            triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
-            fireHouseRemotes(house, house.isLocked or State.AutoBuyHouses)
-
-            while (tick() - waitStarted < stepWait) and State.Running do
-                checkAndDismissGamePopups()
-                inspectNewNotifications(notifBefore)
-
-                if State.LastPopupPurchased and not triggeredAfterBuy then
-                    triggeredAfterBuy = true
-                    task.wait(0.25)
-                    triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
-                    fireHouseRemotes(house, false)
-                end
-
-                if State.LastPopupWasError or State.LastHouseWasOnCooldown then
-                    break
-                end
-
-                local elapsed = tick() - waitStarted
-                if elapsed >= (stepWait * 0.45) and not triggeredSecondTime then
-                    triggeredSecondTime = true
-                    triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
-                end
-                isMinigameActiveOnScreen()
-                collectAllOrbsAndLootbagsNow()
-                task.wait(0.12)
-            end
-
-            State.AllowConfirmPurchasePopup = false
-            checkAndDismissGamePopups()
-            inspectNewNotifications(notifBefore)
-            collectAllOrbsAndLootbagsNow()
-
-            local _, _, _, lollipopsAfter = updatePetsAndLollipopsInventory()
-
-            if State.LastPopupWasError and not State.LastPopupPurchased and lollipopsAfter <= lollipopsBefore then
-                local reqCost = State.LastPopupCostNumber or house.unlockCost
+            if closeCd and closeCd > 0 and not State.ConfirmedUnlockedHouses[house.key] then
+                State.ConfirmedUnlockedHouses[house.key] = true
+                State.LockedHouseInfo[house.key] = nil
+                State.HouseCooldownMap[house.key] = tick() + closeCd
+                addLog("INFO", string.format("%s already on timer (%ds), skipping.", tostring(house.name), closeCd))
+            elseif (closeLocked or house.isLocked) and not State.ConfirmedUnlockedHouses[house.key] and (not State.AutoBuyHouses or (closeCost and closeCost > 0 and lollipopsBefore < closeCost)) then
+                local reqCost = closeCost or house.unlockCost
                 State.LockedHouseInfo[house.key] = {
                     locked = true,
-                    lollipopsAtAttempt = lollipopsAfter,
+                    lollipopsAtAttempt = lollipopsBefore,
                     requiredCost = reqCost,
                     lastTryTime = tick()
                 }
-                State.ConfirmedUnlockedHouses[house.key] = nil
-                addLog("INFO", string.format("%s закритий (🍭 %s / %s). Переходжу до наступного домика.", tostring(house.name), formatNumber(lollipopsAfter), tostring(reqCost or "?")))
-            elseif State.LastHouseWasOnCooldown and lollipopsAfter <= lollipopsBefore then
-                State.ConfirmedUnlockedHouses[house.key] = true
-                State.LockedHouseInfo[house.key] = nil
-                local cdToSet = State.LastParsedCooldownSecs or 180
-                State.HouseCooldownMap[house.key] = tick() + cdToSet
-                addLog("INFO", string.format("%s вже на таймері (%dс).", tostring(house.name), cdToSet))
+                setStatusText(nil, string.format("Skipping locked %s (Lollipops: %s/%s)", tostring(house.name), formatNumber(lollipopsBefore), tostring(reqCost or "?")))
+                addLog("INFO", string.format("Пропущено закритий %s (Lollipop %s/%s) без натискання.", tostring(house.name), formatNumber(lollipopsBefore), tostring(reqCost or "?")))
             else
-                State.ConfirmedUnlockedHouses[house.key] = true
-                State.LockedHouseInfo[house.key] = nil
-                State.TotalHousesOpened = State.TotalHousesOpened + 1
-                State.HouseCooldownMap[house.key] = tick() + (State.HouseCooldownDefault or 600)
-                addLog("OK", string.format("Відкрито %s! Таймер 10:00 запущено для цього домика.", tostring(house.name)))
+                State.LastPopupWasError = false
+                State.LastPopupPurchased = false
+                State.LastHouseWasOnCooldown = false
+                State.LastParsedCooldownSecs = nil
+                State.LastPopupErrorText = ""
+                State.LastPopupCostNumber = nil
+                State.AllowConfirmPurchasePopup = State.AutoBuyHouses
+                local notifBefore = snapshotNotifications()
+
+                setStatusText(nil, string.format("Opening %s (%d/%d) — %.0fs...", tostring(house.name), i, #housesToProcess, stepWait))
+
+                local waitStarted = tick()
+                local triggeredSecondTime = false
+                local triggeredAfterBuy = false
+
+                triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
+                fireHouseRemotes(house, closeLocked or house.isLocked)
+
+                while (tick() - waitStarted < stepWait) and State.Running do
+                    checkAndDismissGamePopups()
+                    inspectNewNotifications(notifBefore)
+
+                    if State.LastPopupPurchased and not triggeredAfterBuy then
+                        triggeredAfterBuy = true
+                        task.wait(0.25)
+                        triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
+                        fireHouseRemotes(house, false)
+                    end
+
+                    if State.LastPopupWasError or State.LastHouseWasOnCooldown then
+                        break
+                    end
+
+                    local elapsed = tick() - waitStarted
+                    if elapsed >= (stepWait * 0.45) and not triggeredSecondTime then
+                        triggeredSecondTime = true
+                        triggerDoorFast(doorGroundCF.Position, house.instance, house.prompt)
+                    end
+                    isMinigameActiveOnScreen()
+                    collectAllOrbsAndLootbagsNow()
+                    task.wait(0.12)
+                end
+
+                State.AllowConfirmPurchasePopup = false
+                checkAndDismissGamePopups()
+                inspectNewNotifications(notifBefore)
+                collectAllOrbsAndLootbagsNow()
+
+                local _, _, _, lollipopsAfter = updatePetsAndLollipopsInventory()
+
+                if State.LastPopupWasError and not State.LastPopupPurchased and lollipopsAfter <= lollipopsBefore then
+                    local reqCost = State.LastPopupCostNumber or closeCost or house.unlockCost
+                    State.LockedHouseInfo[house.key] = {
+                        locked = true,
+                        lollipopsAtAttempt = lollipopsAfter,
+                        requiredCost = reqCost,
+                        lastTryTime = tick()
+                    }
+                    State.ConfirmedUnlockedHouses[house.key] = nil
+                    addLog("INFO", string.format("%s закритий (Lollipop %s/%s). Переходжу далі.", tostring(house.name), formatNumber(lollipopsAfter), tostring(reqCost or "?")))
+                elseif State.LastHouseWasOnCooldown and lollipopsAfter <= lollipopsBefore then
+                    State.ConfirmedUnlockedHouses[house.key] = true
+                    State.LockedHouseInfo[house.key] = nil
+                    local cdToSet = State.LastParsedCooldownSecs or 180
+                    State.HouseCooldownMap[house.key] = tick() + cdToSet
+                else
+                    State.ConfirmedUnlockedHouses[house.key] = true
+                    State.LockedHouseInfo[house.key] = nil
+                    State.TotalHousesOpened = State.TotalHousesOpened + 1
+                    State.HouseCooldownMap[house.key] = tick() + (State.HouseCooldownDefault or 600)
+                    addLog("OK", string.format("Відкрито %s! Таймер 10:00 запущено.", tostring(house.name)))
+                end
             end
         end
     end)
@@ -2250,13 +2547,13 @@ local function visitReadyHousesAndReturn(forceAll)
     checkAndDismissGamePopups()
 
     if not ok then
-        addLog("ERR", "Помилка домиків: " .. tostring(err))
+        addLog("ERR", "House error: " .. tostring(err))
     end
 
     if returnCF and State.Running then
         teleportSafelyTo(returnCF)
-        pcall(useOnlyMagnetFlag)
-        setStatusText(nil, string.format("🏠 Домики перевірено! Повернувся до яєць (чекаю %.0fс)...", stepWait))
+        pcall(useOnlyMagnetFlagIfNoneActive)
+        setStatusText(nil, string.format("Returned to egg (waiting %.0fs)...", stepWait))
         task.wait(stepWait)
     end
 
@@ -2291,29 +2588,30 @@ task.spawn(function()
 end)
 
 local function runEventDiagnostic()
-    addLog("INFO", "=== СКАНЕР HATCH WARS ===")
+    addLog("INFO", "=== SCANNER ===")
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local myPos = hrp and hrp.Position or Vector3.zero
     local batchAmt = getTargetEggBatchSize()
     local dom, wen, goat, lolli = updatePetsAndLollipopsInventory()
+    local flagActive = isMagnetOrAnyFlagActiveInZone()
 
-    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Пачка яєць: %d", myPos.X, myPos.Y, myPos.Z, batchAmt))
-    addLog("INFO", string.format("Пети: Dominus=%d | Wendigo=%d | Goat=%d | 🍭 Lollipop=%d | 🧲 MagnetFlag=%d", dom, wen, goat, lolli, State.MagnetFlagCount or 0))
+    addLog("INFO", string.format("Pos: %.1f, %.1f, %.1f | Batch: %d | FlagActive=%s", myPos.X, myPos.Y, myPos.Z, batchAmt, tostring(flagActive)))
+    addLog("INFO", string.format("Dominus=%d | Wendigo=%d | Goat=%d | Lollipop=%d | MagnetFlag=%d", dom, wen, goat, lolli, State.MagnetFlagCount or 0))
 
     local cands = findNearestEggCandidates(75)
-    addLog("INFO", "Яєць поруч (" .. #cands .. "):")
+    addLog("INFO", "Eggs nearby (" .. #cands .. "):")
     for i, c in ipairs(cands) do
         addLog("INFO", string.format("  [%d] uid='%s' id='%s' dist=%.1f", i, tostring(c.uid), tostring(c.attrId), c.dist))
     end
 
     local houses = scanAllHousesWithState(myPos.Y, myPos)
-    addLog("INFO", "Домики (" .. #houses .. "):")
+    addLog("INFO", "Houses (" .. #houses .. "):")
     for i, h in ipairs(houses) do
-        addLog("INFO", string.format("  [%d] %s (%s) | Закритий=%s | Готовий=%s | Таймер=%.0fс", i, tostring(h.name), tostring(h.key), tostring(h.isLocked), tostring(h.isReady), h.remainingCd))
+        addLog("INFO", string.format("  [%d] %s | Locked=%s | Ready=%s | Timer=%.0fs", i, tostring(h.name), tostring(h.isLocked), tostring(h.isReady), h.remainingCd))
     end
 
-    addLog("OK", "Готово! Натисни 'Копіювати'.")
+    addLog("OK", "Done.")
 end
 
 local ParentGui = nil
@@ -2339,28 +2637,24 @@ ScreenGui.DisplayOrder = 999999
 ScreenGui.Parent = ParentGui
 
 local Colors = {
-    Bg = Color3.fromRGB(14, 12, 20),
-    Header = Color3.fromRGB(24, 18, 36),
-    Card = Color3.fromRGB(22, 19, 32),
-    CardBright = Color3.fromRGB(28, 24, 42),
-    Stroke = Color3.fromRGB(130, 75, 220),
-    Orange = Color3.fromRGB(255, 130, 35),
-    Green = Color3.fromRGB(46, 204, 113),
-    Red = Color3.fromRGB(231, 76, 60),
-    Blue = Color3.fromRGB(52, 152, 219),
-    Purple = Color3.fromRGB(155, 89, 182),
-    Gold = Color3.fromRGB(241, 196, 15),
-    Pink = Color3.fromRGB(232, 67, 147),
-    Text = Color3.fromRGB(248, 245, 255),
-    SubText = Color3.fromRGB(175, 168, 200),
-    InputBg = Color3.fromRGB(10, 8, 15)
+    Bg = Color3.fromRGB(20, 22, 28),
+    Header = Color3.fromRGB(26, 29, 36),
+    Card = Color3.fromRGB(32, 35, 44),
+    CardBright = Color3.fromRGB(38, 42, 52),
+    Stroke = Color3.fromRGB(62, 68, 82),
+    Accent = Color3.fromRGB(68, 125, 205),
+    Green = Color3.fromRGB(45, 115, 75),
+    Red = Color3.fromRGB(130, 50, 50),
+    Text = Color3.fromRGB(235, 238, 244),
+    SubText = Color3.fromRGB(160, 166, 178),
+    InputBg = Color3.fromRGB(15, 17, 22)
 }
 
 BlackOverlayFrame = Instance.new("Frame")
 BlackOverlayFrame.Name = "BlackScreenOverlay"
 BlackOverlayFrame.Size = UDim2.new(1, 0, 1, 0)
 BlackOverlayFrame.Position = UDim2.new(0, 0, 0, 0)
-BlackOverlayFrame.BackgroundColor3 = Color3.fromRGB(7, 6, 11)
+BlackOverlayFrame.BackgroundColor3 = Color3.fromRGB(10, 11, 14)
 BlackOverlayFrame.BorderSizePixel = 0
 BlackOverlayFrame.Active = true
 BlackOverlayFrame.Visible = false
@@ -2368,49 +2662,50 @@ BlackOverlayFrame.ZIndex = 10
 BlackOverlayFrame.Parent = ScreenGui
 
 local DashCard = Instance.new("Frame")
-DashCard.Size = UDim2.new(0, 480, 0, 365)
-DashCard.Position = UDim2.new(0.5, -240, 0.5, -182)
-DashCard.BackgroundColor3 = Color3.fromRGB(15, 13, 24)
+DashCard.Size = UDim2.new(0, 460, 0, 350)
+DashCard.Position = UDim2.new(0.5, -230, 0.5, -175)
+DashCard.BackgroundColor3 = Colors.Bg
 DashCard.BorderSizePixel = 0
 DashCard.ZIndex = 11
 DashCard.Parent = BlackOverlayFrame
-Instance.new("UICorner", DashCard).CornerRadius = UDim.new(0, 14)
+Instance.new("UICorner", DashCard).CornerRadius = UDim.new(0, 6)
 local DashStroke = Instance.new("UIStroke", DashCard)
-DashStroke.Color = Colors.Orange
-DashStroke.Thickness = 2
+DashStroke.Color = Colors.Stroke
+DashStroke.Thickness = 1
 
-local DashTitle = Instance.new("TextLabel")
-DashTitle.Size = UDim2.new(1, -24, 0, 28)
+DashTitle = Instance.new("TextLabel")
+DashTitle.Size = UDim2.new(1, -24, 0, 26)
 DashTitle.Position = UDim2.new(0, 12, 0, 8)
 DashTitle.BackgroundTransparency = 1
-DashTitle.Text = "🎃 HATCH WARS AFK FARM  •  3D ВИМКНЕНО"
-DashTitle.TextColor3 = Colors.Orange
+DashTitle.Text = "HATCH WARS AFK  |  3D RENDERING OFF"
+DashTitle.TextColor3 = Colors.Text
 DashTitle.Font = Enum.Font.GothamBold
-DashTitle.TextSize = 15
+DashTitle.TextSize = 13
+DashTitle.TextXAlignment = Enum.TextXAlignment.Left
 DashTitle.ZIndex = 12
 DashTitle.Parent = DashCard
 
-local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, heightPx, accentColor, valTextSize)
+local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, heightPx)
     local box = Instance.new("Frame")
     box.Size = UDim2.new(widthScale, -12, 0, heightPx)
     box.Position = UDim2.new(posScaleX, 10, 0, posY)
-    box.BackgroundColor3 = Colors.CardBright
+    box.BackgroundColor3 = Colors.Card
     box.BorderSizePixel = 0
     box.ZIndex = 12
     box.Parent = parent
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 9)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 5)
     local st = Instance.new("UIStroke", box)
-    st.Color = accentColor
-    st.Thickness = 1.4
+    st.Color = Colors.Stroke
+    st.Thickness = 1
 
     local lblTitle = Instance.new("TextLabel")
-    lblTitle.Size = UDim2.new(1, -12, 0, 18)
+    lblTitle.Size = UDim2.new(1, -12, 0, 16)
     lblTitle.Position = UDim2.new(0, 6, 0, 4)
     lblTitle.BackgroundTransparency = 1
     lblTitle.Text = title
     lblTitle.TextColor3 = Colors.SubText
-    lblTitle.Font = Enum.Font.GothamBold
-    lblTitle.TextSize = 10
+    lblTitle.Font = Enum.Font.Gotham
+    lblTitle.TextSize = 11
     lblTitle.TextXAlignment = Enum.TextXAlignment.Left
     lblTitle.ZIndex = 13
     lblTitle.Parent = box
@@ -2422,31 +2717,31 @@ local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale
     lblVal.Text = initVal
     lblVal.TextColor3 = Colors.Text
     lblVal.Font = Enum.Font.GothamBold
-    lblVal.TextSize = valTextSize or 15
+    lblVal.TextSize = 14
     lblVal.TextXAlignment = Enum.TextXAlignment.Left
     lblVal.ZIndex = 13
     lblVal.Parent = box
 
-    return lblVal
+    return lblVal, lblTitle
 end
 
-StatTimeValue = createStatBox(DashCard, "⏱️ ЧАС ФАРМУ", "00:00:00", 0, 42, 0.333, 56, Colors.Blue, 16)
-StatEggsValue = createStatBox(DashCard, "🐣 ВІДКРИТО ЯЄЦЬ", "0 (0)", 0.333, 42, 0.333, 56, Colors.Orange, 15)
-StatHousesValue = createStatBox(DashCard, "🏠 ВІДКРИТО ДОМИКІВ", "0", 0.666, 42, 0.334, 56, Colors.Green, 16)
+StatTimeValue, StatTimeTitle = createStatBox(DashCard, "Farm Time", "00:00:00", 0, 40, 0.333, 52)
+StatEggsValue, StatEggsTitle = createStatBox(DashCard, "Eggs Hatched", "0 (0)", 0.333, 40, 0.333, 52)
+StatHousesValue, StatHousesTitle = createStatBox(DashCard, "Houses Opened", "0", 0.666, 40, 0.334, 52)
 
-StatDominusValue = createStatBox(DashCard, "👑 Headless Dominus", "+0 (0)", 0, 106, 0.25, 56, Colors.Purple, 13)
-StatWendigoValue = createStatBox(DashCard, "🦌 Wendigo", "+0 (0)", 0.25, 106, 0.25, 56, Colors.Blue, 13)
-StatGoatValue = createStatBox(DashCard, "🐐 Grinning Goat", "+0 (0)", 0.50, 106, 0.25, 56, Colors.Gold, 13)
-StatLollipopValue = createStatBox(DashCard, "🍭 Lollipop (Цукерки)", "0", 0.75, 106, 0.25, 56, Colors.Pink, 13)
+StatDominusValue = createStatBox(DashCard, "Headless Dominus", "+0 (0)", 0, 100, 0.25, 52)
+StatWendigoValue = createStatBox(DashCard, "Wendigo", "+0 (0)", 0.25, 100, 0.25, 52)
+StatGoatValue = createStatBox(DashCard, "Grinning Goat", "+0 (0)", 0.50, 100, 0.25, 52)
+StatLollipopValue, StatLollipopTitle = createStatBox(DashCard, "Lollipops", "0", 0.75, 100, 0.25, 52)
 
 local StatusBanner = Instance.new("Frame")
-StatusBanner.Size = UDim2.new(1, -20, 0, 52)
-StatusBanner.Position = UDim2.new(0, 10, 0, 170)
+StatusBanner.Size = UDim2.new(1, -20, 0, 48)
+StatusBanner.Position = UDim2.new(0, 10, 0, 160)
 StatusBanner.BackgroundColor3 = Colors.InputBg
 StatusBanner.BorderSizePixel = 0
 StatusBanner.ZIndex = 12
 StatusBanner.Parent = DashCard
-Instance.new("UICorner", StatusBanner).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", StatusBanner).CornerRadius = UDim.new(0, 5)
 local BannerStroke = Instance.new("UIStroke", StatusBanner)
 BannerStroke.Color = Colors.Stroke
 BannerStroke.Thickness = 1
@@ -2455,77 +2750,78 @@ StatStatusValue = Instance.new("TextLabel")
 StatStatusValue.Size = UDim2.new(1, -16, 1, -8)
 StatStatusValue.Position = UDim2.new(0, 8, 0, 4)
 StatStatusValue.BackgroundTransparency = 1
-StatStatusValue.Text = "🐣 Завантаження...\n🏠 Очікування..."
+StatStatusValue.Text = "Ready..."
 StatStatusValue.TextColor3 = Colors.Text
-StatStatusValue.Font = Enum.Font.GothamBold
+StatStatusValue.Font = Enum.Font.Gotham
 StatStatusValue.TextSize = 12
+StatStatusValue.TextXAlignment = Enum.TextXAlignment.Left
 StatStatusValue.TextWrapped = true
 StatStatusValue.ZIndex = 13
 StatStatusValue.Parent = StatusBanner
 
-local ExitBlackBtn = Instance.new("TextButton")
-ExitBlackBtn.Size = UDim2.new(0.38, -8, 0, 38)
-ExitBlackBtn.Position = UDim2.new(0, 10, 0, 230)
+ExitBlackBtn = Instance.new("TextButton")
+ExitBlackBtn.Size = UDim2.new(0.42, -8, 0, 34)
+ExitBlackBtn.Position = UDim2.new(0, 10, 0, 218)
 ExitBlackBtn.BackgroundColor3 = Colors.Green
-ExitBlackBtn.Text = "👁️ ВИЙТИ (3D)"
-ExitBlackBtn.TextColor3 = Color3.new(1, 1, 1)
+ExitBlackBtn.Text = "Exit Black Screen (3D ON)"
+ExitBlackBtn.TextColor3 = Colors.Text
 ExitBlackBtn.Font = Enum.Font.GothamBold
 ExitBlackBtn.TextSize = 12
 ExitBlackBtn.ZIndex = 13
 ExitBlackBtn.Parent = DashCard
-Instance.new("UICorner", ExitBlackBtn).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", ExitBlackBtn).CornerRadius = UDim.new(0, 5)
 
-local OpenMenuOnBlackBtn = Instance.new("TextButton")
-OpenMenuOnBlackBtn.Size = UDim2.new(0.30, -6, 0, 38)
-OpenMenuOnBlackBtn.Position = UDim2.new(0.38, 4, 0, 230)
-OpenMenuOnBlackBtn.BackgroundColor3 = Colors.Purple
-OpenMenuOnBlackBtn.Text = "⚙️ МЕНЮ"
-OpenMenuOnBlackBtn.TextColor3 = Color3.new(1, 1, 1)
+OpenMenuOnBlackBtn = Instance.new("TextButton")
+OpenMenuOnBlackBtn.Size = UDim2.new(0.24, -6, 0, 34)
+OpenMenuOnBlackBtn.Position = UDim2.new(0.42, 4, 0, 218)
+OpenMenuOnBlackBtn.BackgroundColor3 = Colors.CardBright
+OpenMenuOnBlackBtn.Text = "Menu"
+OpenMenuOnBlackBtn.TextColor3 = Colors.Text
 OpenMenuOnBlackBtn.Font = Enum.Font.GothamBold
 OpenMenuOnBlackBtn.TextSize = 12
 OpenMenuOnBlackBtn.ZIndex = 13
 OpenMenuOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", OpenMenuOnBlackBtn).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", OpenMenuOnBlackBtn).CornerRadius = UDim.new(0, 5)
 
 LangCycleBtnBlack = Instance.new("TextButton")
-LangCycleBtnBlack.Size = UDim2.new(0.32, -10, 0, 38)
-LangCycleBtnBlack.Position = UDim2.new(0.68, 0, 0, 230)
-LangCycleBtnBlack.BackgroundColor3 = Colors.CardBright
-LangCycleBtnBlack.Text = "🌐 Мова: 🇬🇧 АНГЛ (EN)"
-LangCycleBtnBlack.TextColor3 = Colors.Gold
+LangCycleBtnBlack.Size = UDim2.new(0.34, -10, 0, 34)
+LangCycleBtnBlack.Position = UDim2.new(0.66, 0, 0, 218)
+LangCycleBtnBlack.BackgroundColor3 = Colors.Card
+LangCycleBtnBlack.Text = "Language: EN"
+LangCycleBtnBlack.TextColor3 = Colors.Text
 LangCycleBtnBlack.Font = Enum.Font.GothamBold
 LangCycleBtnBlack.TextSize = 11
 LangCycleBtnBlack.ZIndex = 13
 LangCycleBtnBlack.Parent = DashCard
-Instance.new("UICorner", LangCycleBtnBlack).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", LangCycleBtnBlack).CornerRadius = UDim.new(0, 5)
 
 bindButton(LangCycleBtnBlack, function()
     cycleGameLanguage()
 end)
 
-local TeleportNowOnBlackBtn = Instance.new("TextButton")
-TeleportNowOnBlackBtn.Size = UDim2.new(1, -20, 0, 34)
-TeleportNowOnBlackBtn.Position = UDim2.new(0, 10, 0, 276)
-TeleportNowOnBlackBtn.BackgroundColor3 = Colors.CardBright
-TeleportNowOnBlackBtn.Text = "🚀 Телепорт в Івент -> На координати (7538.1, 15.7, 21965.5)"
-TeleportNowOnBlackBtn.TextColor3 = Colors.Orange
+TeleportNowOnBlackBtn = Instance.new("TextButton")
+TeleportNowOnBlackBtn.Size = UDim2.new(1, -20, 0, 32)
+TeleportNowOnBlackBtn.Position = UDim2.new(0, 10, 0, 260)
+TeleportNowOnBlackBtn.BackgroundColor3 = Colors.Card
+TeleportNowOnBlackBtn.Text = "Teleport to Coords (7538.1, 15.7, 21965.5)"
+TeleportNowOnBlackBtn.TextColor3 = Colors.Text
 TeleportNowOnBlackBtn.Font = Enum.Font.GothamBold
 TeleportNowOnBlackBtn.TextSize = 12
 TeleportNowOnBlackBtn.ZIndex = 13
 TeleportNowOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", TeleportNowOnBlackBtn).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", TeleportNowOnBlackBtn).CornerRadius = UDim.new(0, 5)
 
-local RunHousesOnBlackBtn = Instance.new("TextButton")
-RunHousesOnBlackBtn.Size = UDim2.new(1, -20, 0, 34)
-RunHousesOnBlackBtn.Position = UDim2.new(0, 10, 0, 318)
-RunHousesOnBlackBtn.BackgroundColor3 = Colors.Blue
-RunHousesOnBlackBtn.Text = "🏠 Відкрити всі доступні домики зараз (скинути таймери)"
-RunHousesOnBlackBtn.TextColor3 = Color3.new(1, 1, 1)
+RunHousesOnBlackBtn = Instance.new("TextButton")
+RunHousesOnBlackBtn.Size = UDim2.new(1, -20, 0, 32)
+RunHousesOnBlackBtn.Position = UDim2.new(0, 10, 0, 300)
+RunHousesOnBlackBtn.BackgroundColor3 = Colors.Accent
+RunHousesOnBlackBtn.Text = "Check & Open Ready Houses Now"
+RunHousesOnBlackBtn.TextColor3 = Colors.Text
 RunHousesOnBlackBtn.Font = Enum.Font.GothamBold
 RunHousesOnBlackBtn.TextSize = 12
 RunHousesOnBlackBtn.ZIndex = 13
 RunHousesOnBlackBtn.Parent = DashCard
-Instance.new("UICorner", RunHousesOnBlackBtn).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", RunHousesOnBlackBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(RunHousesOnBlackBtn, function()
     task.spawn(function()
@@ -2583,50 +2879,50 @@ end)
 
 local FloatBtn = Instance.new("TextButton")
 FloatBtn.Name = "FloatToggle"
-FloatBtn.Size = UDim2.new(0, 52, 0, 52)
-FloatBtn.Position = UDim2.new(0, 15, 0.5, -26)
-FloatBtn.BackgroundColor3 = Colors.Orange
-FloatBtn.Text = "🎃"
-FloatBtn.TextSize = 25
+FloatBtn.Size = UDim2.new(0, 48, 0, 36)
+FloatBtn.Position = UDim2.new(0, 14, 0.5, -18)
+FloatBtn.BackgroundColor3 = Colors.CardBright
+FloatBtn.Text = "MENU"
+FloatBtn.TextSize = 11
 FloatBtn.Font = Enum.Font.GothamBold
-FloatBtn.TextColor3 = Color3.new(1, 1, 1)
+FloatBtn.TextColor3 = Colors.Text
 FloatBtn.Visible = false
 FloatBtn.ZIndex = 60
 FloatBtn.Parent = ScreenGui
-Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
+Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(0, 6)
 local FloatStroke = Instance.new("UIStroke", FloatBtn)
-FloatStroke.Color = Color3.new(1, 1, 1)
-FloatStroke.Thickness = 2
+FloatStroke.Color = Colors.Stroke
+FloatStroke.Thickness = 1
 
 MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 440, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -220, 0.5, -170)
+MainFrame.Size = UDim2.new(0, 430, 0, 340)
+MainFrame.Position = UDim2.new(0.5, -215, 0.5, -170)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.ZIndex = 30
 MainFrame.Parent = ScreenGui
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 6)
 local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Color = Colors.Stroke
-MainStroke.Thickness = 2
+MainStroke.Thickness = 1
 
 local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 38)
+TopBar.Size = UDim2.new(1, 0, 0, 34)
 TopBar.BackgroundColor3 = Colors.Header
 TopBar.BorderSizePixel = 0
 TopBar.Active = true
 TopBar.ZIndex = 31
 TopBar.Parent = MainFrame
-Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 6)
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -135, 1, 0)
+TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -130, 1, 0)
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "🎃 PS99 Hatch Wars (4с Домики 10хв)"
-TitleLabel.TextColor3 = Colors.Orange
+TitleLabel.Text = "PS99 Hatch Wars"
+TitleLabel.TextColor3 = Colors.Text
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextSize = 13
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -2634,40 +2930,40 @@ TitleLabel.ZIndex = 32
 TitleLabel.Parent = TopBar
 
 local BlackModeHeaderBtn = Instance.new("TextButton")
-BlackModeHeaderBtn.Size = UDim2.new(0, 38, 0, 26)
-BlackModeHeaderBtn.Position = UDim2.new(1, -110, 0, 6)
-BlackModeHeaderBtn.BackgroundColor3 = Colors.Purple
-BlackModeHeaderBtn.Text = "🌑3D"
-BlackModeHeaderBtn.TextColor3 = Color3.new(1, 1, 1)
+BlackModeHeaderBtn.Size = UDim2.new(0, 42, 0, 24)
+BlackModeHeaderBtn.Position = UDim2.new(1, -110, 0, 5)
+BlackModeHeaderBtn.BackgroundColor3 = Colors.Card
+BlackModeHeaderBtn.Text = "3D OFF"
+BlackModeHeaderBtn.TextColor3 = Colors.Text
 BlackModeHeaderBtn.Font = Enum.Font.GothamBold
-BlackModeHeaderBtn.TextSize = 11
+BlackModeHeaderBtn.TextSize = 10
 BlackModeHeaderBtn.ZIndex = 33
 BlackModeHeaderBtn.Parent = TopBar
-Instance.new("UICorner", BlackModeHeaderBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", BlackModeHeaderBtn).CornerRadius = UDim.new(0, 4)
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 30, 0, 26)
-MinBtn.Position = UDim2.new(1, -68, 0, 6)
+MinBtn.Size = UDim2.new(0, 28, 0, 24)
+MinBtn.Position = UDim2.new(1, -64, 0, 5)
 MinBtn.BackgroundColor3 = Colors.Card
-MinBtn.Text = "—"
+MinBtn.Text = "_"
 MinBtn.TextColor3 = Colors.Text
 MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 13
+MinBtn.TextSize = 12
 MinBtn.ZIndex = 33
 MinBtn.Parent = TopBar
-Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 30, 0, 26)
-CloseBtn.Position = UDim2.new(1, -34, 0, 6)
+CloseBtn.Size = UDim2.new(0, 28, 0, 24)
+CloseBtn.Position = UDim2.new(1, -32, 0, 5)
 CloseBtn.BackgroundColor3 = Colors.Red
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Colors.Text
 CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 13
+CloseBtn.TextSize = 12
 CloseBtn.ZIndex = 33
 CloseBtn.Parent = TopBar
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
 
 do
     local dragging = false
@@ -2735,8 +3031,8 @@ bindButton(TeleportNowOnBlackBtn, function()
 end)
 
 local TabBar = Instance.new("Frame")
-TabBar.Size = UDim2.new(1, -16, 0, 30)
-TabBar.Position = UDim2.new(0, 8, 0, 42)
+TabBar.Size = UDim2.new(1, -16, 0, 28)
+TabBar.Position = UDim2.new(0, 8, 0, 38)
 TabBar.BackgroundTransparency = 1
 TabBar.ZIndex = 31
 TabBar.Parent = MainFrame
@@ -2752,18 +3048,18 @@ local function createTabButton(text, posScale, widthScale)
     b.TextSize = 12
     b.ZIndex = 32
     b.Parent = TabBar
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
     return b
 end
 
-local TabFarmBtn = createTabButton("⚡ Фарм", 0, 0.25)
-local TabHousesBtn = createTabButton("🏠 Домики", 0.25, 0.25)
-local TabSettingsBtn = createTabButton("⚙️ Налашт.", 0.50, 0.25)
-local TabLogsBtn = createTabButton("📋 Лог", 0.75, 0.25)
+TabFarmBtn = createTabButton("Farm", 0, 0.25)
+TabHousesBtn = createTabButton("Houses", 0.25, 0.25)
+TabSettingsBtn = createTabButton("Settings", 0.50, 0.25)
+TabLogsBtn = createTabButton("Logs", 0.75, 0.25)
 
 local ContentArea = Instance.new("Frame")
-ContentArea.Size = UDim2.new(1, -16, 1, -80)
-ContentArea.Position = UDim2.new(0, 8, 0, 76)
+ContentArea.Size = UDim2.new(1, -16, 1, -74)
+ContentArea.Position = UDim2.new(0, 8, 0, 70)
 ContentArea.BackgroundTransparency = 1
 ContentArea.ZIndex = 31
 ContentArea.Parent = MainFrame
@@ -2773,19 +3069,19 @@ local function createPage()
     page.Size = UDim2.new(1, 0, 1, 0)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
-    page.ScrollBarThickness = 5
-    page.ScrollBarImageColor3 = Colors.Orange
+    page.ScrollBarThickness = 4
+    page.ScrollBarImageColor3 = Colors.Stroke
     page.Visible = false
     page.ZIndex = 32
     page.Parent = ContentArea
 
     local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 6)
+    layout.Padding = UDim.new(0, 5)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Parent = page
 
     trackConn(layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 14)
+        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
     end))
 
     return page
@@ -2804,8 +3100,8 @@ local function switchTab(activePage, activeBtn)
 
     for _, btn in ipairs({TabFarmBtn, TabHousesBtn, TabSettingsBtn, TabLogsBtn}) do
         if btn == activeBtn then
-            btn.BackgroundColor3 = Colors.Orange
-            btn.TextColor3 = Color3.new(1, 1, 1)
+            btn.BackgroundColor3 = Colors.Accent
+            btn.TextColor3 = Colors.Text
         else
             btn.BackgroundColor3 = Colors.Card
             btn.TextColor3 = Colors.SubText
@@ -2820,35 +3116,36 @@ bindButton(TabLogsBtn, function() switchTab(PageLogs, TabLogsBtn) end)
 
 FullAutoToggle = Instance.new("TextButton")
 FullAutoToggle.LayoutOrder = 1
-FullAutoToggle.Size = UDim2.new(1, -6, 0, 38)
+FullAutoToggle.Size = UDim2.new(1, -6, 0, 34)
 FullAutoToggle.BackgroundColor3 = Colors.Green
-FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ (10хв): УВІМК"
-FullAutoToggle.TextColor3 = Color3.new(1, 1, 1)
+FullAutoToggle.TextColor3 = Colors.Text
 FullAutoToggle.Font = Enum.Font.GothamBold
-FullAutoToggle.TextSize = 13
+FullAutoToggle.TextSize = 12
 FullAutoToggle.ZIndex = 33
 FullAutoToggle.Parent = PageFarm
-Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 5)
 
 EggStatusLabel = Instance.new("TextLabel")
 EggStatusLabel.LayoutOrder = 2
-EggStatusLabel.Size = UDim2.new(1, -6, 0, 18)
+EggStatusLabel.Size = UDim2.new(1, -6, 0, 16)
 EggStatusLabel.BackgroundTransparency = 1
-EggStatusLabel.Text = "🐣 Завантаження..."
-EggStatusLabel.TextColor3 = Colors.Orange
-EggStatusLabel.Font = Enum.Font.GothamBold
-EggStatusLabel.TextSize = 12
+EggStatusLabel.Text = "Eggs: Ready"
+EggStatusLabel.TextColor3 = Colors.SubText
+EggStatusLabel.Font = Enum.Font.Gotham
+EggStatusLabel.TextSize = 11
+EggStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 EggStatusLabel.ZIndex = 33
 EggStatusLabel.Parent = PageFarm
 
 HouseStatusLabel = Instance.new("TextLabel")
 HouseStatusLabel.LayoutOrder = 3
-HouseStatusLabel.Size = UDim2.new(1, -6, 0, 18)
+HouseStatusLabel.Size = UDim2.new(1, -6, 0, 16)
 HouseStatusLabel.BackgroundTransparency = 1
-HouseStatusLabel.Text = "🏠 Домики без КД готові до відкриття (таймер 10хв після)"
-HouseStatusLabel.TextColor3 = Colors.Green
-HouseStatusLabel.Font = Enum.Font.GothamBold
-HouseStatusLabel.TextSize = 12
+HouseStatusLabel.Text = "Houses: Ready (10m timer after open)"
+HouseStatusLabel.TextColor3 = Colors.SubText
+HouseStatusLabel.Font = Enum.Font.Gotham
+HouseStatusLabel.TextSize = 11
+HouseStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 HouseStatusLabel.ZIndex = 33
 HouseStatusLabel.Parent = PageFarm
 
@@ -2863,49 +3160,43 @@ bindButton(FullAutoToggle, function()
             saveCoordsToDisk(hrp.CFrame)
         end
         FullAutoToggle.BackgroundColor3 = Colors.Green
-        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ (10хв): УВІМК"
     else
         FullAutoToggle.BackgroundColor3 = Colors.Red
-        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ (10хв): ВИМК"
     end
+    refreshAllMenuLabels()
 end)
 
 MagnetFlagToggleBtn = Instance.new("TextButton")
 MagnetFlagToggleBtn.LayoutOrder = 4
-MagnetFlagToggleBtn.Size = UDim2.new(1, -6, 0, 32)
+MagnetFlagToggleBtn.Size = UDim2.new(1, -6, 0, 30)
 MagnetFlagToggleBtn.BackgroundColor3 = Colors.Green
-MagnetFlagToggleBtn.Text = "🧲 Авто-Флаг: ТІЛЬКИ Magnet Flag (Магніт): УВІМК"
-MagnetFlagToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+MagnetFlagToggleBtn.TextColor3 = Colors.Text
 MagnetFlagToggleBtn.Font = Enum.Font.GothamBold
 MagnetFlagToggleBtn.TextSize = 12
 MagnetFlagToggleBtn.ZIndex = 33
 MagnetFlagToggleBtn.Parent = PageFarm
-Instance.new("UICorner", MagnetFlagToggleBtn).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", MagnetFlagToggleBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(MagnetFlagToggleBtn, function()
     State.AutoMagnetFlag = not State.AutoMagnetFlag
+    MagnetFlagToggleBtn.BackgroundColor3 = State.AutoMagnetFlag and Colors.Green or Colors.Red
+    refreshAllMenuLabels()
     if State.AutoMagnetFlag then
-        MagnetFlagToggleBtn.BackgroundColor3 = Colors.Green
-        MagnetFlagToggleBtn.Text = "🧲 Авто-Флаг: ТІЛЬКИ Magnet Flag (Магніт): УВІМК"
-        task.spawn(useOnlyMagnetFlag)
-    else
-        MagnetFlagToggleBtn.BackgroundColor3 = Colors.Red
-        MagnetFlagToggleBtn.Text = "🧲 Авто-Флаг: ТІЛЬКИ Magnet Flag (Магніт): ВИМК"
+        task.spawn(useOnlyMagnetFlagIfNoneActive)
     end
 end)
 
 local function createLanguageSelectorBlock(parentPage, orderIdx, isFarmRef)
     local cycleBtn = Instance.new("TextButton")
     cycleBtn.LayoutOrder = orderIdx
-    cycleBtn.Size = UDim2.new(1, -6, 0, 32)
-    cycleBtn.BackgroundColor3 = Colors.Purple
-    cycleBtn.Text = "🌐 Мова гри: 🇬🇧 АНГЛ (EN)  (АНГЛ ➔ УКР ➔ РУС)"
-    cycleBtn.TextColor3 = Color3.new(1, 1, 1)
+    cycleBtn.Size = UDim2.new(1, -6, 0, 30)
+    cycleBtn.BackgroundColor3 = Colors.CardBright
+    cycleBtn.TextColor3 = Colors.Text
     cycleBtn.Font = Enum.Font.GothamBold
     cycleBtn.TextSize = 12
     cycleBtn.ZIndex = 33
     cycleBtn.Parent = parentPage
-    Instance.new("UICorner", cycleBtn).CornerRadius = UDim.new(0, 7)
+    Instance.new("UICorner", cycleBtn).CornerRadius = UDim.new(0, 5)
 
     if isFarmRef then
         LangCycleBtnFarm = cycleBtn
@@ -2919,23 +3210,24 @@ local function createLanguageSelectorBlock(parentPage, orderIdx, isFarmRef)
 
     local row = Instance.new("Frame")
     row.LayoutOrder = orderIdx + 1
-    row.Size = UDim2.new(1, -6, 0, 28)
+    row.Size = UDim2.new(1, -6, 0, 26)
     row.BackgroundTransparency = 1
     row.ZIndex = 33
     row.Parent = parentPage
 
-    for idx, info in ipairs(LanguageOrder) do
+    local labels = { "1. EN (English)", "2. UK (Українська)", "3. RU (Русский)" }
+    for idx = 1, 3 do
         local b = Instance.new("TextButton")
         b.Size = UDim2.new(0.333, -3, 1, 0)
         b.Position = UDim2.new((idx - 1) * 0.333, 1, 0, 0)
         b.BackgroundColor3 = (idx == State.LanguageIndex) and Colors.Green or Colors.Card
-        b.Text = string.format("%d. %s", idx, info.label)
-        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = labels[idx]
+        b.TextColor3 = Colors.Text
         b.Font = Enum.Font.GothamBold
         b.TextSize = 11
         b.ZIndex = 34
         b.Parent = row
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
         LangDirectBtns[idx] = LangDirectBtns[idx] or {}
         table.insert(LangDirectBtns[idx], b)
         bindButton(b, function()
@@ -2946,68 +3238,64 @@ end
 
 createLanguageSelectorBlock(PageFarm, 5, true)
 
-local OnlyEggsToggle = Instance.new("TextButton")
+OnlyEggsToggle = Instance.new("TextButton")
 OnlyEggsToggle.LayoutOrder = 7
-OnlyEggsToggle.Size = UDim2.new(1, -6, 0, 32)
+OnlyEggsToggle.Size = UDim2.new(1, -6, 0, 30)
 OnlyEggsToggle.BackgroundColor3 = Colors.Card
-OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця (без домиків): ВИМК"
 OnlyEggsToggle.TextColor3 = Colors.Text
 OnlyEggsToggle.Font = Enum.Font.GothamBold
 OnlyEggsToggle.TextSize = 12
 OnlyEggsToggle.ZIndex = 33
 OnlyEggsToggle.Parent = PageFarm
-Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 5)
 
 bindButton(OnlyEggsToggle, function()
     State.AutoEggs = not State.AutoEggs
     if State.AutoEggs then
         setupInstantEggAnimationBypass()
         OnlyEggsToggle.BackgroundColor3 = Colors.Green
-        OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця (без домиків): УВІМК"
     else
         OnlyEggsToggle.BackgroundColor3 = Colors.Card
-        OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця (без домиків): ВИМК"
     end
+    refreshAllMenuLabels()
 end)
 
-local InstantAnimToggle = Instance.new("TextButton")
+InstantAnimToggle = Instance.new("TextButton")
 InstantAnimToggle.LayoutOrder = 8
-InstantAnimToggle.Size = UDim2.new(1, -6, 0, 32)
+InstantAnimToggle.Size = UDim2.new(1, -6, 0, 30)
 InstantAnimToggle.BackgroundColor3 = Colors.Green
-InstantAnimToggle.Text = "⚡ Миттєве відкриття (без тук-тук і лагів): УВІМК"
-InstantAnimToggle.TextColor3 = Color3.new(1, 1, 1)
+InstantAnimToggle.TextColor3 = Colors.Text
 InstantAnimToggle.Font = Enum.Font.GothamBold
 InstantAnimToggle.TextSize = 12
 InstantAnimToggle.ZIndex = 33
 InstantAnimToggle.Parent = PageFarm
-Instance.new("UICorner", InstantAnimToggle).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", InstantAnimToggle).CornerRadius = UDim.new(0, 5)
 
 bindButton(InstantAnimToggle, function()
     State.InstantEggOpen = not State.InstantEggOpen
     if State.InstantEggOpen then
         setupInstantEggAnimationBypass()
         InstantAnimToggle.BackgroundColor3 = Colors.Green
-        InstantAnimToggle.Text = "⚡ Миттєве відкриття (без тук-тук і лагів): УВІМК"
     else
         InstantAnimToggle.BackgroundColor3 = Colors.Card
-        InstantAnimToggle.Text = "⚡ Миттєве відкриття (без тук-тук і лагів): ВИМК"
     end
+    refreshAllMenuLabels()
 end)
 
 EggCountInput = Instance.new("TextBox")
 EggCountInput.LayoutOrder = 9
-EggCountInput.Size = UDim2.new(1, -6, 0, 30)
+EggCountInput.Size = UDim2.new(1, -6, 0, 28)
 EggCountInput.BackgroundColor3 = Colors.InputBg
 EggCountInput.Text = "79"
-EggCountInput.PlaceholderText = "Кількість яєць (79, або 0 = Авто для інших)"
+EggCountInput.PlaceholderText = "Egg batch size (79, or 0 = Auto)"
 EggCountInput.PlaceholderColor3 = Colors.SubText
-EggCountInput.TextColor3 = Colors.Orange
+EggCountInput.TextColor3 = Colors.Text
 EggCountInput.Font = Enum.Font.GothamBold
 EggCountInput.TextSize = 12
 EggCountInput.ClearTextOnFocus = false
 EggCountInput.ZIndex = 33
 EggCountInput.Parent = PageFarm
-Instance.new("UICorner", EggCountInput).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", EggCountInput).CornerRadius = UDim.new(0, 4)
 
 local autoDetectedOnStart = detectPlayerMaxEggHatch()
 if autoDetectedOnStart and autoDetectedOnStart > 1 then
@@ -3038,34 +3326,32 @@ end))
 
 local PosRow = Instance.new("Frame")
 PosRow.LayoutOrder = 10
-PosRow.Size = UDim2.new(1, -6, 0, 34)
+PosRow.Size = UDim2.new(1, -6, 0, 30)
 PosRow.BackgroundTransparency = 1
 PosRow.ZIndex = 33
 PosRow.Parent = PageFarm
 
-local SaveEggPosBtn = Instance.new("TextButton")
-SaveEggPosBtn.Size = UDim2.new(0.52, -3, 1, 0)
+SaveEggPosBtn = Instance.new("TextButton")
+SaveEggPosBtn.Size = UDim2.new(0.5, -3, 1, 0)
 SaveEggPosBtn.Position = UDim2.new(0, 0, 0, 0)
-SaveEggPosBtn.BackgroundColor3 = Colors.Blue
-SaveEggPosBtn.Text = "📍 Зберегти ці координати"
-SaveEggPosBtn.TextColor3 = Color3.new(1, 1, 1)
+SaveEggPosBtn.BackgroundColor3 = Colors.CardBright
+SaveEggPosBtn.TextColor3 = Colors.Text
 SaveEggPosBtn.Font = Enum.Font.GothamBold
 SaveEggPosBtn.TextSize = 12
 SaveEggPosBtn.ZIndex = 34
 SaveEggPosBtn.Parent = PosRow
-Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 4)
 
-local ReturnToEggBtn = Instance.new("TextButton")
-ReturnToEggBtn.Size = UDim2.new(0.48, -3, 1, 0)
-ReturnToEggBtn.Position = UDim2.new(0.52, 3, 0, 0)
-ReturnToEggBtn.BackgroundColor3 = Colors.Orange
-ReturnToEggBtn.Text = "🚀 В Івент і на Координати"
-ReturnToEggBtn.TextColor3 = Color3.new(1, 1, 1)
+ReturnToEggBtn = Instance.new("TextButton")
+ReturnToEggBtn.Size = UDim2.new(0.5, -3, 1, 0)
+ReturnToEggBtn.Position = UDim2.new(0.5, 3, 0, 0)
+ReturnToEggBtn.BackgroundColor3 = Colors.Accent
+ReturnToEggBtn.TextColor3 = Colors.Text
 ReturnToEggBtn.Font = Enum.Font.GothamBold
 ReturnToEggBtn.TextSize = 12
 ReturnToEggBtn.ZIndex = 34
 ReturnToEggBtn.Parent = PosRow
-Instance.new("UICorner", ReturnToEggBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", ReturnToEggBtn).CornerRadius = UDim.new(0, 4)
 
 bindButton(SaveEggPosBtn, function()
     local char = LocalPlayer.Character
@@ -3076,9 +3362,9 @@ bindButton(SaveEggPosBtn, function()
         State.CachedEggRemoteName = nil
         State.LearnedBatchCost = 0
         saveCoordsToDisk(hrp.CFrame)
-        SaveEggPosBtn.Text = "✅ Координати збережено!"
-        task.delay(1.5, function()
-            if SaveEggPosBtn then SaveEggPosBtn.Text = "📍 Зберегти ці координати" end
+        SaveEggPosBtn.Text = L().savedPos
+        task.delay(1.2, function()
+            refreshAllMenuLabels()
         end)
     end
 end)
@@ -3087,17 +3373,16 @@ bindButton(ReturnToEggBtn, function()
     task.spawn(enterHalloweenEventAndGoToCoords)
 end)
 
-local RunHousesNowBtn = Instance.new("TextButton")
+RunHousesNowBtn = Instance.new("TextButton")
 RunHousesNowBtn.LayoutOrder = 1
-RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 38)
-RunHousesNowBtn.BackgroundColor3 = Colors.Orange
-RunHousesNowBtn.Text = "⚡ Відкрити доступні домики зараз (4с -> таймер 10хв)"
-RunHousesNowBtn.TextColor3 = Color3.new(1, 1, 1)
+RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 34)
+RunHousesNowBtn.BackgroundColor3 = Colors.Accent
+RunHousesNowBtn.TextColor3 = Colors.Text
 RunHousesNowBtn.Font = Enum.Font.GothamBold
 RunHousesNowBtn.TextSize = 12
 RunHousesNowBtn.ZIndex = 33
 RunHousesNowBtn.Parent = PageHouses
-Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(RunHousesNowBtn, function()
     task.spawn(function()
@@ -3105,67 +3390,58 @@ bindButton(RunHousesNowBtn, function()
     end)
 end)
 
-local AutoBuyHouseToggle = Instance.new("TextButton")
+AutoBuyHouseToggle = Instance.new("TextButton")
 AutoBuyHouseToggle.LayoutOrder = 2
-AutoBuyHouseToggle.Size = UDim2.new(1, -6, 0, 34)
+AutoBuyHouseToggle.Size = UDim2.new(1, -6, 0, 32)
 AutoBuyHouseToggle.BackgroundColor3 = Colors.Green
-AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: УВІМК"
-AutoBuyHouseToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoBuyHouseToggle.TextColor3 = Colors.Text
 AutoBuyHouseToggle.Font = Enum.Font.GothamBold
 AutoBuyHouseToggle.TextSize = 12
 AutoBuyHouseToggle.ZIndex = 33
 AutoBuyHouseToggle.Parent = PageHouses
-Instance.new("UICorner", AutoBuyHouseToggle).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", AutoBuyHouseToggle).CornerRadius = UDim.new(0, 5)
 
 bindButton(AutoBuyHouseToggle, function()
     State.AutoBuyHouses = not State.AutoBuyHouses
-    if State.AutoBuyHouses then
-        AutoBuyHouseToggle.BackgroundColor3 = Colors.Green
-        AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: УВІМК"
-    else
-        AutoBuyHouseToggle.BackgroundColor3 = Colors.Red
-        AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: ВИМК"
-    end
+    AutoBuyHouseToggle.BackgroundColor3 = State.AutoBuyHouses and Colors.Green or Colors.Red
+    refreshAllMenuLabels()
 end)
 
 local RouteRow = Instance.new("Frame")
 RouteRow.LayoutOrder = 3
-RouteRow.Size = UDim2.new(1, -6, 0, 34)
+RouteRow.Size = UDim2.new(1, -6, 0, 30)
 RouteRow.BackgroundTransparency = 1
 RouteRow.ZIndex = 33
 RouteRow.Parent = PageHouses
 
-local AddPointBtn = Instance.new("TextButton")
-AddPointBtn.Size = UDim2.new(0.62, -3, 1, 0)
+AddPointBtn = Instance.new("TextButton")
+AddPointBtn.Size = UDim2.new(0.6, -3, 1, 0)
 AddPointBtn.Position = UDim2.new(0, 0, 0, 0)
-AddPointBtn.BackgroundColor3 = Colors.Blue
-AddPointBtn.Text = "➕ Додати відкритий дім (0)"
-AddPointBtn.TextColor3 = Color3.new(1, 1, 1)
+AddPointBtn.BackgroundColor3 = Colors.CardBright
+AddPointBtn.TextColor3 = Colors.Text
 AddPointBtn.Font = Enum.Font.GothamBold
-AddPointBtn.TextSize = 12
+AddPointBtn.TextSize = 11
 AddPointBtn.ZIndex = 34
 AddPointBtn.Parent = RouteRow
-Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 4)
 
-local ClearPointsBtn = Instance.new("TextButton")
-ClearPointsBtn.Size = UDim2.new(0.38, -3, 1, 0)
-ClearPointsBtn.Position = UDim2.new(0.62, 3, 0, 0)
+ClearPointsBtn = Instance.new("TextButton")
+ClearPointsBtn.Size = UDim2.new(0.4, -3, 1, 0)
+ClearPointsBtn.Position = UDim2.new(0.6, 3, 0, 0)
 ClearPointsBtn.BackgroundColor3 = Colors.Card
-ClearPointsBtn.Text = "🗑️ Скинути 10хв КД"
 ClearPointsBtn.TextColor3 = Colors.Text
 ClearPointsBtn.Font = Enum.Font.GothamBold
 ClearPointsBtn.TextSize = 11
 ClearPointsBtn.ZIndex = 34
 ClearPointsBtn.Parent = RouteRow
-Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 4)
 
 bindButton(AddPointBtn, function()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if hrp then
         table.insert(State.CustomHousePoints, hrp.CFrame)
-        AddPointBtn.Text = "➕ Додати відкритий дім (" .. #State.CustomHousePoints .. ")"
-        setStatusText(nil, "🏠 Додано відкритий дім #" .. #State.CustomHousePoints)
+        refreshAllMenuLabels()
     end
 end)
 
@@ -3173,13 +3449,12 @@ bindButton(ClearPointsBtn, function()
     State.CustomHousePoints = {}
     State.HouseCooldownMap = {}
     State.LockedHouseInfo = {}
-    AddPointBtn.Text = "➕ Додати відкритий дім (0)"
-    setStatusText(nil, "🏠 Усі 10хв таймери та статус закритих домиків скинуто!")
+    refreshAllMenuLabels()
 end)
 
 local LimitRow = Instance.new("Frame")
 LimitRow.LayoutOrder = 4
-LimitRow.Size = UDim2.new(1, -6, 0, 30)
+LimitRow.Size = UDim2.new(1, -6, 0, 28)
 LimitRow.BackgroundTransparency = 1
 LimitRow.ZIndex = 33
 LimitRow.Parent = PageHouses
@@ -3189,63 +3464,56 @@ local function makeLimitBtn(label, val, idx)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(0.2, -3, 1, 0)
     b.Position = UDim2.new((idx - 1) * 0.2, 1, 0, 0)
-    b.BackgroundColor3 = (State.MaxUnlockedHouses == val) and Colors.Orange or Colors.Card
+    b.BackgroundColor3 = (State.MaxUnlockedHouses == val) and Colors.Accent or Colors.Card
     b.Text = label
-    b.TextColor3 = Color3.new(1, 1, 1)
+    b.TextColor3 = Colors.Text
     b.Font = Enum.Font.GothamBold
     b.TextSize = 11
     b.ZIndex = 34
     b.Parent = LimitRow
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
     LimitBtns[val] = b
     bindButton(b, function()
         State.MaxUnlockedHouses = val
         for k, btn in pairs(LimitBtns) do
-            btn.BackgroundColor3 = (k == val) and Colors.Orange or Colors.Card
+            btn.BackgroundColor3 = (k == val) and Colors.Accent or Colors.Card
         end
     end)
 end
 
-makeLimitBtn("1 дім", 1, 1)
-makeLimitBtn("2 доми", 2, 2)
-makeLimitBtn("3 доми", 3, 3)
-makeLimitBtn("4 доми", 4, 4)
-makeLimitBtn("Авто Всі", 0, 5)
+makeLimitBtn("1", 1, 1)
+makeLimitBtn("2", 2, 2)
+makeLimitBtn("3", 3, 3)
+makeLimitBtn("4", 4, 4)
+makeLimitBtn("All", 0, 5)
 
-local AutoCapToggle = Instance.new("TextButton")
+AutoCapToggle = Instance.new("TextButton")
 AutoCapToggle.LayoutOrder = 5
-AutoCapToggle.Size = UDim2.new(1, -6, 0, 32)
+AutoCapToggle.Size = UDim2.new(1, -6, 0, 30)
 AutoCapToggle.BackgroundColor3 = Colors.Green
-AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: УВІМК"
-AutoCapToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoCapToggle.TextColor3 = Colors.Text
 AutoCapToggle.Font = Enum.Font.GothamBold
 AutoCapToggle.TextSize = 12
 AutoCapToggle.ZIndex = 33
 AutoCapToggle.Parent = PageHouses
-Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 5)
 
 bindButton(AutoCapToggle, function()
     State.AutoMinigame = not State.AutoMinigame
-    if State.AutoMinigame then
-        AutoCapToggle.BackgroundColor3 = Colors.Green
-        AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: УВІМК"
-    else
-        AutoCapToggle.BackgroundColor3 = Colors.Red
-        AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: ВИМК"
-    end
+    AutoCapToggle.BackgroundColor3 = State.AutoMinigame and Colors.Green or Colors.Red
+    refreshAllMenuLabels()
 end)
 
 BlackToggleBtnInSettings = Instance.new("TextButton")
 BlackToggleBtnInSettings.LayoutOrder = 1
-BlackToggleBtnInSettings.Size = UDim2.new(1, -6, 0, 36)
+BlackToggleBtnInSettings.Size = UDim2.new(1, -6, 0, 32)
 BlackToggleBtnInSettings.BackgroundColor3 = Colors.Green
-BlackToggleBtnInSettings.Text = "🌑 Чорний Екран Статистики + 3D ВИМК: АКТИВНО"
-BlackToggleBtnInSettings.TextColor3 = Color3.new(1, 1, 1)
+BlackToggleBtnInSettings.TextColor3 = Colors.Text
 BlackToggleBtnInSettings.Font = Enum.Font.GothamBold
 BlackToggleBtnInSettings.TextSize = 12
 BlackToggleBtnInSettings.ZIndex = 33
 BlackToggleBtnInSettings.Parent = PageSettings
-Instance.new("UICorner", BlackToggleBtnInSettings).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", BlackToggleBtnInSettings).CornerRadius = UDim.new(0, 5)
 
 bindButton(BlackToggleBtnInSettings, function()
     setBlackScreenMode(not State.BlackScreenActive)
@@ -3253,15 +3521,14 @@ end)
 
 Render3DToggleBtn = Instance.new("TextButton")
 Render3DToggleBtn.LayoutOrder = 2
-Render3DToggleBtn.Size = UDim2.new(1, -6, 0, 34)
+Render3DToggleBtn.Size = UDim2.new(1, -6, 0, 30)
 Render3DToggleBtn.BackgroundColor3 = Colors.Green
-Render3DToggleBtn.Text = "🎮 3D Графіка (Рендер світу): УВІМК"
-Render3DToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+Render3DToggleBtn.TextColor3 = Colors.Text
 Render3DToggleBtn.Font = Enum.Font.GothamBold
 Render3DToggleBtn.TextSize = 12
 Render3DToggleBtn.ZIndex = 33
 Render3DToggleBtn.Parent = PageSettings
-Instance.new("UICorner", Render3DToggleBtn).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", Render3DToggleBtn).CornerRadius = UDim.new(0, 5)
 
 bindButton(Render3DToggleBtn, function()
     set3DRendering(not State.Rendering3DEnabled)
@@ -3269,62 +3536,55 @@ end)
 
 createLanguageSelectorBlock(PageSettings, 3, false)
 
-local JumpToggle = Instance.new("TextButton")
+JumpToggle = Instance.new("TextButton")
 JumpToggle.LayoutOrder = 5
-JumpToggle.Size = UDim2.new(1, -6, 0, 32)
+JumpToggle.Size = UDim2.new(1, -6, 0, 30)
 JumpToggle.BackgroundColor3 = Colors.Green
-JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): УВІМК"
-JumpToggle.TextColor3 = Color3.new(1, 1, 1)
+JumpToggle.TextColor3 = Colors.Text
 JumpToggle.Font = Enum.Font.GothamBold
 JumpToggle.TextSize = 12
 JumpToggle.ZIndex = 33
 JumpToggle.Parent = PageSettings
-Instance.new("UICorner", JumpToggle).CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", JumpToggle).CornerRadius = UDim.new(0, 5)
 
 bindButton(JumpToggle, function()
     State.AutoJump20s = not State.AutoJump20s
-    if State.AutoJump20s then
-        JumpToggle.BackgroundColor3 = Colors.Green
-        JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): УВІМК"
-    else
-        JumpToggle.BackgroundColor3 = Colors.Red
-        JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): ВИМК"
-    end
+    JumpToggle.BackgroundColor3 = State.AutoJump20s and Colors.Green or Colors.Red
+    refreshAllMenuLabels()
 end)
 
 local CoordsRow = Instance.new("Frame")
 CoordsRow.LayoutOrder = 6
-CoordsRow.Size = UDim2.new(1, -6, 0, 32)
+CoordsRow.Size = UDim2.new(1, -6, 0, 30)
 CoordsRow.BackgroundTransparency = 1
 CoordsRow.ZIndex = 33
 CoordsRow.Parent = PageSettings
 
 CoordsInputBox = Instance.new("TextBox")
-CoordsInputBox.Size = UDim2.new(0.65, -3, 1, 0)
+CoordsInputBox.Size = UDim2.new(0.66, -3, 1, 0)
 CoordsInputBox.Position = UDim2.new(0, 0, 0, 0)
 CoordsInputBox.BackgroundColor3 = Colors.InputBg
 CoordsInputBox.Text = "7538.1, 15.7, 21965.5"
-CoordsInputBox.PlaceholderText = "Координати X, Y, Z"
+CoordsInputBox.PlaceholderText = "X, Y, Z"
 CoordsInputBox.PlaceholderColor3 = Colors.SubText
-CoordsInputBox.TextColor3 = Colors.Orange
+CoordsInputBox.TextColor3 = Colors.Text
 CoordsInputBox.Font = Enum.Font.GothamBold
 CoordsInputBox.TextSize = 11
 CoordsInputBox.ClearTextOnFocus = false
 CoordsInputBox.ZIndex = 34
 CoordsInputBox.Parent = CoordsRow
-Instance.new("UICorner", CoordsInputBox).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", CoordsInputBox).CornerRadius = UDim.new(0, 4)
 
-local SetCoordsManualBtn = Instance.new("TextButton")
-SetCoordsManualBtn.Size = UDim2.new(0.35, -3, 1, 0)
-SetCoordsManualBtn.Position = UDim2.new(0.65, 3, 0, 0)
-SetCoordsManualBtn.BackgroundColor3 = Colors.Blue
-SetCoordsManualBtn.Text = "💾 Застосувати"
-SetCoordsManualBtn.TextColor3 = Color3.new(1, 1, 1)
+SetCoordsManualBtn = Instance.new("TextButton")
+SetCoordsManualBtn.Size = UDim2.new(0.34, -3, 1, 0)
+SetCoordsManualBtn.Position = UDim2.new(0.66, 3, 0, 0)
+SetCoordsManualBtn.BackgroundColor3 = Colors.Accent
+SetCoordsManualBtn.TextColor3 = Colors.Text
 SetCoordsManualBtn.Font = Enum.Font.GothamBold
 SetCoordsManualBtn.TextSize = 11
 SetCoordsManualBtn.ZIndex = 34
 SetCoordsManualBtn.Parent = CoordsRow
-Instance.new("UICorner", SetCoordsManualBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", SetCoordsManualBtn).CornerRadius = UDim.new(0, 4)
 
 bindButton(SetCoordsManualBtn, function()
     local raw = CoordsInputBox.Text or ""
@@ -3334,19 +3594,12 @@ bindButton(SetCoordsManualBtn, function()
         State.SavedEggCFrame = cf
         saveCoordsToDisk(cf)
         teleportSafelyTo(cf)
-    else
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            State.SavedEggCFrame = hrp.CFrame
-            saveCoordsToDisk(hrp.CFrame)
-        end
     end
 end)
 
 local DelaysRow = Instance.new("Frame")
 DelaysRow.LayoutOrder = 7
-DelaysRow.Size = UDim2.new(1, -6, 0, 32)
+DelaysRow.Size = UDim2.new(1, -6, 0, 28)
 DelaysRow.BackgroundTransparency = 1
 DelaysRow.ZIndex = 33
 DelaysRow.Parent = PageSettings
@@ -3355,112 +3608,101 @@ local HouseDelayInput = Instance.new("TextBox")
 HouseDelayInput.Size = UDim2.new(0.5, -3, 1, 0)
 HouseDelayInput.Position = UDim2.new(0, 0, 0, 0)
 HouseDelayInput.BackgroundColor3 = Colors.InputBg
-HouseDelayInput.Text = "Домик пауза: 4 с"
-HouseDelayInput.PlaceholderText = "Пауза на домик (сек, напр. 4)"
+HouseDelayInput.Text = "House delay: 4s"
+HouseDelayInput.PlaceholderText = "House delay (4s)"
 HouseDelayInput.PlaceholderColor3 = Colors.SubText
-HouseDelayInput.TextColor3 = Colors.Green
-HouseDelayInput.Font = Enum.Font.GothamBold
+HouseDelayInput.TextColor3 = Colors.Text
+HouseDelayInput.Font = Enum.Font.Gotham
 HouseDelayInput.TextSize = 11
 HouseDelayInput.ClearTextOnFocus = true
 HouseDelayInput.ZIndex = 34
 HouseDelayInput.Parent = DelaysRow
-Instance.new("UICorner", HouseDelayInput).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", HouseDelayInput).CornerRadius = UDim.new(0, 4)
 
 trackConn(HouseDelayInput.FocusLost:Connect(function()
     local v = tonumber(string.match(HouseDelayInput.Text or "", "([%d%.]+)"))
-    if v and v >= 1 then
-        State.HouseStepDelay = v
-    else
-        State.HouseStepDelay = 4.0
-    end
-    HouseDelayInput.Text = string.format("Домик пауза: %.1f с", State.HouseStepDelay)
+    State.HouseStepDelay = (v and v >= 1) and v or 4.0
+    HouseDelayInput.Text = string.format("House delay: %.1fs", State.HouseStepDelay)
 end))
 
 local EggDelayInput = Instance.new("TextBox")
 EggDelayInput.Size = UDim2.new(0.5, -3, 1, 0)
 EggDelayInput.Position = UDim2.new(0.5, 3, 0, 0)
 EggDelayInput.BackgroundColor3 = Colors.InputBg
-EggDelayInput.Text = "Яйця пауза: 2 с"
-EggDelayInput.PlaceholderText = "Пауза між яйцями (сек, напр. 2)"
+EggDelayInput.Text = "Egg delay: 2s"
+EggDelayInput.PlaceholderText = "Egg delay (2s)"
 EggDelayInput.PlaceholderColor3 = Colors.SubText
-EggDelayInput.TextColor3 = Colors.Orange
-EggDelayInput.Font = Enum.Font.GothamBold
+EggDelayInput.TextColor3 = Colors.Text
+EggDelayInput.Font = Enum.Font.Gotham
 EggDelayInput.TextSize = 11
 EggDelayInput.ClearTextOnFocus = true
 EggDelayInput.ZIndex = 34
 EggDelayInput.Parent = DelaysRow
-Instance.new("UICorner", EggDelayInput).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", EggDelayInput).CornerRadius = UDim.new(0, 4)
 
 trackConn(EggDelayInput.FocusLost:Connect(function()
     local v = tonumber(string.match(EggDelayInput.Text or "", "([%d%.]+)"))
-    if v and v >= 0.5 then
-        State.EggHatchDelay = v
-    else
-        State.EggHatchDelay = 2.0
-    end
-    EggDelayInput.Text = string.format("Яйця пауза: %.1f с", State.EggHatchDelay)
+    State.EggHatchDelay = (v and v >= 0.5) and v or 2.0
+    EggDelayInput.Text = string.format("Egg delay: %.1fs", State.EggHatchDelay)
 end))
 
 local LogBtnsRow = Instance.new("Frame")
 LogBtnsRow.LayoutOrder = 1
-LogBtnsRow.Size = UDim2.new(1, -6, 0, 32)
+LogBtnsRow.Size = UDim2.new(1, -6, 0, 30)
 LogBtnsRow.BackgroundTransparency = 1
 LogBtnsRow.ZIndex = 33
 LogBtnsRow.Parent = PageLogs
 
-local CopyLogsBtn = Instance.new("TextButton")
+CopyLogsBtn = Instance.new("TextButton")
 CopyLogsBtn.Size = UDim2.new(0.34, -3, 1, 0)
 CopyLogsBtn.Position = UDim2.new(0, 0, 0, 0)
 CopyLogsBtn.BackgroundColor3 = Colors.Green
-CopyLogsBtn.Text = "📋 Копіювати"
-CopyLogsBtn.TextColor3 = Color3.new(1, 1, 1)
+CopyLogsBtn.TextColor3 = Colors.Text
 CopyLogsBtn.Font = Enum.Font.GothamBold
 CopyLogsBtn.TextSize = 12
 CopyLogsBtn.ZIndex = 34
 CopyLogsBtn.Parent = LogBtnsRow
-Instance.new("UICorner", CopyLogsBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", CopyLogsBtn).CornerRadius = UDim.new(0, 4)
 
-local DiagEventBtn = Instance.new("TextButton")
+DiagEventBtn = Instance.new("TextButton")
 DiagEventBtn.Size = UDim2.new(0.34, -3, 1, 0)
 DiagEventBtn.Position = UDim2.new(0.34, 2, 0, 0)
-DiagEventBtn.BackgroundColor3 = Colors.Orange
-DiagEventBtn.Text = "🔍 Сканер"
-DiagEventBtn.TextColor3 = Color3.new(1, 1, 1)
+DiagEventBtn.BackgroundColor3 = Colors.Accent
+DiagEventBtn.TextColor3 = Colors.Text
 DiagEventBtn.Font = Enum.Font.GothamBold
 DiagEventBtn.TextSize = 12
 DiagEventBtn.ZIndex = 34
 DiagEventBtn.Parent = LogBtnsRow
-Instance.new("UICorner", DiagEventBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", DiagEventBtn).CornerRadius = UDim.new(0, 4)
 
-local ClearLogsBtn = Instance.new("TextButton")
+ClearLogsBtn = Instance.new("TextButton")
 ClearLogsBtn.Size = UDim2.new(0.32, -3, 1, 0)
 ClearLogsBtn.Position = UDim2.new(0.68, 4, 0, 0)
 ClearLogsBtn.BackgroundColor3 = Colors.Red
-ClearLogsBtn.Text = "🗑️ Очистити"
-ClearLogsBtn.TextColor3 = Color3.new(1, 1, 1)
+ClearLogsBtn.TextColor3 = Colors.Text
 ClearLogsBtn.Font = Enum.Font.GothamBold
 ClearLogsBtn.TextSize = 12
 ClearLogsBtn.ZIndex = 34
 ClearLogsBtn.Parent = LogBtnsRow
-Instance.new("UICorner", ClearLogsBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", ClearLogsBtn).CornerRadius = UDim.new(0, 4)
 
 LogScrollFrame = Instance.new("ScrollingFrame")
 LogScrollFrame.LayoutOrder = 2
 LogScrollFrame.Size = UDim2.new(1, -6, 0, 200)
 LogScrollFrame.BackgroundColor3 = Colors.InputBg
 LogScrollFrame.BorderSizePixel = 0
-LogScrollFrame.ScrollBarThickness = 5
-LogScrollFrame.ScrollBarImageColor3 = Colors.Orange
+LogScrollFrame.ScrollBarThickness = 4
+LogScrollFrame.ScrollBarImageColor3 = Colors.Stroke
 LogScrollFrame.ZIndex = 33
 LogScrollFrame.Parent = PageLogs
-Instance.new("UICorner", LogScrollFrame).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", LogScrollFrame).CornerRadius = UDim.new(0, 4)
 
 LogBoxLabel = Instance.new("TextLabel")
 LogBoxLabel.Size = UDim2.new(1, -12, 0, 195)
 LogBoxLabel.Position = UDim2.new(0, 6, 0, 4)
 LogBoxLabel.BackgroundTransparency = 1
 LogBoxLabel.Text = ""
-LogBoxLabel.TextColor3 = Color3.fromRGB(210, 230, 215)
+LogBoxLabel.TextColor3 = Colors.Text
 LogBoxLabel.Font = Enum.Font.Code
 LogBoxLabel.TextSize = 11
 LogBoxLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -3473,9 +3715,9 @@ LogBoxLabel.Parent = LogScrollFrame
 bindButton(CopyLogsBtn, function()
     local fullText = table.concat(State.Logs, "\n")
     if copyToClipboard(fullText) then
-        CopyLogsBtn.Text = "✅ Скопійовано"
+        CopyLogsBtn.Text = L().copiedLogs
         task.delay(1.2, function()
-            if CopyLogsBtn then CopyLogsBtn.Text = "📋 Копіювати" end
+            refreshAllMenuLabels()
         end)
     end
 end)
@@ -3518,11 +3760,12 @@ switchTab(PageFarm, TabFarmBtn)
 env.HalloweenSavedCoords = nil
 loadCoordsFromDisk()
 updatePetsAndLollipopsInventory()
-updateLanguageButtonsUI()
+refreshAllMenuLabels()
 
 task.spawn(function()
     pcall(enterHalloweenEventAndGoToCoords)
     State.FullAutoFarm = true
+    refreshAllMenuLabels()
     if #findNearestEggCandidates(120) > 0 then
         setBlackScreenMode(true)
         MainFrame.Visible = false
@@ -3532,5 +3775,5 @@ task.spawn(function()
         MainFrame.Visible = true
         FloatBtn.Visible = false
     end
-    addLog("OK", "Hatch Wars готовий! Домики без КД (10хв таймер після відкриття), тільки Magnet Flag, мови EN->UK->RU.")
+    addLog("OK", "Ready.")
 end)
