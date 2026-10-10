@@ -50,10 +50,11 @@ local State = {
     Running = true,
     FullAutoFarm = false,
     AutoEggs = false,
+    CustomEggCount = 0,
     MaxHatchDetected = 0,
     WorkingEggAmount = nil,
-    LastWorkingAmountCheck = 0,
-    SelectedEggName = "",
+    CachedEggRemoteName = nil,
+    CachedEggId = nil,
     LastCapturedEggRemote = nil,
     LastCapturedEggArgs = nil,
     SavedEggCFrame = nil,
@@ -66,6 +67,7 @@ local State = {
     LastCapturedHouseArgs = nil,
     AutoMinigame = true,
     AutoFarmCoins = true,
+    AutoJump20s = true,
     Logs = {},
     MaxLogs = 250
 }
@@ -74,7 +76,6 @@ local LogBoxLabel = nil
 local LogScrollFrame = nil
 local EggStatusLabel = nil
 local HouseStatusLabel = nil
-local MainFrame = nil
 
 local function addLog(level, msg)
     local timestamp = os.date("%H:%M:%S")
@@ -117,18 +118,27 @@ pcall(function()
     NetworkFolder = ReplicatedStorage:WaitForChild("Network", 8)
 end)
 
+local RemoteCache = {}
 local function findRemote(name)
+    if RemoteCache[name] and RemoteCache[name].Parent then
+        return RemoteCache[name]
+    end
     if NetworkFolder then
         local r = NetworkFolder:FindFirstChild(name)
-        if r then return r end
+        if r then
+            RemoteCache[name] = r
+            return r
+        end
         for _, desc in ipairs(NetworkFolder:GetDescendants()) do
             if string.lower(desc.Name) == string.lower(name) then
+                RemoteCache[name] = desc
                 return desc
             end
         end
     end
     for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
         if string.lower(desc.Name) == string.lower(name) and (desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent")) then
+            RemoteCache[name] = desc
             return desc
         end
     end
@@ -169,13 +179,12 @@ local function getActiveInstanceContainer()
     return nil, nil
 end
 
-local function pressKey(keyCode, holdTime)
-    holdTime = holdTime or 0.04
+local function pressKeyE()
     if VirtualInputManager then
         pcall(function()
-            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-            task.wait(holdTime)
-            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.03)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         end)
     end
 end
@@ -195,30 +204,6 @@ local function fireSafeSignal(guiObj)
     return ok
 end
 
-local function pressInGameInteractPrompt()
-    pressKey(Enum.KeyCode.E, 0.05)
-    pcall(function()
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pgui then return end
-        for _, gui in ipairs(pgui:GetChildren()) do
-            if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HalloweenEventGui" then
-                local gName = string.lower(gui.Name)
-                if string.find(gName, "interact") or string.find(gName, "prompt") or string.find(gName, "pending") or string.find(gName, "main") then
-                    for _, d in ipairs(gui:GetDescendants()) do
-                        if d:IsA("GuiButton") and d.Visible then
-                            local dn = string.lower(d.Name)
-                            local dt = d:IsA("TextButton") and string.lower(d.Text or "") or ""
-                            if dn == "e" or dt == "e" or string.find(dn, "interact") or string.find(dn, "prompt") or string.find(dn, "action") then
-                                fireSafeSignal(d)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
 local function areEggsRenderingOnCamera()
     local cam = Workspace.CurrentCamera
     if not cam then return false end
@@ -230,32 +215,11 @@ local function areEggsRenderingOnCamera()
     return false
 end
 
-local function tapToFinishEggAnimation()
-    pressKey(Enum.KeyCode.Space, 0.02)
-    pressKey(Enum.KeyCode.E, 0.02)
+local function fastTapEggAnimation()
     if VirtualUser then
         pcall(function()
             VirtualUser:CaptureController()
             VirtualUser:ClickButton1(Vector2.new(0, 0))
-        end)
-    end
-    if VirtualInputManager and areEggsRenderingOnCamera() then
-        pcall(function()
-            local cam = Workspace.CurrentCamera
-            local vp = cam and cam.ViewportSize or Vector2.new(800, 600)
-            local tx = vp.X * 0.5
-            local ty = vp.Y * 0.92
-            local safe = true
-            if MainFrame and MainFrame.Visible then
-                local mp = MainFrame.AbsolutePosition
-                local ms = MainFrame.AbsoluteSize
-                if tx >= mp.X - 10 and tx <= mp.X + ms.X + 10 and ty >= mp.Y - 10 and ty <= mp.Y + ms.Y + 10 then
-                    ty = vp.Y * 0.12
-                end
-            end
-            VirtualInputManager:SendMouseButtonEvent(tx, ty, 0, true, game, 1)
-            task.wait(0.01)
-            VirtualInputManager:SendMouseButtonEvent(tx, ty, 0, false, game, 1)
         end)
     end
 end
@@ -264,13 +228,28 @@ task.spawn(function()
     while State.Running do
         if (State.AutoEggs or State.FullAutoFarm) and not State.IsVisitingHouses then
             if areEggsRenderingOnCamera() then
-                pcall(tapToFinishEggAnimation)
-                task.wait(0.06)
+                fastTapEggAnimation()
+                task.wait(0.04)
             else
-                task.wait(0.12)
+                task.wait(0.1)
             end
         else
             task.wait(0.25)
+        end
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        task.wait(20)
+        if State.Running and State.AutoJump20s and (State.FullAutoFarm or State.AutoEggs) and not State.IsVisitingHouses then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.Jump = true
+                end
+            end)
         end
     end
 end)
@@ -287,8 +266,14 @@ pcall(function()
                 if (string.find(rName, "egg") or string.find(rName, "hatch")) and not string.find(rName, "anim") then
                     State.LastCapturedEggRemote = self
                     State.LastCapturedEggArgs = args
-                    if type(args[2]) == "number" and args[2] > State.MaxHatchDetected then
-                        State.MaxHatchDetected = args[2]
+                    if args[1] then
+                        State.CachedEggId = args[1]
+                        State.CachedEggRemoteName = self.Name
+                    end
+                    if type(args[2]) == "number" and args[2] >= 1 then
+                        if args[2] > State.MaxHatchDetected then
+                            State.MaxHatchDetected = args[2]
+                        end
                         State.WorkingEggAmount = args[2]
                     end
                 elseif string.find(rName, "trick") or string.find(rName, "house") or string.find(rName, "door") or string.find(rName, "knock") or string.find(rName, "instancing") then
@@ -325,6 +310,9 @@ local function getObjectPosition(obj)
 end
 
 local function detectPlayerMaxEggHatch()
+    if State.CustomEggCount and State.CustomEggCount > 0 then
+        return State.CustomEggCount
+    end
     local bestMax = State.MaxHatchDetected or 0
 
     pcall(function()
@@ -367,37 +355,6 @@ local function detectPlayerMaxEggHatch()
     return State.MaxHatchDetected
 end
 
-local function buildSmartHatchAmounts()
-    local detected = detectPlayerMaxEggHatch()
-    local list = {}
-    local added = {}
-
-    local function push(n)
-        n = math.floor(tonumber(n) or 0)
-        if n >= 1 and not added[n] then
-            added[n] = true
-            table.insert(list, n)
-        end
-    end
-
-    if detected and detected > 1 then
-        push(detected)
-    end
-
-    if State.WorkingEggAmount and State.WorkingEggAmount > 1 and (tick() - State.LastWorkingAmountCheck < 15) then
-        push(State.WorkingEggAmount)
-    end
-
-    local ladder = {99, 84, 75, 64, 50, 42, 35, 30, 25, 20, 16, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1}
-    for _, v in ipairs(ladder) do
-        if not detected or detected <= 1 or v <= detected then
-            push(v)
-        end
-    end
-    push(1)
-    return list
-end
-
 local function findNearestEggCandidates()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -410,7 +367,7 @@ local function findNearestEggCandidates()
     local function addCand(uid, attrId, pos, isCustom, obj)
         if not pos then return end
         local d = (pos - myPos).Magnitude
-        if d > 65 then return end
+        if d > 70 then return end
         local key = tostring(uid) .. "|" .. tostring(attrId)
         if seen[key] then return end
         seen[key] = true
@@ -460,118 +417,156 @@ local function findNearestEggCandidates()
     return candidates
 end
 
-local function tryHatchCall(remoteName, arg1, amountsToTry)
-    local r = findRemote(remoteName)
-    if not r then return false end
-    for _, amt in ipairs(amountsToTry) do
-        local ok, res = pcall(function()
-            if r:IsA("RemoteFunction") then
-                return r:InvokeServer(arg1, amt)
-            elseif r:IsA("RemoteEvent") then
-                r:FireServer(arg1, amt)
-                return true
-            end
-        end)
+local function findExactMaxHatchForEgg(remoteObj, eggArg)
+    if State.CustomEggCount and State.CustomEggCount > 0 then
+        local ok, res = pcall(function() return remoteObj:InvokeServer(eggArg, State.CustomEggCount) end)
         if ok and res ~= false and res ~= nil then
-            State.WorkingEggAmount = amt
-            State.LastWorkingAmountCheck = tick()
-            if amt > State.MaxHatchDetected then State.MaxHatchDetected = amt end
+            State.WorkingEggAmount = State.CustomEggCount
             return true
         end
     end
-    return false
-end
 
-local function hatchTargetEgg()
-    if State.IsVisitingHouses then return end
-
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local cands = findNearestEggCandidates()
-
-    if #cands == 0 then
-        if State.SavedEggCFrame and hrp and (hrp.Position - State.SavedEggCFrame.Position).Magnitude > 22 then
-            pcall(function() hrp.CFrame = State.SavedEggCFrame end)
-            task.wait(0.1)
-            cands = findNearestEggCandidates()
-        end
-    else
-        if hrp and not State.SavedEggCFrame then
-            State.SavedEggCFrame = hrp.CFrame
+    local detected = detectPlayerMaxEggHatch()
+    if detected and detected > 0 then
+        local ok, res = pcall(function() return remoteObj:InvokeServer(eggArg, detected) end)
+        if ok and res ~= false and res ~= nil then
+            State.WorkingEggAmount = detected
+            return true
         end
     end
 
-    pressInGameInteractPrompt()
-    tapToFinishEggAnimation()
+    if State.WorkingEggAmount and State.WorkingEggAmount > 0 then
+        local ok, res = pcall(function() return remoteObj:InvokeServer(eggArg, State.WorkingEggAmount) end)
+        if ok and res ~= false and res ~= nil then
+            return true
+        end
+    end
 
-    local amounts = buildSmartHatchAmounts()
-
-    if State.LastCapturedEggRemote and State.LastCapturedEggArgs then
-        local rem = State.LastCapturedEggRemote
-        local baseArgs = State.LastCapturedEggArgs
-        for _, amt in ipairs(amounts) do
-            local callArgs = {}
-            for i, v in ipairs(baseArgs) do callArgs[i] = v end
-            if #callArgs >= 2 and type(callArgs[2]) == "number" then
-                callArgs[2] = amt
+    local ok79, res79 = pcall(function() return remoteObj:InvokeServer(eggArg, 79) end)
+    if ok79 and res79 ~= false and res79 ~= nil then
+        local low = 79
+        local high = 120
+        local best = 79
+        while low <= high do
+            local mid = math.floor((low + high) / 2)
+            local okM, resM = pcall(function() return remoteObj:InvokeServer(eggArg, mid) end)
+            if okM and resM ~= false and resM ~= nil then
+                best = mid
+                low = mid + 1
+            else
+                high = mid - 1
             end
+        end
+        State.WorkingEggAmount = best
+        State.MaxHatchDetected = best
+        return true
+    end
+
+    local ok1, res1 = pcall(function() return remoteObj:InvokeServer(eggArg, 1) end)
+    if not (ok1 and res1 ~= false and res1 ~= nil) then
+        return false
+    end
+
+    local low = 2
+    local high = 99
+    local best = 1
+    while low <= high do
+        local mid = math.floor((low + high) / 2)
+        local okM, resM = pcall(function() return remoteObj:InvokeServer(eggArg, mid) end)
+        if okM and resM ~= false and resM ~= nil then
+            best = mid
+            low = mid + 1
+        else
+            high = mid - 1
+        end
+    end
+
+    State.WorkingEggAmount = best
+    if best > State.MaxHatchDetected then
+        State.MaxHatchDetected = best
+    end
+    return true
+end
+
+local function fastHatchOnce()
+    if State.IsVisitingHouses then return end
+
+    local targetAmt = (State.CustomEggCount and State.CustomEggCount > 0 and State.CustomEggCount)
+        or State.WorkingEggAmount
+        or (State.MaxHatchDetected > 0 and State.MaxHatchDetected)
+        or 79
+
+    if State.CachedEggRemoteName and State.CachedEggId then
+        local r = findRemote(State.CachedEggRemoteName)
+        if r then
             local ok, res = pcall(function()
-                if rem:IsA("RemoteFunction") then
-                    return rem:InvokeServer(unpack(callArgs))
-                elseif rem:IsA("RemoteEvent") then
-                    rem:FireServer(unpack(callArgs))
+                if r:IsA("RemoteFunction") then
+                    return r:InvokeServer(State.CachedEggId, targetAmt)
+                else
+                    r:FireServer(State.CachedEggId, targetAmt)
                     return true
                 end
             end)
             if ok and res ~= false and res ~= nil then
-                State.WorkingEggAmount = amt
-                State.LastWorkingAmountCheck = tick()
                 if EggStatusLabel then
-                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(callArgs[1]), amt)
+                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(State.CachedEggId), targetAmt)
                 end
-                tapToFinishEggAnimation()
+                fastTapEggAnimation()
                 return
             end
         end
     end
 
-    local manualName = State.SelectedEggName
-    if manualName and manualName ~= "" then
-        if tryHatchCall("CustomEggs_Hatch", manualName, amounts) or tryHatchCall("Eggs_RequestPurchase", manualName, amounts) then
-            if EggStatusLabel then
-                EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", manualName, State.WorkingEggAmount or 1)
-            end
-            tapToFinishEggAnimation()
-            return
+    local cands = findNearestEggCandidates()
+    if #cands == 0 and State.SavedEggCFrame then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp and (hrp.Position - State.SavedEggCFrame.Position).Magnitude > 18 then
+            pcall(function() hrp.CFrame = State.SavedEggCFrame end)
+            task.wait(0.08)
+            cands = findNearestEggCandidates()
         end
     end
 
     if #cands > 0 then
         local best = cands[1]
-        if best.uid then
-            if tryHatchCall("CustomEggs_Hatch", best.uid, amounts) or tryHatchCall("Eggs_RequestPurchase", best.uid, amounts) then
-                if EggStatusLabel then
-                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(best.attrId or best.uid), State.WorkingEggAmount or 1)
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp and not State.SavedEggCFrame then
+            State.SavedEggCFrame = hrp.CFrame
+        end
+
+        local remotesToTry = {"CustomEggs_Hatch", "Eggs_RequestPurchase"}
+        local idsToTry = {}
+        if best.uid then table.insert(idsToTry, best.uid) end
+        if best.attrId and best.attrId ~= best.uid then table.insert(idsToTry, best.attrId) end
+
+        for _, rName in ipairs(remotesToTry) do
+            local r = findRemote(rName)
+            if r and r:IsA("RemoteFunction") then
+                for _, idVal in ipairs(idsToTry) do
+                    if findExactMaxHatchForEgg(r, idVal) then
+                        State.CachedEggRemoteName = rName
+                        State.CachedEggId = idVal
+                        if EggStatusLabel then
+                            EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(best.attrId or idVal), State.WorkingEggAmount or targetAmt)
+                        end
+                        fastTapEggAnimation()
+                        return
+                    end
                 end
-                tapToFinishEggAnimation()
-                return
             end
         end
-        if best.attrId and best.attrId ~= best.uid then
-            if tryHatchCall("Eggs_RequestPurchase", best.attrId, amounts) or tryHatchCall("CustomEggs_Hatch", best.attrId, amounts) then
-                if EggStatusLabel then
-                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(best.attrId), State.WorkingEggAmount or 1)
-                end
-                tapToFinishEggAnimation()
-                return
-            end
-        end
+
+        pressKeyE()
+        fastTapEggAnimation()
         if EggStatusLabel then
             EggStatusLabel.Text = string.format("🐣 Натискаю [E] біля: %s", tostring(best.attrId or best.uid))
         end
     else
+        pressKeyE()
         if EggStatusLabel then
-            EggStatusLabel.Text = "🐣 Стань біля яйця (і збережи точку)"
+            EggStatusLabel.Text = "🐣 Підійди впритул до яйця і натисни 'Зберегти точку'"
         end
     end
 end
@@ -579,10 +574,12 @@ end
 task.spawn(function()
     while State.Running do
         if (State.AutoEggs or State.FullAutoFarm) and not State.IsVisitingHouses then
-            pcall(hatchTargetEgg)
-            task.wait(0.2)
+            task.spawn(function()
+                pcall(fastHatchOnce)
+            end)
+            task.wait(0.08)
         else
-            task.wait(0.3)
+            task.wait(0.2)
         end
     end
 end)
@@ -613,7 +610,7 @@ local function isMinigameActiveOnScreen()
                             foundActive = true
                             if State.AutoMinigame then
                                 local lastTime = LastDotClick[obj] or 0
-                                if now - lastTime > 0.08 then
+                                if now - lastTime > 0.06 then
                                     LastDotClick[obj] = now
                                     fireSafeSignal(obj)
                                 end
@@ -945,7 +942,7 @@ local function farmNearbyBreakables()
             local bPos = getObjectPosition(b)
             if bPos and (bPos - myPos).Magnitude <= 115 then
                 local uid = b.Name
-                if dmgRemote and dmgRemote:IsA("RemoteEvent") or (dmgRemote and dmgRemote.ClassName == "UnreliableRemoteEvent") then
+                if dmgRemote and (dmgRemote:IsA("RemoteEvent") or dmgRemote.ClassName == "UnreliableRemoteEvent") then
                     pcall(function() dmgRemote:FireServer(uid) end)
                 else
                     invokeRemote("Breakables_PlayerDealDamage", uid)
@@ -957,39 +954,26 @@ local function farmNearbyBreakables()
     end)
 end
 
-local function triggerDoorAt(pos, inst)
-    pressInGameInteractPrompt()
+local function triggerDoorFast(pos, inst)
+    pressKeyE()
 
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-    if hrp and firetouchinterest then
-        if inst then
-            pcall(function()
-                if inst:IsA("BasePart") then
-                    firetouchinterest(hrp, inst, 0)
-                    firetouchinterest(hrp, inst, 1)
-                elseif inst:IsA("Model") then
-                    for _, p in ipairs(inst:GetDescendants()) do
-                        if p:IsA("BasePart") and math.abs(p.Position.Y - pos.Y) <= 10 then
-                            firetouchinterest(hrp, p, 0)
-                            firetouchinterest(hrp, p, 1)
-                        end
-                    end
-                end
-            end)
-        end
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("TouchTransmitter") and desc.Parent and desc.Parent:IsA("BasePart") then
-                local p = desc.Parent
-                if (p.Position - pos).Magnitude <= 14 and math.abs(p.Position.Y - pos.Y) <= 10 then
-                    pcall(function()
+    if hrp and firetouchinterest and inst then
+        pcall(function()
+            if inst:IsA("BasePart") then
+                firetouchinterest(hrp, inst, 0)
+                firetouchinterest(hrp, inst, 1)
+            elseif inst:IsA("Model") then
+                for _, p in ipairs(inst:GetDescendants()) do
+                    if p:IsA("BasePart") and math.abs(p.Position.Y - pos.Y) <= 10 then
                         firetouchinterest(hrp, p, 0)
                         firetouchinterest(hrp, p, 1)
-                    end)
+                    end
                 end
             end
-        end
+        end)
     end
 
     for _, desc in ipairs(Workspace:GetDescendants()) do
@@ -999,19 +983,6 @@ local function triggerDoorAt(pos, inst)
                 pcall(function()
                     if fireproximityprompt then
                         fireproximityprompt(desc)
-                    else
-                        desc:InputHoldBegin()
-                        task.wait(0.08)
-                        desc:InputHoldEnd()
-                    end
-                end)
-            end
-        elseif desc:IsA("ClickDetector") then
-            local pPos = getObjectPosition(desc.Parent)
-            if pPos and (pPos - pos).Magnitude <= 16 then
-                pcall(function()
-                    if fireclickdetector then
-                        fireclickdetector(desc)
                     end
                 end)
             end
@@ -1024,12 +995,14 @@ local function fireHouseRemotes(house)
         local rem = State.LastCapturedHouseRemote
         local args = {}
         for i, v in ipairs(State.LastCapturedHouseArgs) do args[i] = v end
-        pcall(function()
-            if rem:IsA("RemoteFunction") then
-                rem:InvokeServer(unpack(args))
-            elseif rem:IsA("RemoteEvent") then
-                rem:FireServer(unpack(args))
-            end
+        task.spawn(function()
+            pcall(function()
+                if rem:IsA("RemoteFunction") then
+                    rem:InvokeServer(unpack(args))
+                elseif rem:IsA("RemoteEvent") then
+                    rem:FireServer(unpack(args))
+                end
+            end)
         end)
     end
 
@@ -1037,26 +1010,18 @@ local function fireHouseRemotes(house)
     local instName = activeInst and activeInst.Name or "HalloweenEvent"
     local numId = tonumber(string.match(tostring(house.id), "%d+")) or house.id
 
-    local actions = { "Knock", "TrickOrTreat", "ClaimHouse", "OpenDoor", "Interact" }
-    for _, act in ipairs(actions) do
-        invokeRemote("Instancing_FireCustomFromClient", instName, act, numId)
-        invokeRemote("Instancing_InvokeCustomFromClient", instName, act, numId)
-    end
-
-    local directRemotes = {
-        "TrickOrTreat_Knock",
-        "TrickOrTreat_Interact",
-        "TrickOrTreat_Claim",
-        "Halloween_KnockDoor",
-        "Houses_Knock"
-    }
-    for _, rName in ipairs(directRemotes) do
-        invokeRemote(rName, numId)
-    end
+    task.spawn(function()
+        local actions = { "Knock", "TrickOrTreat", "ClaimHouse", "OpenDoor", "Interact" }
+        for _, act in ipairs(actions) do
+            invokeRemote("Instancing_FireCustomFromClient", instName, act, numId)
+        end
+        invokeRemote("TrickOrTreat_Knock", numId)
+        invokeRemote("TrickOrTreat_Interact", numId)
+    end)
 end
 
 local function teleportSafelyTo(targetCF)
-    for _ = 1, 5 do
+    for _ = 1, 4 do
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -1066,7 +1031,7 @@ local function teleportSafelyTo(targetCF)
                 hrp.CFrame = targetCF
             end)
         end
-        task.wait(0.06)
+        task.wait(0.04)
     end
 end
 
@@ -1078,7 +1043,13 @@ local function visitReadyHousesAndReturn(forceAll)
     if not hrp then return end
 
     if not State.SavedEggCFrame then
-        State.SavedEggCFrame = hrp.CFrame
+        local cands = findNearestEggCandidates()
+        if #cands > 0 then
+            local eggPos = cands[1].pos
+            State.SavedEggCFrame = CFrame.new(eggPos.X, hrp.Position.Y, eggPos.Z + 6)
+        else
+            State.SavedEggCFrame = hrp.CFrame
+        end
     end
 
     local returnCF = State.SavedEggCFrame
@@ -1087,7 +1058,7 @@ local function visitReadyHousesAndReturn(forceAll)
 
     if #allHouses == 0 then
         if HouseStatusLabel then
-            HouseStatusLabel.Text = "🏠 Підійди до дверей і натисни '+ Додати дім'"
+            HouseStatusLabel.Text = "🏠 Додай свої відкриті двері кнопкою '+ Додати дім'"
         end
         return
     end
@@ -1108,13 +1079,12 @@ local function visitReadyHousesAndReturn(forceAll)
         if HouseStatusLabel then
             local mins = math.floor(minCd / 60)
             local secs = math.floor(minCd % 60)
-            HouseStatusLabel.Text = string.format("🏠 Всі %d домиків на КД (%02d:%02d)", #allHouses, mins, secs)
+            HouseStatusLabel.Text = string.format("🏠 Домики на КД (%02d:%02d) | Фарм яєць", mins, secs)
         end
         return
     end
 
     State.IsVisitingHouses = true
-    addLog("INFO", "Відкриття домиків без КД: " .. #readyHouses .. " шт.")
 
     local ok, err = pcall(function()
         for i, house in ipairs(readyHouses) do
@@ -1124,33 +1094,28 @@ local function visitReadyHousesAndReturn(forceAll)
             if not hrp then break end
 
             if HouseStatusLabel then
-                HouseStatusLabel.Text = string.format("🏠 Натискаю [E] у домі %d/%d (%s)...", i, #readyHouses, tostring(house.name))
+                HouseStatusLabel.Text = string.format("🏠 Дім %d/%d [E]...", i, #readyHouses)
             end
 
             local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
-            for _ = 1, 2 do
-                pcall(function()
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.CFrame = doorGroundCF
-                end)
-                task.wait(0.08)
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.CFrame = doorGroundCF
+            end)
+            task.wait(0.08)
+
+            triggerDoorFast(doorGroundCF.Position, house.instance)
+            fireHouseRemotes(house)
+            task.wait(0.12)
+            pressKeyE()
+
+            if isMinigameActiveOnScreen() then
+                local waitStart = tick()
+                while isMinigameActiveOnScreen() and (tick() - waitStart < 2.2) and State.Running do
+                    task.wait(0.06)
+                end
             end
 
-            for _ = 1, 4 do
-                triggerDoorAt(doorGroundCF.Position, house.instance)
-                fireHouseRemotes(house)
-                collectAllOrbsAndLootbagsNow()
-                task.wait(0.22)
-            end
-
-            local waitStart = tick()
-            while isMinigameActiveOnScreen() and (tick() - waitStart < 3.5) and State.Running do
-                pressInGameInteractPrompt()
-                collectAllOrbsAndLootbagsNow()
-                task.wait(0.1)
-            end
-
-            collectAllOrbsAndLootbagsNow()
             local _, newLiveCd = inspectDoorState(house.instance, house.pos)
             State.HouseCooldownMap[house.key] = tick() + (newLiveCd and newLiveCd > 0 and newLiveCd or State.HouseCooldownDefault)
         end
@@ -1161,13 +1126,15 @@ local function visitReadyHousesAndReturn(forceAll)
     end
 
     if returnCF and State.Running then
-        if HouseStatusLabel then
-            HouseStatusLabel.Text = "🔙 Повернення на точку фарму/яйця..."
-        end
         teleportSafelyTo(returnCF)
+        task.wait(0.08)
+        pressKeyE()
     end
 
     State.IsVisitingHouses = false
+    task.spawn(function()
+        pcall(fastHatchOnce)
+    end)
 end
 
 task.spawn(function()
@@ -1198,11 +1165,11 @@ task.spawn(function()
 end)
 
 local function runEventDiagnostic()
-    addLog("INFO", "=== СКАНЕР НАВКОЛО ГРАВЦЯ ===")
+    addLog("INFO", "=== СКАНЕР ===")
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local myPos = hrp and hrp.Position or Vector3.zero
-    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Робоча пачка яєць: %s", myPos.X, myPos.Y, myPos.Z, tostring(State.WorkingEggAmount or State.MaxHatchDetected)))
+    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Пачка яєць: %s", myPos.X, myPos.Y, myPos.Z, tostring(State.WorkingEggAmount or State.CustomEggCount or 79)))
 
     local cands = findNearestEggCandidates()
     addLog("INFO", "Яєць поруч (" .. #cands .. "):")
@@ -1269,7 +1236,7 @@ local FloatStroke = Instance.new("UIStroke", FloatBtn)
 FloatStroke.Color = Color3.new(1, 1, 1)
 FloatStroke.Thickness = 2
 
-MainFrame = Instance.new("Frame")
+local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 440, 0, 355)
 MainFrame.Position = UDim2.new(0.5, -220, 0.5, -177)
@@ -1446,12 +1413,12 @@ bindButton(TabLogsBtn, function() switchTab(PageLogs, TabLogsBtn) end)
 
 local FullAutoToggle = Instance.new("TextButton")
 FullAutoToggle.LayoutOrder = 1
-FullAutoToggle.Size = UDim2.new(1, -6, 0, 42)
+FullAutoToggle.Size = UDim2.new(1, -6, 0, 40)
 FullAutoToggle.BackgroundColor3 = Colors.Red
-FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + МОНЕТИ + ДОМИКИ: ВИМК"
+FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ: ВИМК"
 FullAutoToggle.TextColor3 = Color3.new(1, 1, 1)
 FullAutoToggle.Font = Enum.Font.GothamBold
-FullAutoToggle.TextSize = 12
+FullAutoToggle.TextSize = 13
 FullAutoToggle.Parent = PageFarm
 Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 8)
 
@@ -1459,7 +1426,7 @@ EggStatusLabel = Instance.new("TextLabel")
 EggStatusLabel.LayoutOrder = 2
 EggStatusLabel.Size = UDim2.new(1, -6, 0, 18)
 EggStatusLabel.BackgroundTransparency = 1
-EggStatusLabel.Text = "🐣 Стань між яйцем та зоною монет і увімкни"
+EggStatusLabel.Text = "🐣 Стань впритул до яйця і увімкни"
 EggStatusLabel.TextColor3 = Colors.Orange
 EggStatusLabel.Font = Enum.Font.GothamBold
 EggStatusLabel.TextSize = 12
@@ -1484,10 +1451,10 @@ bindButton(FullAutoToggle, function()
             State.SavedEggCFrame = hrp.CFrame
         end
         FullAutoToggle.BackgroundColor3 = Colors.Green
-        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + МОНЕТИ + ДОМИКИ: УВІМК"
+        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ: УВІМК"
     else
         FullAutoToggle.BackgroundColor3 = Colors.Red
-        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + МОНЕТИ + ДОМИКИ: ВИМК"
+        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ + МОНЕТИ + ДОМИКИ: ВИМК"
     end
 end)
 
@@ -1495,10 +1462,10 @@ local OnlyEggsToggle = Instance.new("TextButton")
 OnlyEggsToggle.LayoutOrder = 4
 OnlyEggsToggle.Size = UDim2.new(1, -6, 0, 34)
 OnlyEggsToggle.BackgroundColor3 = Colors.Card
-OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс + Дотап): ВИМК"
+OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця: ВИМК"
 OnlyEggsToggle.TextColor3 = Colors.Text
 OnlyEggsToggle.Font = Enum.Font.GothamBold
-OnlyEggsToggle.TextSize = 12
+OnlyEggsToggle.TextSize = 13
 OnlyEggsToggle.Parent = PageFarm
 Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 7)
 
@@ -1511,34 +1478,38 @@ bindButton(OnlyEggsToggle, function()
             State.SavedEggCFrame = hrp.CFrame
         end
         OnlyEggsToggle.BackgroundColor3 = Colors.Green
-        OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс + Дотап): УВІМК"
+        OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця: УВІМК"
     else
         OnlyEggsToggle.BackgroundColor3 = Colors.Card
-        OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс + Дотап): ВИМК"
+        OnlyEggsToggle.Text = "🐣 Тільки Швидкі Яйця: ВИМК"
     end
 end)
 
-local CoinsToggle = Instance.new("TextButton")
-CoinsToggle.LayoutOrder = 5
-CoinsToggle.Size = UDim2.new(1, -6, 0, 34)
-CoinsToggle.BackgroundColor3 = Colors.Green
-CoinsToggle.Text = "💰 Авто-Фарм Монет і Цукерок у зоні: УВІМК"
-CoinsToggle.TextColor3 = Color3.new(1, 1, 1)
-CoinsToggle.Font = Enum.Font.GothamBold
-CoinsToggle.TextSize = 12
-CoinsToggle.Parent = PageFarm
-Instance.new("UICorner", CoinsToggle).CornerRadius = UDim.new(0, 7)
+local EggCountInput = Instance.new("TextBox")
+EggCountInput.LayoutOrder = 5
+EggCountInput.Size = UDim2.new(1, -6, 0, 32)
+EggCountInput.BackgroundColor3 = Colors.InputBg
+EggCountInput.Text = "79"
+EggCountInput.PlaceholderText = "Кількість яєць (напр. 79, або 0 = Авто)"
+EggCountInput.PlaceholderColor3 = Colors.SubText
+EggCountInput.TextColor3 = Colors.Orange
+EggCountInput.Font = Enum.Font.GothamBold
+EggCountInput.TextSize = 13
+EggCountInput.ClearTextOnFocus = false
+EggCountInput.Parent = PageFarm
+Instance.new("UICorner", EggCountInput).CornerRadius = UDim.new(0, 6)
 
-bindButton(CoinsToggle, function()
-    State.AutoFarmCoins = not State.AutoFarmCoins
-    if State.AutoFarmCoins then
-        CoinsToggle.BackgroundColor3 = Colors.Green
-        CoinsToggle.Text = "💰 Авто-Фарм Монет і Цукерок у зоні: УВІМК"
+State.CustomEggCount = 79
+trackConn(EggCountInput.FocusLost:Connect(function()
+    local n = tonumber(EggCountInput.Text)
+    if n and n >= 1 then
+        State.CustomEggCount = math.floor(n)
+        State.WorkingEggAmount = math.floor(n)
     else
-        CoinsToggle.BackgroundColor3 = Colors.Red
-        CoinsToggle.Text = "💰 Авто-Фарм Монет і Цукерок у зоні: ВИМК"
+        State.CustomEggCount = 0
+        State.WorkingEggAmount = nil
     end
-end)
+end))
 
 local PosRow = Instance.new("Frame")
 PosRow.LayoutOrder = 6
@@ -1550,7 +1521,7 @@ local SaveEggPosBtn = Instance.new("TextButton")
 SaveEggPosBtn.Size = UDim2.new(0.62, -3, 1, 0)
 SaveEggPosBtn.Position = UDim2.new(0, 0, 0, 0)
 SaveEggPosBtn.BackgroundColor3 = Colors.Blue
-SaveEggPosBtn.Text = "📍 Зберегти точку фарму/яйця"
+SaveEggPosBtn.Text = "📍 Зберегти точку біля яйця"
 SaveEggPosBtn.TextColor3 = Color3.new(1, 1, 1)
 SaveEggPosBtn.Font = Enum.Font.GothamBold
 SaveEggPosBtn.TextSize = 12
@@ -1561,7 +1532,7 @@ local ReturnToEggBtn = Instance.new("TextButton")
 ReturnToEggBtn.Size = UDim2.new(0.38, -3, 1, 0)
 ReturnToEggBtn.Position = UDim2.new(0.62, 3, 0, 0)
 ReturnToEggBtn.BackgroundColor3 = Colors.Card
-ReturnToEggBtn.Text = "🔙 На точку"
+ReturnToEggBtn.Text = "🔙 До яйця"
 ReturnToEggBtn.TextColor3 = Colors.Text
 ReturnToEggBtn.Font = Enum.Font.GothamBold
 ReturnToEggBtn.TextSize = 12
@@ -1575,7 +1546,7 @@ bindButton(SaveEggPosBtn, function()
         State.SavedEggCFrame = hrp.CFrame
         SaveEggPosBtn.Text = "✅ Точку збережено!"
         task.delay(1.5, function()
-            if SaveEggPosBtn then SaveEggPosBtn.Text = "📍 Зберегти точку фарму/яйця" end
+            if SaveEggPosBtn then SaveEggPosBtn.Text = "📍 Зберегти точку біля яйця" end
         end)
     end
 end)
@@ -1590,7 +1561,7 @@ local RunHousesNowBtn = Instance.new("TextButton")
 RunHousesNowBtn.LayoutOrder = 1
 RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 38)
 RunHousesNowBtn.BackgroundColor3 = Colors.Orange
-RunHousesNowBtn.Text = "⚡ Відкрити домики [E] зараз і назад"
+RunHousesNowBtn.Text = "⚡ Швидко обійти домики [E] і до яйця"
 RunHousesNowBtn.TextColor3 = Color3.new(1, 1, 1)
 RunHousesNowBtn.Font = Enum.Font.GothamBold
 RunHousesNowBtn.TextSize = 13
@@ -1684,7 +1655,7 @@ makeLimitBtn("Всі", 0, 5)
 
 local AutoCapToggle = Instance.new("TextButton")
 AutoCapToggle.LayoutOrder = 4
-AutoCapToggle.Size = UDim2.new(1, -6, 0, 34)
+AutoCapToggle.Size = UDim2.new(1, -6, 0, 32)
 AutoCapToggle.BackgroundColor3 = Colors.Green
 AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
 AutoCapToggle.TextColor3 = Color3.new(1, 1, 1)
@@ -1701,6 +1672,28 @@ bindButton(AutoCapToggle, function()
     else
         AutoCapToggle.BackgroundColor3 = Colors.Red
         AutoCapToggle.Text = "🎯 Авто-Точки (Капча): ВИМК"
+    end
+end)
+
+local JumpToggle = Instance.new("TextButton")
+JumpToggle.LayoutOrder = 5
+JumpToggle.Size = UDim2.new(1, -6, 0, 32)
+JumpToggle.BackgroundColor3 = Colors.Green
+JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): УВІМК"
+JumpToggle.TextColor3 = Color3.new(1, 1, 1)
+JumpToggle.Font = Enum.Font.GothamBold
+JumpToggle.TextSize = 12
+JumpToggle.Parent = PageHouses
+Instance.new("UICorner", JumpToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(JumpToggle, function()
+    State.AutoJump20s = not State.AutoJump20s
+    if State.AutoJump20s then
+        JumpToggle.BackgroundColor3 = Colors.Green
+        JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): УВІМК"
+    else
+        JumpToggle.BackgroundColor3 = Colors.Red
+        JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): ВИМК"
     end
 end)
 
