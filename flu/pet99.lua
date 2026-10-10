@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local LogService = game:GetService("LogService")
+local LocalizationService = game:GetService("LocalizationService")
 
 local VirtualInputManager = nil
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
@@ -54,6 +55,8 @@ local State = {
     FullAutoFarm = false,
     AutoEggs = false,
     InstantEggOpen = true,
+    AutoBuyHouses = true,
+    ForceEnglishGame = true,
     EggHatchDelay = 2.0,
     HouseStepDelay = 4.0,
     CustomEggCount = 79,
@@ -71,6 +74,12 @@ local State = {
     MaxUnlockedHouses = 0,
     HouseCooldownDefault = 600,
     HouseCooldownMap = {},
+    LockedHouseInfo = {},
+    ConfirmedUnlockedHouses = {},
+    AllowConfirmPurchasePopup = false,
+    LastPopupWasError = false,
+    LastPopupErrorText = "",
+    LastPopupCostNumber = nil,
     IsVisitingHouses = false,
     IsHatchingNow = false,
     CustomHousePoints = {},
@@ -85,6 +94,14 @@ local State = {
     TotalEggsHatched = 0,
     TotalEggBatches = 0,
     TotalHousesOpened = 0,
+    StartPetCounts = nil,
+    StartLollipops = nil,
+    CurrentPetCounts = {
+        HeadlessDominus = 0,
+        Wendigo = 0,
+        GrinningGoat = 0
+    },
+    CurrentLollipops = 0,
     CurrentActionText = "Ініціалізація...",
     Logs = {},
     MaxLogs = 250
@@ -107,7 +124,55 @@ local FullAutoToggle = nil
 local StatTimeValue = nil
 local StatEggsValue = nil
 local StatHousesValue = nil
+local StatDominusValue = nil
+local StatWendigoValue = nil
+local StatGoatValue = nil
+local StatLollipopValue = nil
 local StatStatusValue = nil
+
+local function applyEnglishGameLocale()
+    if not State.ForceEnglishGame then return end
+    pcall(function()
+        LocalizationService.RobloxLocaleId = "en-us"
+    end)
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, gui in ipairs(pgui:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Name ~= "HalloweenEventGui" then
+                    gui.AutoLocalize = false
+                    for _, d in ipairs(gui:GetDescendants()) do
+                        if d:IsA("GuiObject") then
+                            d.AutoLocalize = false
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
+                d.AutoLocalize = false
+                for _, sub in ipairs(d:GetDescendants()) do
+                    if sub:IsA("GuiObject") then
+                        sub.AutoLocalize = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+task.spawn(function()
+    applyEnglishGameLocale()
+    while State.Running do
+        task.wait(15)
+        if State.Running and State.ForceEnglishGame then
+            applyEnglishGameLocale()
+        end
+    end
+end)
 
 local function setStatusText(eggTxt, houseTxt)
     if eggTxt then
@@ -135,6 +200,22 @@ local function formatNumber(n)
         if k == 0 then break end
     end
     return formatted
+end
+
+local function parseSuffixedNumber(str)
+    if not str then return nil end
+    local clean = string.gsub(tostring(str), ",", "")
+    local numStr, suffix = string.match( string.lower(clean), "([%d%.]+)%s*([kmb]?)" )
+    local val = tonumber(numStr)
+    if not val then return nil end
+    if suffix == "k" then
+        val = val * 1000
+    elseif suffix == "m" then
+        val = val * 1000000
+    elseif suffix == "b" then
+        val = val * 1000000000
+    end
+    return math.floor(val)
 end
 
 local function formatDuration(seconds)
@@ -185,7 +266,7 @@ local function saveCoordsToDisk(cf)
     if not cf then return end
     local pos = cf.Position
     env.HalloweenSavedCoords = { x = pos.X, y = pos.Y, z = pos.Z }
-    local str = string.format("%.2f, %.2f, %.2f", pos.X, pos.Y, pos.Z)
+    local str = string.format("%.1f, %.1f, %.1f", pos.X, pos.Y, pos.Z)
     if CoordsInputBox then
         CoordsInputBox.Text = str
     end
@@ -352,6 +433,182 @@ local function fireSafeSignal(guiObj)
         end
     end)
     return ok
+end
+
+local function checkAndDismissGamePopups()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pgui then return false end
+    local handled = false
+
+    for _, guiName in ipairs({"Message", "Prompt", "Dialog", "Popup"}) do
+        local msgGui = pgui:FindFirstChild(guiName)
+        if msgGui and msgGui:IsA("ScreenGui") and msgGui.Enabled then
+            local mainFrame = msgGui:FindFirstChild("Frame") or msgGui
+            local isVisible = true
+            if mainFrame:IsA("GuiObject") then
+                isVisible = mainFrame.Visible
+            end
+
+            if isVisible then
+                local bodyText = ""
+                local yesBtn = nil
+                local noOrCancelBtn = nil
+                local okBtn = nil
+                local allButtons = {}
+
+                for _, d in ipairs(msgGui:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Visible and d.Text ~= "" then
+                        local tLow = string.lower(d.Text)
+                        if tLow ~= "ok" and tLow ~= "yes" and tLow ~= "no" and tLow ~= "cancel" and tLow ~= "так" and tLow ~= "ні" and tLow ~= "ок" then
+                            bodyText = bodyText .. " " .. d.Text
+                        end
+                    elseif d:IsA("GuiButton") and d.Visible then
+                        table.insert(allButtons, d)
+                        local bName = string.lower(d.Name)
+                        local bTxt = ""
+                        if d:IsA("TextButton") then
+                            bTxt = string.lower(d.Text or "")
+                        end
+                        for _, sub in ipairs(d:GetDescendants()) do
+                            if sub:IsA("TextLabel") then
+                                bTxt = bTxt .. " " .. string.lower(sub.Text or "")
+                            end
+                        end
+                        local combined = bName .. " " .. bTxt
+                        if string.find(combined, "cancel") or string.find(combined, "no") or string.find(combined, "close") or string.find(combined, "ні") or string.find(combined, "відмін") then
+                            noOrCancelBtn = d
+                        elseif string.find(combined, "yes") or string.find(combined, "unlock") or string.find(combined, "buy") or string.find(combined, "confirm") or string.find(combined, "так") then
+                            yesBtn = d
+                        elseif string.find(combined, "ok") or string.find(combined, "ок") then
+                            okBtn = d
+                        end
+                    end
+                end
+
+                local lowBody = string.lower(bodyText)
+                local costMatch = parseSuffixedNumber(string.match(bodyText, "([%d%,%.]+%s*[kKmMbB]?)"))
+                if costMatch and costMatch > 0 then
+                    State.LastPopupCostNumber = costMatch
+                end
+
+                local isErrorPopup = string.find(lowBody, "cannot")
+                    or string.find(lowBody, "can't")
+                    or string.find(lowBody, "not enough")
+                    or string.find(lowBody, "afford")
+                    or string.find(lowBody, "need")
+                    or string.find(lowBody, "locked")
+                    or string.find(lowBody, "previous")
+                    or string.find(lowBody, "error")
+                    or string.find(lowBody, "wait")
+                    or string.find(lowBody, "fast")
+                    or string.find(lowBody, "недостат")
+                    or string.find(lowBody, "помилк")
+                    or string.find(lowBody, "ошибк")
+                    or (okBtn ~= nil and yesBtn == nil and noOrCancelBtn == nil)
+
+                if isErrorPopup then
+                    State.LastPopupWasError = true
+                    State.LastPopupErrorText = bodyText
+                    local targetDismiss = okBtn or noOrCancelBtn or allButtons[1]
+                    if targetDismiss then
+                        fireSafeSignal(targetDismiss)
+                    end
+                    pcall(function()
+                        if mainFrame:IsA("GuiObject") then mainFrame.Visible = false end
+                        msgGui.Enabled = false
+                    end)
+                    handled = true
+                elseif (yesBtn or okBtn) and State.AllowConfirmPurchasePopup and State.AutoBuyHouses then
+                    local confirmTarget = yesBtn or okBtn
+                    fireSafeSignal(confirmTarget)
+                    handled = true
+                elseif noOrCancelBtn and not State.AllowConfirmPurchasePopup then
+                    State.LastPopupWasError = true
+                    fireSafeSignal(noOrCancelBtn)
+                    pcall(function()
+                        if mainFrame:IsA("GuiObject") then mainFrame.Visible = false end
+                        msgGui.Enabled = false
+                    end)
+                    handled = true
+                end
+            end
+        end
+    end
+
+    return handled
+end
+
+task.spawn(function()
+    while State.Running do
+        pcall(checkAndDismissGamePopups)
+        task.wait(0.1)
+    end
+end)
+
+local function updatePetsAndLollipopsInventory()
+    local dominusCount = 0
+    local wendigoCount = 0
+    local goatCount = 0
+    local lollipopCount = 0
+
+    pcall(function()
+        local lib = ReplicatedStorage:FindFirstChild("Library")
+        local client = lib and lib:FindFirstChild("Client")
+        local saveMod = client and client:FindFirstChild("Save")
+        if not saveMod then return end
+
+        local ok, Save = pcall(require, saveMod)
+        local data = ok and Save and Save.Get and Save.Get()
+        if type(data) ~= "table" or type(data.Inventory) ~= "table" then return end
+
+        if type(data.Inventory.Pet) == "table" then
+            for _, item in pairs(data.Inventory.Pet) do
+                if type(item) == "table" and item.id then
+                    local idLow = string.lower(tostring(item.id))
+                    local amt = tonumber(item._am) or tonumber(item.amount) or 1
+                    if string.find(idLow, "headless dominus") then
+                        dominusCount = dominusCount + amt
+                    elseif string.find(idLow, "wendigo") then
+                        wendigoCount = wendigoCount + amt
+                    elseif string.find(idLow, "grinning goat") then
+                        goatCount = goatCount + amt
+                    end
+                end
+            end
+        end
+
+        for invCategory, catTable in pairs(data.Inventory) do
+            if invCategory ~= "Pet" and type(catTable) == "table" then
+                for _, item in pairs(catTable) do
+                    if type(item) == "table" and item.id then
+                        local idLow = string.lower(tostring(item.id))
+                        if idLow == "lollipop" or string.find(idLow, "lollipop") then
+                            local amt = tonumber(item._am) or tonumber(item.amount) or 1
+                            lollipopCount = lollipopCount + amt
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    if not State.StartPetCounts then
+        State.StartPetCounts = {
+            HeadlessDominus = dominusCount,
+            Wendigo = wendigoCount,
+            GrinningGoat = goatCount
+        }
+    end
+    if State.StartLollipops == nil then
+        State.StartLollipops = lollipopCount
+    end
+
+    State.CurrentPetCounts.HeadlessDominus = dominusCount
+    State.CurrentPetCounts.Wendigo = wendigoCount
+    State.CurrentPetCounts.GrinningGoat = goatCount
+    State.CurrentLollipops = lollipopCount
+
+    return dominusCount, wendigoCount, goatCount, lollipopCount
 end
 
 local function setupInstantEggAnimationBypass()
@@ -642,7 +899,7 @@ local function getAllPlayerCurrencies()
             if currMod then
                 local ok, CurrencyCmds = pcall(require, currMod)
                 if ok and type(CurrencyCmds) == "table" and type(CurrencyCmds.Get) == "function" then
-                    for _, cName in ipairs({"Halloween Candy", "Candy", "Coins", "Blood Moon", "Halloween Coins", "Event Coins", "Diamonds"}) do
+                    for _, cName in ipairs({"Halloween Candy", "Candy", "Coins", "HalloweenOrb", "HatchWarCoins", "Blood Moon", "Halloween Coins", "Event Coins", "Diamonds"}) do
                         local okC, val = pcall(CurrencyCmds.Get, cName)
                         if okC and type(val) == "number" and val > 0 then
                             snapshot["cmd_" .. cName] = val
@@ -901,7 +1158,7 @@ local function enterHalloweenEventAndGoToCoords()
     end
 
     if not alreadyInEventZone then
-        setStatusText("🎃 Вхід у Halloween Івент...", nil)
+        setStatusText("🎃 Вхід у Hatch Wars / Halloween Івент...", nil)
         local things = getThingsFolder()
         local instancesFolder = things and things:FindFirstChild("Instances")
         local candidateIds = {}
@@ -910,7 +1167,7 @@ local function enterHalloweenEventAndGoToCoords()
         if instancesFolder then
             for _, instObj in ipairs(instancesFolder:GetChildren()) do
                 local low = string.lower(instObj.Name)
-                if string.find(low, "halloween") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "blood") or string.find(low, "haunt") or string.find(low, "event") then
+                if string.find(low, "halloween") or string.find(low, "hatch") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "blood") or string.find(low, "manor") or string.find(low, "event") then
                     table.insert(candidateIds, instObj.Name)
                     local teleports = instObj:FindFirstChild("Teleports")
                     local enterP = teleports and teleports:FindFirstChild("Enter")
@@ -921,7 +1178,7 @@ local function enterHalloweenEventAndGoToCoords()
             end
         end
 
-        for _, extraId in ipairs({"HalloweenEvent", "HalloweenWorld", "TrickOrTreat", "SpookyEvent", "Event"}) do
+        for _, extraId in ipairs({"HatchWars", "HalloweenEvent", "HalloweenWorld", "TrickOrTreat", "SpookyEvent", "Event"}) do
             table.insert(candidateIds, extraId)
         end
 
@@ -974,6 +1231,8 @@ local function enterHalloweenEventAndGoToCoords()
     setStatusText("📍 Телепорт на 7538.1, 15.7, 21965.5...", nil)
     teleportSafelyTo(targetCF)
     task.wait(0.3)
+    applyEnglishGameLocale()
+    updatePetsAndLollipopsInventory()
     setStatusText("🐣 На точці (7538.1, 15.7, 21965.5)! Фарм активний.", nil)
 end
 
@@ -1002,6 +1261,7 @@ local function invokeEggBatch(remoteObj, eggId, batchCount)
         task.delay(0.08, function()
             local afterSnap = getAllPlayerCurrencies()
             recordBatchCurrencySpend(eggId, beforeSnap, afterSnap)
+            updatePetsAndLollipopsInventory()
             clearCameraEggModelsAndTap()
         end)
         return true, nil
@@ -1151,7 +1411,7 @@ local function isMinigameActiveOnScreen()
     local now = tick()
 
     for _, screen in ipairs(pgui:GetChildren()) do
-        if screen:IsA("ScreenGui") and screen.Enabled and screen.Name ~= "HalloweenEventGui" then
+        if screen:IsA("ScreenGui") and screen.Enabled and screen.Name ~= "HalloweenEventGui" and screen.Name ~= "Message" then
             local sName = string.lower(screen.Name)
             local isMinigameScreen = string.find(sName, "minigame")
                 or string.find(sName, "trickortreat")
@@ -1218,31 +1478,80 @@ end
 
 local function inspectDoorState(inst, pos)
     local isLocked = false
+    local unlockCost = nil
     local cooldownSecs = nil
+    local promptDisabled = false
+    local debugTexts = {}
+
+    local function analyzeText(raw)
+        if not raw or raw == "" then return end
+        table.insert(debugTexts, raw)
+        local low = string.lower(raw)
+        local cd = parseCooldownFromText(raw)
+        if cd and cd > 0 then
+            cooldownSecs = cd
+            return
+        end
+        if string.find(low, "lock") or string.find(low, "unlock") or string.find(low, "buy") or string.find(low, "purchase") or string.find(low, "cost") or string.find(low, "lollipop") or string.find(low, "закрит") or string.find(low, "купит") or string.find(low, "открыт") then
+            if not string.find(low, "trick") and not string.find(low, "knock") then
+                isLocked = true
+            end
+            local parsedNum = parseSuffixedNumber(raw)
+            if parsedNum and parsedNum > 0 then
+                unlockCost = parsedNum
+            end
+        else
+            local purePrice = string.match(low, "^%s*([%d%,%.]+%s*[kmb]?)%s*$")
+            if purePrice then
+                local pVal = parseSuffixedNumber(purePrice)
+                if pVal and pVal >= 5 then
+                    isLocked = true
+                    unlockCost = pVal
+                end
+            end
+        end
+    end
 
     local function checkObj(rootObj)
         if not rootObj then return end
-        if rootObj:GetAttribute("Locked") == true or rootObj:GetAttribute("Disabled") == true then
+        if rootObj:GetAttribute("Locked") == true or rootObj:GetAttribute("Disabled") == true or rootObj:GetAttribute("Unlocked") == false then
             isLocked = true
+        end
+        local priceAttr = tonumber(rootObj:GetAttribute("Price")) or tonumber(rootObj:GetAttribute("Cost")) or tonumber(rootObj:GetAttribute("UnlockCost"))
+        if priceAttr and priceAttr > 0 then
+            unlockCost = priceAttr
         end
         local cdAttr = tonumber(rootObj:GetAttribute("Cooldown"))
         if cdAttr and cdAttr > 0 then
             cooldownSecs = cdAttr
         end
+
+        if rootObj:IsA("ProximityPrompt") then
+            if not rootObj.Enabled then
+                promptDisabled = true
+            end
+            analyzeText(rootObj.ActionText)
+            analyzeText(rootObj.ObjectText)
+        end
+
         for _, d in ipairs(rootObj:GetDescendants()) do
-            if d:IsA("TextLabel") and d.Visible then
-                local raw = d.Text or ""
-                local low = string.lower(raw)
-                if string.find(low, "locked") or string.find(low, "unlock") then
-                    isLocked = true
+            if d:IsA("ProximityPrompt") then
+                if not d.Enabled then
+                    promptDisabled = true
                 end
-                local parsed = parseCooldownFromText(raw)
-                if parsed and parsed > 0 then
-                    cooldownSecs = parsed
-                end
-            elseif d:IsA("ProximityPrompt") and not d.Enabled then
-                if not cooldownSecs then
-                    cooldownSecs = 60
+                analyzeText(d.ActionText)
+                analyzeText(d.ObjectText)
+            elseif d:IsA("TextLabel") and d.Visible then
+                analyzeText(d.Text)
+            elseif (d:IsA("BasePart") or d:IsA("MeshPart") or d:IsA("ImageLabel")) then
+                local dn = string.lower(d.Name)
+                if (dn == "lock" or dn == "padlock" or dn == "locked") then
+                    local vis = true
+                    if d:IsA("BasePart") and d.Transparency >= 0.95 then vis = false end
+                    if d:IsA("GuiObject") and not d.Visible then vis = false end
+                    if vis then
+                        isLocked = true
+                    end
                 end
             end
         end
@@ -1253,12 +1562,16 @@ local function inspectDoorState(inst, pos)
             checkObj(inst)
             if inst.Parent and inst.Parent ~= Workspace then
                 checkObj(inst.Parent)
+                if inst.Parent.Parent and inst.Parent.Parent ~= Workspace and not string.find(string.lower(inst.Parent.Parent.Name), "houses") and not string.find(string.lower(inst.Parent.Parent.Name), "things") then
+                    checkObj(inst.Parent.Parent)
+                end
             end
-        elseif pos then
+        end
+        if pos then
             for _, desc in ipairs(Workspace:GetDescendants()) do
                 if (desc:IsA("BillboardGui") or desc:IsA("SurfaceGui")) and desc.Enabled then
                     local pPos = getObjectPosition(desc.Adornee or desc.Parent)
-                    if pPos and (pPos - pos).Magnitude <= 16 then
+                    if pPos and (pPos - pos).Magnitude <= 18 then
                         checkObj(desc)
                     end
                 end
@@ -1266,7 +1579,7 @@ local function inspectDoorState(inst, pos)
         end
     end)
 
-    return isLocked, cooldownSecs
+    return isLocked, unlockCost, cooldownSecs, promptDisabled, table.concat(debugTexts, " | ")
 end
 
 local function isBlockedByLockedZoneGate(fromPos, toPos)
@@ -1340,9 +1653,10 @@ local function findGroundDoorPosition(modelOrPart, playerGroundY)
     return nil, nil
 end
 
-local function scanAllUnlockedHouses(playerGroundY, originPos)
+local function scanAllHousesWithState(playerGroundY, originPos)
     local houses = {}
     local seenPositions = {}
+    local _, _, _, curLollipops = updatePetsAndLollipopsInventory()
 
     local function addUniqueHouse(name, pos, inst, idVal)
         if not pos then return end
@@ -1352,32 +1666,69 @@ local function scanAllUnlockedHouses(playerGroundY, originPos)
                 return
             end
         end
-        local key = string.format("%d_%d", math.floor(groundPos.X / 10), math.floor(groundPos.Z / 10))
-        local isLocked, liveCd = inspectDoorState(inst, groundPos)
-        if isLocked then return end
+        local key = tostring(name or idVal or string.format("%d_%d", math.floor(groundPos.X / 10), math.floor(groundPos.Z / 10)))
+        local isLocked, unlockCost, liveCd, promptDisabled, dbgText = inspectDoorState(inst, groundPos)
+
+        if State.ConfirmedUnlockedHouses[key] then
+            isLocked = false
+        end
+
+        local lockedMem = State.LockedHouseInfo[key]
+        if lockedMem and lockedMem.locked then
+            if not State.ConfirmedUnlockedHouses[key] then
+                isLocked = true
+                if not unlockCost and lockedMem.requiredCost then
+                    unlockCost = lockedMem.requiredCost
+                end
+            end
+        end
 
         local now = tick()
         if liveCd and liveCd > 0 then
             State.HouseCooldownMap[key] = now + liveCd
+            State.ConfirmedUnlockedHouses[key] = true
+            isLocked = false
         end
+
         local readyAt = State.HouseCooldownMap[key] or 0
         local remCd = math.max(0, readyAt - now)
+
+        local canTryUnlockNow = false
+        if isLocked and State.AutoBuyHouses then
+            if unlockCost and unlockCost > 0 then
+                canTryUnlockNow = (curLollipops >= unlockCost)
+            elseif not lockedMem then
+                canTryUnlockNow = (curLollipops > 0)
+            else
+                local prevLolli = lockedMem.lollipopsAtAttempt or 0
+                if lockedMem.requiredCost and lockedMem.requiredCost > 0 then
+                    canTryUnlockNow = (curLollipops >= lockedMem.requiredCost)
+                else
+                    canTryUnlockNow = (curLollipops > prevLolli and (now - (lockedMem.lastTryTime or 0) > 45))
+                end
+            end
+        end
 
         table.insert(seenPositions, groundPos)
         table.insert(houses, {
             key = key,
-            name = name or ("Дім #" .. (#houses + 1)),
+            name = name or ("House" .. (#houses + 1)),
             pos = groundPos,
             instance = inst,
             id = idVal or (inst and inst.Name) or tostring(#houses + 1),
+            isLocked = isLocked,
+            unlockCost = unlockCost,
+            canTryUnlockNow = canTryUnlockNow,
+            promptDisabled = promptDisabled,
             remainingCd = remCd,
-            isReady = (remCd <= 0)
+            isReady = (not isLocked) and (remCd <= 0),
+            debugText = dbgText
         })
     end
 
     if #State.CustomHousePoints > 0 then
         for idx, cf in ipairs(State.CustomHousePoints) do
-            addUniqueHouse("Дім #" .. idx, cf.Position, nil, idx)
+            addUniqueHouse("House" .. idx, cf.Position, nil, idx)
         end
         return houses
     end
@@ -1393,13 +1744,18 @@ local function scanAllUnlockedHouses(playerGroundY, originPos)
 
     for _, root in ipairs(searchRoots) do
         for _, desc in ipairs(root:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") and desc.Enabled then
+            if desc:IsA("ProximityPrompt") then
                 local pPos = getObjectPosition(desc.Parent)
                 if pPos and math.abs(pPos.Y - playerGroundY) <= 14 then
                     local actionTxt = string.lower((desc.ActionText or "") .. " " .. (desc.ObjectText or "") .. " " .. desc:GetFullName())
                     if not string.find(actionTxt, "egg") and not string.find(actionTxt, "leave") and not string.find(actionTxt, "exit") and not string.find(actionTxt, "teleport") and not string.find(actionTxt, "upgrade") then
                         if not isBlockedByLockedZoneGate(originPos, pPos) then
-                            addUniqueHouse(desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name, pPos, desc.Parent, desc.Parent.Name)
+                            local hModel = desc.Parent
+                            if hModel.Parent and string.find(string.lower(hModel.Parent.Name), "house") and string.lower(hModel.Parent.Name) ~= "houses" then
+                                hModel = hModel.Parent
+                            end
+                            local hName = (desc.ObjectText ~= "" and desc.ObjectText) or hModel.Name
+                            addUniqueHouse(hName, pPos, hModel, hName)
                         end
                     end
                 end
@@ -1416,7 +1772,7 @@ local function scanAllUnlockedHouses(playerGroundY, originPos)
                     for _, hModel in ipairs(folder:GetChildren()) do
                         local doorPos, doorPart = findGroundDoorPosition(hModel, playerGroundY)
                         if doorPos and not isBlockedByLockedZoneGate(originPos, doorPos) then
-                            addUniqueHouse(hModel.Name, doorPos, doorPart or hModel, hModel.Name)
+                            addUniqueHouse(hModel.Name, doorPos, hModel, hModel.Name)
                         end
                     end
                 end
@@ -1426,8 +1782,8 @@ local function scanAllUnlockedHouses(playerGroundY, originPos)
     end
 
     table.sort(houses, function(a, b)
-        local na = tonumber(string.match(tostring(a.id), "%d+"))
-        local nb = tonumber(string.match(tostring(b.id), "%d+"))
+        local na = tonumber(string.match(tostring(a.name), "%d+")) or tonumber(string.match(tostring(a.id), "%d+"))
+        local nb = tonumber(string.match(tostring(b.name), "%d+")) or tonumber(string.match(tostring(b.id), "%d+"))
         if na and nb and na ~= nb then
             return na < nb
         end
@@ -1481,7 +1837,7 @@ local function triggerDoorFast(pos, inst)
     end
 end
 
-local function fireHouseRemotes(house)
+local function fireHouseRemotes(house, tryBuyToo)
     if State.LastCapturedHouseRemote and State.LastCapturedHouseArgs then
         local rem = State.LastCapturedHouseRemote
         local args = {}
@@ -1498,10 +1854,18 @@ local function fireHouseRemotes(house)
     end
 
     local activeInst = getActiveInstanceContainer()
-    local instName = activeInst and activeInst.Name or "HalloweenEvent"
-    local numId = tonumber(string.match(tostring(house.id), "%d+")) or house.id
+    local instName = activeInst and activeInst.Name or "HatchWars"
+    local numId = tonumber(string.match(tostring(house.name or house.id), "%d+")) or house.id
 
     task.spawn(function()
+        if tryBuyToo then
+            for _, buyAct in ipairs({"UnlockHouse", "BuyHouse", "PurchaseHouse", "UnlockDoor", "PurchaseDoor"}) do
+                invokeRemote("Instancing_FireCustomFromClient", instName, buyAct, numId)
+                invokeRemote("Instancing_InvokeCustomFromClient", instName, buyAct, numId)
+            end
+            invokeRemote("TrickOrTreat_UnlockHouse", numId)
+            invokeRemote("TrickOrTreat_BuyHouse", numId)
+        end
         local actions = { "Knock", "TrickOrTreat", "ClaimHouse", "OpenDoor", "Interact" }
         for _, act in ipairs(actions) do
             invokeRemote("Instancing_FireCustomFromClient", instName, act, numId)
@@ -1518,43 +1882,49 @@ local function visitReadyHousesAndReturn(forceAll)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    if not State.SavedEggCFrame then
-        local cands = findNearestEggCandidates(75)
-        if #cands > 0 then
-            local eggPos = cands[1].pos
-            State.SavedEggCFrame = CFrame.new(eggPos.X, hrp.Position.Y, eggPos.Z + 6)
-            saveCoordsToDisk(State.SavedEggCFrame)
-        else
-            State.SavedEggCFrame = hrp.CFrame
-            saveCoordsToDisk(State.SavedEggCFrame)
-        end
-    end
-
-    local returnCF = State.SavedEggCFrame
+    local returnCF = State.SavedEggCFrame or DefaultSpawnCFrame
     local groundY = returnCF.Position.Y
-    local allHouses = scanAllUnlockedHouses(groundY, returnCF.Position)
+    local allHouses = scanAllHousesWithState(groundY, returnCF.Position)
 
     if #allHouses == 0 then
-        setStatusText(nil, "🏠 Додай свої відкриті двері кнопкою '+ Додати дім'")
+        setStatusText(nil, "🏠 Домики не знайдено поруч")
         return
     end
 
-    local readyHouses = {}
+    local housesToProcess = {}
     local minCd = 999999
+    local unlockedTotal = 0
+    local nextLockedHouse = nil
+
     for _, h in ipairs(allHouses) do
-        if forceAll or h.isReady then
-            table.insert(readyHouses, h)
-        else
-            if h.remainingCd < minCd then
+        if not h.isLocked then
+            unlockedTotal = unlockedTotal + 1
+            if forceAll or h.isReady then
+                table.insert(housesToProcess, h)
+            elseif h.remainingCd < minCd then
                 minCd = h.remainingCd
             end
+        else
+            if not nextLockedHouse then
+                nextLockedHouse = h
+                if h.canTryUnlockNow or forceAll then
+                    table.insert(housesToProcess, h)
+                end
+            end
+            break
         end
     end
 
-    if #readyHouses == 0 then
+    if #housesToProcess == 0 then
         local mins = math.floor(minCd / 60)
         local secs = math.floor(minCd % 60)
-        setStatusText(nil, string.format("🏠 Домики на КД (%02d:%02d) | Відкрито: %d", mins, secs, State.TotalHousesOpened))
+        if minCd >= 999999 then mins, secs = 0, 0 end
+        local lockInfoStr = ""
+        if nextLockedHouse then
+            local costStr = nextLockedHouse.unlockCost and formatNumber(nextLockedHouse.unlockCost) or "?"
+            lockInfoStr = string.format(" | Закритий %s (🍭 %s/%s)", tostring(nextLockedHouse.name), formatNumber(State.CurrentLollipops), costStr)
+        end
+        setStatusText(nil, string.format("🏠 Відкрито %d/%d домиків | КД %02d:%02d%s", unlockedTotal, #allHouses, mins, secs, lockInfoStr))
         return
     end
 
@@ -1562,13 +1932,20 @@ local function visitReadyHousesAndReturn(forceAll)
     local stepWait = math.max(1.0, tonumber(State.HouseStepDelay) or 4.0)
 
     local ok, err = pcall(function()
-        for i, house in ipairs(readyHouses) do
+        for i, house in ipairs(housesToProcess) do
             if not State.Running then break end
             char = LocalPlayer.Character
             hrp = char and char:FindFirstChild("HumanoidRootPart")
             if not hrp then break end
 
-            setStatusText(nil, string.format("🏠 Дім %d/%d (%s) — чекаю %.0fс...", i, #readyHouses, tostring(house.name), stepWait))
+            local _, _, _, lollipopsBefore = updatePetsAndLollipopsInventory()
+            State.LastPopupWasError = false
+            State.LastPopupErrorText = ""
+            State.LastPopupCostNumber = nil
+            State.AllowConfirmPurchasePopup = State.AutoBuyHouses
+
+            local actionLabel = house.isLocked and "Купівля/Відкриття" or "Відкриття"
+            setStatusText(nil, string.format("🏠 %s %s (%d/%d) — 4с...", actionLabel, tostring(house.name), i, #housesToProcess))
 
             local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
             teleportSafelyTo(doorGroundCF)
@@ -1576,9 +1953,14 @@ local function visitReadyHousesAndReturn(forceAll)
             local waitStarted = tick()
             local triggeredSecondTime = false
             triggerDoorFast(doorGroundCF.Position, house.instance)
-            fireHouseRemotes(house)
+            fireHouseRemotes(house, house.isLocked or State.AutoBuyHouses)
 
             while (tick() - waitStarted < stepWait) and State.Running do
+                checkAndDismissGamePopups()
+                if State.LastPopupWasError then
+                    break
+                end
+
                 local elapsed = tick() - waitStarted
                 if elapsed >= (stepWait * 0.45) and not triggeredSecondTime then
                     triggeredSecondTime = true
@@ -1587,14 +1969,53 @@ local function visitReadyHousesAndReturn(forceAll)
                 end
                 isMinigameActiveOnScreen()
                 collectAllOrbsAndLootbagsNow()
-                task.wait(0.15)
+                task.wait(0.12)
             end
 
-            State.TotalHousesOpened = State.TotalHousesOpened + 1
-            local _, newLiveCd = inspectDoorState(house.instance, house.pos)
-            State.HouseCooldownMap[house.key] = tick() + (newLiveCd and newLiveCd > 0 and newLiveCd or State.HouseCooldownDefault)
+            State.AllowConfirmPurchasePopup = false
+            checkAndDismissGamePopups()
+            collectAllOrbsAndLootbagsNow()
+
+            local _, _, _, lollipopsAfter = updatePetsAndLollipopsInventory()
+            local afterLocked, afterCost, afterCd, afterPromptDisabled = inspectDoorState(house.instance, house.pos)
+
+            if State.LastPopupWasError then
+                local reqCost = State.LastPopupCostNumber or afterCost or house.unlockCost
+                State.LockedHouseInfo[house.key] = {
+                    locked = true,
+                    lollipopsAtAttempt = lollipopsAfter,
+                    requiredCost = reqCost,
+                    lastTryTime = tick()
+                }
+                State.ConfirmedUnlockedHouses[house.key] = nil
+                addLog("INFO", string.format("Дім %s ще закритий (маємо 🍭 %s, треба %s). Пропускаю наступні.", tostring(house.name), formatNumber(lollipopsAfter), tostring(reqCost or "?")))
+                break
+            else
+                local reallyOpened = (afterCd and afterCd > 0)
+                    or afterPromptDisabled
+                    or (lollipopsAfter ~= lollipopsBefore)
+                    or (not afterLocked)
+
+                if reallyOpened then
+                    State.ConfirmedUnlockedHouses[house.key] = true
+                    State.LockedHouseInfo[house.key] = nil
+                    State.TotalHousesOpened = State.TotalHousesOpened + 1
+                    State.HouseCooldownMap[house.key] = tick() + (afterCd and afterCd > 0 and afterCd or State.HouseCooldownDefault)
+                else
+                    State.LockedHouseInfo[house.key] = {
+                        locked = true,
+                        lollipopsAtAttempt = lollipopsAfter,
+                        requiredCost = afterCost or house.unlockCost,
+                        lastTryTime = tick()
+                    }
+                    break
+                end
+            end
         end
     end)
+
+    State.AllowConfirmPurchasePopup = false
+    checkAndDismissGamePopups()
 
     if not ok then
         addLog("ERR", "Помилка домиків: " .. tostring(err))
@@ -1637,18 +2058,15 @@ task.spawn(function()
 end)
 
 local function runEventDiagnostic()
-    addLog("INFO", "=== СКАНЕР ===")
+    addLog("INFO", "=== СКАНЕР HATCH WARS ===")
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local myPos = hrp and hrp.Position or Vector3.zero
     local batchAmt = getTargetEggBatchSize()
-    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Пачка яєць: %d", myPos.X, myPos.Y, myPos.Z, batchAmt))
-    addLog("INFO", string.format("Статистика: Яєць=%d | Домиків=%d | Час=%s", State.TotalEggsHatched, State.TotalHousesOpened, formatDuration(tick() - State.StartTime)))
+    local dom, wen, goat, lolli = updatePetsAndLollipopsInventory()
 
-    local currSnap = getAllPlayerCurrencies()
-    for k, v in pairs(currSnap) do
-        addLog("INFO", string.format("  Валюта [%s] = %s", tostring(k), tostring(v)))
-    end
+    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Пачка яєць: %d", myPos.X, myPos.Y, myPos.Z, batchAmt))
+    addLog("INFO", string.format("Пети: Headless Dominus=%d | Wendigo=%d | Grinning Goat=%d | 🍭 Lollipop=%d", dom, wen, goat, lolli))
 
     local cands = findNearestEggCandidates(75)
     addLog("INFO", "Яєць поруч (" .. #cands .. "):")
@@ -1656,10 +2074,10 @@ local function runEventDiagnostic()
         addLog("INFO", string.format("  [%d] uid='%s' id='%s' dist=%.1f", i, tostring(c.uid), tostring(c.attrId), c.dist))
     end
 
-    local houses = scanAllUnlockedHouses(myPos.Y, myPos)
-    addLog("INFO", "Відкритих домиків (" .. #houses .. "):")
+    local houses = scanAllHousesWithState(myPos.Y, myPos)
+    addLog("INFO", "Домики (" .. #houses .. "):")
     for i, h in ipairs(houses) do
-        addLog("INFO", string.format("  [%d] %s | Готовий=%s | КД=%.0fс", i, tostring(h.name), tostring(h.isReady), h.remainingCd))
+        addLog("INFO", string.format("  [%d] %s | Закритий=%s | Ціна=%s | Готовий=%s | КД=%.0fс | Текст='%s'", i, tostring(h.name), tostring(h.isLocked), tostring(h.unlockCost or "-"), tostring(h.isReady), h.remainingCd, tostring(h.debugText or "")))
     end
 
     addLog("OK", "Готово! Натисни 'Копіювати'.")
@@ -1691,13 +2109,15 @@ local Colors = {
     Bg = Color3.fromRGB(14, 12, 20),
     Header = Color3.fromRGB(24, 18, 36),
     Card = Color3.fromRGB(22, 19, 32),
-    CardBright = Color3.fromRGB(30, 25, 44),
+    CardBright = Color3.fromRGB(28, 24, 42),
     Stroke = Color3.fromRGB(130, 75, 220),
     Orange = Color3.fromRGB(255, 130, 35),
     Green = Color3.fromRGB(46, 204, 113),
     Red = Color3.fromRGB(231, 76, 60),
     Blue = Color3.fromRGB(52, 152, 219),
     Purple = Color3.fromRGB(155, 89, 182),
+    Gold = Color3.fromRGB(241, 196, 15),
+    Pink = Color3.fromRGB(232, 67, 147),
     Text = Color3.fromRGB(248, 245, 255),
     SubText = Color3.fromRGB(175, 168, 200),
     InputBg = Color3.fromRGB(10, 8, 15)
@@ -1715,8 +2135,8 @@ BlackOverlayFrame.ZIndex = 10
 BlackOverlayFrame.Parent = ScreenGui
 
 local DashCard = Instance.new("Frame")
-DashCard.Size = UDim2.new(0, 450, 0, 310)
-DashCard.Position = UDim2.new(0.5, -225, 0.5, -155)
+DashCard.Size = UDim2.new(0, 480, 0, 360)
+DashCard.Position = UDim2.new(0.5, -240, 0.5, -180)
 DashCard.BackgroundColor3 = Color3.fromRGB(15, 13, 24)
 DashCard.BorderSizePixel = 0
 DashCard.ZIndex = 11
@@ -1727,60 +2147,49 @@ DashStroke.Color = Colors.Orange
 DashStroke.Thickness = 2
 
 local DashTitle = Instance.new("TextLabel")
-DashTitle.Size = UDim2.new(1, -24, 0, 32)
-DashTitle.Position = UDim2.new(0, 12, 0, 10)
+DashTitle.Size = UDim2.new(1, -24, 0, 28)
+DashTitle.Position = UDim2.new(0, 12, 0, 8)
 DashTitle.BackgroundTransparency = 1
-DashTitle.Text = "🎃 HALLOWEEN AFK FARM  •  3D ВИМКНЕНО"
+DashTitle.Text = "🎃 HATCH WARS AFK FARM  •  3D ВИМКНЕНО"
 DashTitle.TextColor3 = Colors.Orange
 DashTitle.Font = Enum.Font.GothamBold
-DashTitle.TextSize = 16
+DashTitle.TextSize = 15
 DashTitle.ZIndex = 12
 DashTitle.Parent = DashCard
 
-local DashSub = Instance.new("TextLabel")
-DashSub.Size = UDim2.new(1, -24, 0, 18)
-DashSub.Position = UDim2.new(0, 12, 0, 38)
-DashSub.BackgroundTransparency = 1
-DashSub.Text = "Економія GPU/Батареї активна — гра фармить у фоні"
-DashSub.TextColor3 = Colors.SubText
-DashSub.Font = Enum.Font.Gotham
-DashSub.TextSize = 12
-DashSub.ZIndex = 12
-DashSub.Parent = DashCard
-
-local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, accentColor)
+local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale, heightPx, accentColor, valTextSize)
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(widthScale, -16, 0, 68)
-    box.Position = UDim2.new(posScaleX, 12, 0, posY)
+    box.Size = UDim2.new(widthScale, -12, 0, heightPx)
+    box.Position = UDim2.new(posScaleX, 10, 0, posY)
     box.BackgroundColor3 = Colors.CardBright
     box.BorderSizePixel = 0
     box.ZIndex = 12
     box.Parent = parent
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 9)
     local st = Instance.new("UIStroke", box)
     st.Color = accentColor
-    st.Thickness = 1.5
+    st.Thickness = 1.4
 
     local lblTitle = Instance.new("TextLabel")
-    lblTitle.Size = UDim2.new(1, -16, 0, 20)
-    lblTitle.Position = UDim2.new(0, 8, 0, 6)
+    lblTitle.Size = UDim2.new(1, -12, 0, 18)
+    lblTitle.Position = UDim2.new(0, 6, 0, 4)
     lblTitle.BackgroundTransparency = 1
     lblTitle.Text = title
     lblTitle.TextColor3 = Colors.SubText
     lblTitle.Font = Enum.Font.GothamBold
-    lblTitle.TextSize = 11
+    lblTitle.TextSize = 10
     lblTitle.TextXAlignment = Enum.TextXAlignment.Left
     lblTitle.ZIndex = 13
     lblTitle.Parent = box
 
     local lblVal = Instance.new("TextLabel")
-    lblVal.Size = UDim2.new(1, -16, 0, 34)
-    lblVal.Position = UDim2.new(0, 8, 0, 26)
+    lblVal.Size = UDim2.new(1, -12, 0, heightPx - 22)
+    lblVal.Position = UDim2.new(0, 6, 0, 20)
     lblVal.BackgroundTransparency = 1
     lblVal.Text = initVal
     lblVal.TextColor3 = Colors.Text
     lblVal.Font = Enum.Font.GothamBold
-    lblVal.TextSize = 18
+    lblVal.TextSize = valTextSize or 15
     lblVal.TextXAlignment = Enum.TextXAlignment.Left
     lblVal.ZIndex = 13
     lblVal.Parent = box
@@ -1788,13 +2197,18 @@ local function createStatBox(parent, title, initVal, posScaleX, posY, widthScale
     return lblVal
 end
 
-StatTimeValue = createStatBox(DashCard, "⏱️ ЧАС ФАРМУ", "00:00:00", 0, 64, 0.34, Colors.Blue)
-StatEggsValue = createStatBox(DashCard, "🐣 ВІДКРИТО ЯЄЦЬ", "0 (0 пачок)", 0.33, 64, 0.34, Colors.Orange)
-StatHousesValue = createStatBox(DashCard, "🏠 ВІДКРИТО ДОМИКІВ", "0", 0.66, 64, 0.34, Colors.Green)
+StatTimeValue = createStatBox(DashCard, "⏱️ ЧАС ФАРМУ", "00:00:00", 0, 42, 0.333, 56, Colors.Blue, 16)
+StatEggsValue = createStatBox(DashCard, "🐣 ВІДКРИТО ЯЄЦЬ", "0 (0 пачок)", 0.333, 42, 0.333, 56, Colors.Orange, 15)
+StatHousesValue = createStatBox(DashCard, "🏠 ВІДКРИТО ДОМИКІВ", "0", 0.666, 42, 0.334, 56, Colors.Green, 16)
+
+StatDominusValue = createStatBox(DashCard, "👑 Headless Dominus", "+0 (0)", 0, 106, 0.25, 56, Colors.Purple, 13)
+StatWendigoValue = createStatBox(DashCard, "🦌 Wendigo", "+0 (0)", 0.25, 106, 0.25, 56, Colors.Blue, 13)
+StatGoatValue = createStatBox(DashCard, "🐐 Grinning Goat", "+0 (0)", 0.50, 106, 0.25, 56, Colors.Gold, 13)
+StatLollipopValue = createStatBox(DashCard, "🍭 Lollipop (Цукерки)", "0", 0.75, 106, 0.25, 56, Colors.Pink, 13)
 
 local StatusBanner = Instance.new("Frame")
-StatusBanner.Size = UDim2.new(1, -24, 0, 56)
-StatusBanner.Position = UDim2.new(0, 12, 0, 142)
+StatusBanner.Size = UDim2.new(1, -20, 0, 52)
+StatusBanner.Position = UDim2.new(0, 10, 0, 170)
 StatusBanner.BackgroundColor3 = Colors.InputBg
 StatusBanner.BorderSizePixel = 0
 StatusBanner.ZIndex = 12
@@ -1817,8 +2231,8 @@ StatStatusValue.ZIndex = 13
 StatStatusValue.Parent = StatusBanner
 
 local ExitBlackBtn = Instance.new("TextButton")
-ExitBlackBtn.Size = UDim2.new(0.54, -14, 0, 42)
-ExitBlackBtn.Position = UDim2.new(0, 12, 0, 210)
+ExitBlackBtn.Size = UDim2.new(0.54, -12, 0, 40)
+ExitBlackBtn.Position = UDim2.new(0, 10, 0, 232)
 ExitBlackBtn.BackgroundColor3 = Colors.Green
 ExitBlackBtn.Text = "👁️ ВИЙТИ І УВІМКНУТИ 3D"
 ExitBlackBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1829,8 +2243,8 @@ ExitBlackBtn.Parent = DashCard
 Instance.new("UICorner", ExitBlackBtn).CornerRadius = UDim.new(0, 8)
 
 local OpenMenuOnBlackBtn = Instance.new("TextButton")
-OpenMenuOnBlackBtn.Size = UDim2.new(0.46, -14, 0, 42)
-OpenMenuOnBlackBtn.Position = UDim2.new(0.54, 2, 0, 210)
+OpenMenuOnBlackBtn.Size = UDim2.new(0.46, -12, 0, 40)
+OpenMenuOnBlackBtn.Position = UDim2.new(0.54, 2, 0, 232)
 OpenMenuOnBlackBtn.BackgroundColor3 = Colors.Purple
 OpenMenuOnBlackBtn.Text = "⚙️ ВІДКРИТИ МЕНЮ"
 OpenMenuOnBlackBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1841,10 +2255,10 @@ OpenMenuOnBlackBtn.Parent = DashCard
 Instance.new("UICorner", OpenMenuOnBlackBtn).CornerRadius = UDim.new(0, 8)
 
 local TeleportNowOnBlackBtn = Instance.new("TextButton")
-TeleportNowOnBlackBtn.Size = UDim2.new(1, -24, 0, 36)
-TeleportNowOnBlackBtn.Position = UDim2.new(0, 12, 0, 260)
+TeleportNowOnBlackBtn.Size = UDim2.new(1, -20, 0, 34)
+TeleportNowOnBlackBtn.Position = UDim2.new(0, 10, 0, 280)
 TeleportNowOnBlackBtn.BackgroundColor3 = Colors.CardBright
-TeleportNowOnBlackBtn.Text = "🚀 Телепорт в Івент -> На збережені координати"
+TeleportNowOnBlackBtn.Text = "🚀 Телепорт в Івент -> На координати (7538.1, 15.7, 21965.5)"
 TeleportNowOnBlackBtn.TextColor3 = Colors.Orange
 TeleportNowOnBlackBtn.Font = Enum.Font.GothamBold
 TeleportNowOnBlackBtn.TextSize = 12
@@ -1852,17 +2266,68 @@ TeleportNowOnBlackBtn.ZIndex = 13
 TeleportNowOnBlackBtn.Parent = DashCard
 Instance.new("UICorner", TeleportNowOnBlackBtn).CornerRadius = UDim.new(0, 8)
 
+local RunHousesOnBlackBtn = Instance.new("TextButton")
+RunHousesOnBlackBtn.Size = UDim2.new(1, -20, 0, 32)
+RunHousesOnBlackBtn.Position = UDim2.new(0, 10, 0, 320)
+RunHousesOnBlackBtn.BackgroundColor3 = Colors.Blue
+RunHousesOnBlackBtn.Text = "🏠 Перевірити / Відкрити доступні домики зараз"
+RunHousesOnBlackBtn.TextColor3 = Color3.new(1, 1, 1)
+RunHousesOnBlackBtn.Font = Enum.Font.GothamBold
+RunHousesOnBlackBtn.TextSize = 12
+RunHousesOnBlackBtn.ZIndex = 13
+RunHousesOnBlackBtn.Parent = DashCard
+Instance.new("UICorner", RunHousesOnBlackBtn).CornerRadius = UDim.new(0, 8)
+
+bindButton(RunHousesOnBlackBtn, function()
+    task.spawn(function()
+        visitReadyHousesAndReturn(false)
+    end)
+end)
+
 task.spawn(function()
+    local lastInvCheck = 0
     while State.Running do
+        local now = tick()
+        if now - lastInvCheck >= 2.0 then
+            lastInvCheck = now
+            updatePetsAndLollipopsInventory()
+        end
+
         if StatTimeValue then
-            StatTimeValue.Text = formatDuration(tick() - State.StartTime)
+            StatTimeValue.Text = formatDuration(now - State.StartTime)
         end
         if StatEggsValue then
-            StatEggsValue.Text = string.format("%s (%d)", formatNumber(State.TotalEggsHatches or State.TotalEggsHatched), State.TotalEggBatches)
+            StatEggsValue.Text = string.format("%s (%d)", formatNumber(State.TotalEggsHatched), State.TotalEggBatches)
         end
         if StatHousesValue then
             StatHousesValue.Text = formatNumber(State.TotalHousesOpened)
         end
+
+        local baseDom = (State.StartPetCounts and State.StartPetCounts.HeadlessDominus) or 0
+        local baseWen = (State.StartPetCounts and State.StartPetCounts.Wendigo) or 0
+        local baseGoat = (State.StartPetCounts and State.StartPetCounts.GrinningGoat) or 0
+
+        local curDom = State.CurrentPetCounts.HeadlessDominus or 0
+        local curWen = State.CurrentPetCounts.Wendigo or 0
+        local curGoat = State.CurrentPetCounts.GrinningGoat or 0
+
+        local diffDom = math.max(0, curDom - baseDom)
+        local diffWen = math.max(0, curWen - baseWen)
+        local diffGoat = math.max(0, curGoat - baseGoat)
+
+        if StatDominusValue then
+            StatDominusValue.Text = string.format("+%s (%s)", formatNumber(diffDom), formatNumber(curDom))
+        end
+        if StatWendigoValue then
+            StatWendigoValue.Text = string.format("+%s (%s)", formatNumber(diffWen), formatNumber(curWen))
+        end
+        if StatGoatValue then
+            StatGoatValue.Text = string.format("+%s (%s)", formatNumber(diffGoat), formatNumber(curGoat))
+        end
+        if StatLollipopValue then
+            StatLollipopValue.Text = formatNumber(State.CurrentLollipops)
+        end
+
         task.wait(0.5)
     end
 end)
@@ -1886,8 +2351,8 @@ FloatStroke.Thickness = 2
 
 MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 460, 0, 380)
-MainFrame.Position = UDim2.new(0.5, -230, 0.5, -190)
+MainFrame.Size = UDim2.new(0, 460, 0, 385)
+MainFrame.Position = UDim2.new(0.5, -230, 0.5, -192)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1927,7 +2392,7 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, -150, 1, 0)
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "🎃 Halloween Hub"
+TitleLabel.Text = "🎃 Hatch Wars Hub"
 TitleLabel.TextColor3 = Colors.Orange
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextSize = 15
@@ -2132,7 +2597,7 @@ HouseStatusLabel = Instance.new("TextLabel")
 HouseStatusLabel.LayoutOrder = 3
 HouseStatusLabel.Size = UDim2.new(1, -6, 0, 18)
 HouseStatusLabel.BackgroundTransparency = 1
-HouseStatusLabel.Text = "🏠 Домики: очікування (4с на дім)"
+HouseStatusLabel.Text = "🏠 Домики: розумна перевірка 🍭 Lollipop"
 HouseStatusLabel.TextColor3 = Colors.Green
 HouseStatusLabel.Font = Enum.Font.GothamBold
 HouseStatusLabel.TextSize = 12
@@ -2302,23 +2767,47 @@ local RunHousesNowBtn = Instance.new("TextButton")
 RunHousesNowBtn.LayoutOrder = 1
 RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 38)
 RunHousesNowBtn.BackgroundColor3 = Colors.Orange
-RunHousesNowBtn.Text = "⚡ Обійти домики [E] (по 4 сек) і назад"
+RunHousesNowBtn.Text = "⚡ Перевірити і відкрити доступні домики (4с)"
 RunHousesNowBtn.TextColor3 = Color3.new(1, 1, 1)
 RunHousesNowBtn.Font = Enum.Font.GothamBold
-RunHousesNowBtn.TextSize = 13
+RunHousesNowBtn.TextSize = 12
 RunHousesNowBtn.ZIndex = 33
 RunHousesNowBtn.Parent = PageHouses
 Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 7)
 
 bindButton(RunHousesNowBtn, function()
     State.HouseCooldownMap = {}
+    State.LockedHouseInfo = {}
     task.spawn(function()
-        visitReadyHousesAndReturn(true)
+        visitReadyHousesAndReturn(false)
     end)
 end)
 
+local AutoBuyHouseToggle = Instance.new("TextButton")
+AutoBuyHouseToggle.LayoutOrder = 2
+AutoBuyHouseToggle.Size = UDim2.new(1, -6, 0, 34)
+AutoBuyHouseToggle.BackgroundColor3 = Colors.Green
+AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: УВІМК"
+AutoBuyHouseToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoBuyHouseToggle.Font = Enum.Font.GothamBold
+AutoBuyHouseToggle.TextSize = 12
+AutoBuyHouseToggle.ZIndex = 33
+AutoBuyHouseToggle.Parent = PageHouses
+Instance.new("UICorner", AutoBuyHouseToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(AutoBuyHouseToggle, function()
+    State.AutoBuyHouses = not State.AutoBuyHouses
+    if State.AutoBuyHouses then
+        AutoBuyHouseToggle.BackgroundColor3 = Colors.Green
+        AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: УВІМК"
+    else
+        AutoBuyHouseToggle.BackgroundColor3 = Colors.Red
+        AutoBuyHouseToggle.Text = "🍭 Авто-купівля нових домиків за Lollipop: ВИМК"
+    end
+end)
+
 local RouteRow = Instance.new("Frame")
-RouteRow.LayoutOrder = 2
+RouteRow.LayoutOrder = 3
 RouteRow.Size = UDim2.new(1, -6, 0, 34)
 RouteRow.BackgroundTransparency = 1
 RouteRow.ZIndex = 33
@@ -2340,10 +2829,10 @@ local ClearPointsBtn = Instance.new("TextButton")
 ClearPointsBtn.Size = UDim2.new(0.38, -3, 1, 0)
 ClearPointsBtn.Position = UDim2.new(0.62, 3, 0, 0)
 ClearPointsBtn.BackgroundColor3 = Colors.Card
-ClearPointsBtn.Text = "🗑️ Скинути"
+ClearPointsBtn.Text = "🗑️ Скинути КД/Блок"
 ClearPointsBtn.TextColor3 = Colors.Text
 ClearPointsBtn.Font = Enum.Font.GothamBold
-ClearPointsBtn.TextSize = 12
+ClearPointsBtn.TextSize = 11
 ClearPointsBtn.ZIndex = 34
 ClearPointsBtn.Parent = RouteRow
 Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 6)
@@ -2361,12 +2850,13 @@ end)
 bindButton(ClearPointsBtn, function()
     State.CustomHousePoints = {}
     State.HouseCooldownMap = {}
+    State.LockedHouseInfo = {}
     AddPointBtn.Text = "➕ Додати відкритий дім (0)"
-    setStatusText(nil, "🏠 Точки скинуто (Авто-пошук)")
+    setStatusText(nil, "🏠 Статус закритих домиків та КД скинуто!")
 end)
 
 local LimitRow = Instance.new("Frame")
-LimitRow.LayoutOrder = 3
+LimitRow.LayoutOrder = 4
 LimitRow.Size = UDim2.new(1, -6, 0, 30)
 LimitRow.BackgroundTransparency = 1
 LimitRow.ZIndex = 33
@@ -2398,13 +2888,13 @@ makeLimitBtn("1 дім", 1, 1)
 makeLimitBtn("2 доми", 2, 2)
 makeLimitBtn("3 доми", 3, 3)
 makeLimitBtn("4 доми", 4, 4)
-makeLimitBtn("Всі", 0, 5)
+makeLimitBtn("Авто Всі", 0, 5)
 
 local AutoCapToggle = Instance.new("TextButton")
-AutoCapToggle.LayoutOrder = 4
+AutoCapToggle.LayoutOrder = 5
 AutoCapToggle.Size = UDim2.new(1, -6, 0, 32)
 AutoCapToggle.BackgroundColor3 = Colors.Green
-AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
+AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: УВІМК"
 AutoCapToggle.TextColor3 = Color3.new(1, 1, 1)
 AutoCapToggle.Font = Enum.Font.GothamBold
 AutoCapToggle.TextSize = 12
@@ -2416,10 +2906,10 @@ bindButton(AutoCapToggle, function()
     State.AutoMinigame = not State.AutoMinigame
     if State.AutoMinigame then
         AutoCapToggle.BackgroundColor3 = Colors.Green
-        AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
+        AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: УВІМК"
     else
         AutoCapToggle.BackgroundColor3 = Colors.Red
-        AutoCapToggle.Text = "🎯 Авто-Точки (Капча): ВИМК"
+        AutoCapToggle.Text = "🎯 Авто-Точки (Капча) + Закриття помилок: ВИМК"
     end
 end)
 
@@ -2455,8 +2945,32 @@ bindButton(Render3DToggleBtn, function()
     set3DRendering(not State.Rendering3DEnabled)
 end)
 
+local EngToggleBtn = Instance.new("TextButton")
+EngToggleBtn.LayoutOrder = 3
+EngToggleBtn.Size = UDim2.new(1, -6, 0, 32)
+EngToggleBtn.BackgroundColor3 = Colors.Green
+EngToggleBtn.Text = "🌐 Мова гри English (для точного сканера): УВІМК"
+EngToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+EngToggleBtn.Font = Enum.Font.GothamBold
+EngToggleBtn.TextSize = 12
+EngToggleBtn.ZIndex = 33
+EngToggleBtn.Parent = PageSettings
+Instance.new("UICorner", EngToggleBtn).CornerRadius = UDim.new(0, 7)
+
+bindButton(EngToggleBtn, function()
+    State.ForceEnglishGame = not State.ForceEnglishGame
+    if State.ForceEnglishGame then
+        applyEnglishGameLocale()
+        EngToggleBtn.BackgroundColor3 = Colors.Green
+        EngToggleBtn.Text = "🌐 Мова гри English (для точного сканера): УВІМК"
+    else
+        EngToggleBtn.BackgroundColor3 = Colors.Card
+        EngToggleBtn.Text = "🌐 Мова гри English (для точного сканера): ВИМК"
+    end
+end)
+
 local JumpToggle = Instance.new("TextButton")
-JumpToggle.LayoutOrder = 3
+JumpToggle.LayoutOrder = 4
 JumpToggle.Size = UDim2.new(1, -6, 0, 32)
 JumpToggle.BackgroundColor3 = Colors.Green
 JumpToggle.Text = "🦘 Стрибок раз на 20 сек (Анти-АФК): УВІМК"
@@ -2479,7 +2993,7 @@ bindButton(JumpToggle, function()
 end)
 
 local CoordsRow = Instance.new("Frame")
-CoordsRow.LayoutOrder = 4
+CoordsRow.LayoutOrder = 5
 CoordsRow.Size = UDim2.new(1, -6, 0, 32)
 CoordsRow.BackgroundTransparency = 1
 CoordsRow.ZIndex = 33
@@ -2489,8 +3003,8 @@ CoordsInputBox = Instance.new("TextBox")
 CoordsInputBox.Size = UDim2.new(0.65, -3, 1, 0)
 CoordsInputBox.Position = UDim2.new(0, 0, 0, 0)
 CoordsInputBox.BackgroundColor3 = Colors.InputBg
-CoordsInputBox.Text = ""
-CoordsInputBox.PlaceholderText = "Координати X, Y, Z (авто або вручну)"
+CoordsInputBox.Text = "7538.1, 15.7, 21965.5"
+CoordsInputBox.PlaceholderText = "Координати X, Y, Z"
 CoordsInputBox.PlaceholderColor3 = Colors.SubText
 CoordsInputBox.TextColor3 = Colors.Orange
 CoordsInputBox.Font = Enum.Font.GothamBold
@@ -2531,7 +3045,7 @@ bindButton(SetCoordsManualBtn, function()
 end)
 
 local DelaysRow = Instance.new("Frame")
-DelaysRow.LayoutOrder = 5
+DelaysRow.LayoutOrder = 6
 DelaysRow.Size = UDim2.new(1, -6, 0, 32)
 DelaysRow.BackgroundTransparency = 1
 DelaysRow.ZIndex = 33
@@ -2684,6 +3198,9 @@ local function cleanupAll()
     pcall(function()
         RunService:Set3dRenderingEnabled(true)
     end)
+    pcall(function()
+        if SafetyFloorPad then SafetyFloorPad:Destroy() end
+    end)
     for _, c in ipairs(ActiveConnections) do
         pcall(function() c:Disconnect() end)
     end
@@ -2699,6 +3216,7 @@ bindButton(CloseBtn, cleanupAll)
 switchTab(PageFarm, TabFarmBtn)
 env.HalloweenSavedCoords = nil
 loadCoordsFromDisk()
+updatePetsAndLollipopsInventory()
 
 task.spawn(function()
     pcall(enterHalloweenEventAndGoToCoords)
@@ -2712,5 +3230,5 @@ task.spawn(function()
         MainFrame.Visible = true
         FloatBtn.Visible = false
     end
-    addLog("OK", "Координати 7538.1, 15.7, 21965.5 встановлено! Авто-фарм активовано.")
+    addLog("OK", "Hatch Wars готовий! Відстеження Headless Dominus, Wendigo, Grinning Goat і 🍭 Lollipop активовано.")
 end)
