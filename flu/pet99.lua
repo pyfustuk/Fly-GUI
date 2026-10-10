@@ -47,6 +47,8 @@ local function bindButton(btn, callback)
     end))
 end
 
+local DefaultSpawnCFrame = CFrame.new(7538.1, 15.7, 21965.5)
+
 local State = {
     Running = true,
     FullAutoFarm = false,
@@ -65,7 +67,7 @@ local State = {
     LowCoinWaitCount = 0,
     LastCapturedEggRemote = nil,
     LastCapturedEggArgs = nil,
-    SavedEggCFrame = nil,
+    SavedEggCFrame = DefaultSpawnCFrame,
     MaxUnlockedHouses = 0,
     HouseCooldownDefault = 600,
     HouseCooldownMap = {},
@@ -88,7 +90,7 @@ local State = {
     MaxLogs = 250
 }
 
-local CoordsFileName = "ps99_halloween_coords.txt"
+local CoordsFileName = "ps99_halloween_coords_v2.txt"
 
 local LogBoxLabel = nil
 local LogScrollFrame = nil
@@ -213,12 +215,13 @@ local function loadCoordsFromDisk()
             loadedCF = CFrame.new(tonumber(c.x), tonumber(c.y), tonumber(c.z))
         end
     end
-    if loadedCF then
-        State.SavedEggCFrame = loadedCF
-        if CoordsInputBox then
-            local p = loadedCF.Position
-            CoordsInputBox.Text = string.format("%.2f, %.2f, %.2f", p.X, p.Y, p.Z)
-        end
+    if not loadedCF then
+        loadedCF = DefaultSpawnCFrame
+    end
+    State.SavedEggCFrame = loadedCF
+    if CoordsInputBox then
+        local p = loadedCF.Position
+        CoordsInputBox.Text = string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z)
     end
     return loadedCF
 end
@@ -515,8 +518,32 @@ local function getObjectPosition(obj)
     return pos
 end
 
+local SafetyFloorPad = nil
+local function ensureSafetyFloorAt(pos)
+    if not pos then return end
+    pcall(function()
+        if not SafetyFloorPad or not SafetyFloorPad.Parent then
+            SafetyFloorPad = Instance.new("Part")
+            SafetyFloorPad.Name = "HalloweenSafetyFloor"
+            SafetyFloorPad.Size = Vector3.new(45, 2, 45)
+            SafetyFloorPad.Anchored = true
+            SafetyFloorPad.CanCollide = true
+            SafetyFloorPad.Transparency = 1
+            SafetyFloorPad.Parent = Workspace
+        end
+        SafetyFloorPad.CFrame = CFrame.new(pos.X, pos.Y - 3.2, pos.Z)
+    end)
+end
+
 local function teleportSafelyTo(targetCF)
     if not targetCF then return end
+    local pos = targetCF.Position
+    ensureSafetyFloorAt(pos)
+    pcall(function()
+        if LocalPlayer.RequestStreamAroundAsync then
+            LocalPlayer:RequestStreamAroundAsync(pos, 2)
+        end
+    end)
     for _ = 1, 4 do
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -860,93 +887,94 @@ local function findNearestEggCandidates(maxRadius)
 end
 
 local function enterHalloweenEventAndGoToCoords()
-    setStatusText("🎃 Перевірка входу в Halloween Івент...", nil)
-    local activeInst = getActiveInstanceContainer()
+    loadCoordsFromDisk()
+    local targetCF = State.SavedEggCFrame or DefaultSpawnCFrame
 
-    if not activeInst then
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local alreadyInEventZone = false
+
+    if hrp and (hrp.Position - targetCF.Position).Magnitude < 1000 then
+        alreadyInEventZone = true
+    elseif #findNearestEggCandidates(120) > 0 then
+        alreadyInEventZone = true
+    end
+
+    if not alreadyInEventZone then
+        setStatusText("🎃 Вхід у Halloween Івент...", nil)
         local things = getThingsFolder()
         local instancesFolder = things and things:FindFirstChild("Instances")
-        local targetInstName = nil
-        local enterPart = nil
+        local candidateIds = {}
+        local validEnterPad = nil
 
         if instancesFolder then
             for _, instObj in ipairs(instancesFolder:GetChildren()) do
                 local low = string.lower(instObj.Name)
-                if string.find(low, "halloween") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "blood") or string.find(low, "event") then
-                    targetInstName = instObj.Name
-                    for _, d in ipairs(instObj:GetDescendants()) do
-                        if d:IsA("BasePart") and (string.lower(d.Name) == "enter" or string.find(string.lower(d.Name), "teleport") or string.find(string.lower(d.Name), "portal")) then
-                            enterPart = d
-                            break
+                if string.find(low, "halloween") or string.find(low, "trick") or string.find(low, "spooky") or string.find(low, "blood") or string.find(low, "haunt") or string.find(low, "event") then
+                    table.insert(candidateIds, instObj.Name)
+                    local teleports = instObj:FindFirstChild("Teleports")
+                    local enterP = teleports and teleports:FindFirstChild("Enter")
+                    if enterP and enterP:IsA("BasePart") and enterP.Position.Y > 1 then
+                        validEnterPad = enterP
+                    end
+                end
+            end
+        end
+
+        for _, extraId in ipairs({"HalloweenEvent", "HalloweenWorld", "TrickOrTreat", "SpookyEvent", "Event"}) do
+            table.insert(candidateIds, extraId)
+        end
+
+        pcall(function()
+            local lib = ReplicatedStorage:FindFirstChild("Library")
+            local client = lib and lib:FindFirstChild("Client")
+            local instCmdsMod = client and client:FindFirstChild("InstancingCmds")
+            if instCmdsMod then
+                local ok, InstancingCmds = pcall(require, instCmdsMod)
+                if ok and type(InstancingCmds) == "table" and type(InstancingCmds.Enter) == "function" then
+                    for _, id in ipairs(candidateIds) do
+                        local okE = pcall(InstancingCmds.Enter, id)
+                        if okE then
+                            task.wait(0.4)
+                            if getActiveInstanceContainer() then break end
                         end
                     end
-                    if not enterPart then
-                        enterPart = instObj:FindFirstChildWhichIsA("BasePart", true)
-                    end
-                    break
                 end
             end
-        end
+        end)
 
-        if enterPart then
-            setStatusText("🚪 Телепорт у портал Івенту: " .. tostring(targetInstName), nil)
-            teleportSafelyTo(enterPart.CFrame + Vector3.new(0, 3, 0))
+        if not getActiveInstanceContainer() and validEnterPad and hrp and (validEnterPad.Position - hrp.Position).Magnitude < 800 then
+            teleportSafelyTo(validEnterPad.CFrame + Vector3.new(0, 3, 0))
             if firetouchinterest then
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    pcall(function()
-                        firetouchinterest(hrp, enterPart, 0)
-                        firetouchinterest(hrp, enterPart, 1)
-                    end)
-                end
+                pcall(function()
+                    firetouchinterest(hrp, validEnterPad, 0)
+                    firetouchinterest(hrp, validEnterPad, 1)
+                end)
             end
             pressKeyE()
+            task.wait(1.2)
         end
 
-        for _, tryName in ipairs({targetInstName or "HalloweenEvent", "HalloweenEvent", "TrickOrTreat", "HalloweenWorld", "BloodMoonEvent"}) do
+        for _, tryName in ipairs(candidateIds) do
             invokeRemote("Instancing_PlayerEnterInstance", tryName)
             invokeRemote("Teleports_RequestInstance", tryName)
         end
 
         local waitStart = tick()
-        while (tick() - waitStart < 4.5) and State.Running do
-            activeInst = getActiveInstanceContainer()
-            if activeInst then break end
+        while (tick() - waitStart < 3.5) and State.Running do
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if getActiveInstanceContainer() or (hrp and (hrp.Position - targetCF.Position).Magnitude < 1000) then
+                break
+            end
             task.wait(0.25)
         end
     end
 
-    loadCoordsFromDisk()
-
-    if State.SavedEggCFrame then
-        setStatusText("📍 Телепорт на збережені координати...", nil)
-        teleportSafelyTo(State.SavedEggCFrame)
-        task.wait(0.3)
-    else
-        local allEventEggs = findNearestEggCandidates(2500)
-        if #allEventEggs > 0 then
-            local targetEgg = allEventEggs[1]
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local yVal = (hrp and hrp.Position.Y) or targetEgg.pos.Y
-            local autoCF = CFrame.new(targetEgg.pos.X, yVal, targetEgg.pos.Z + 6)
-            State.SavedEggCFrame = autoCF
-            saveCoordsToDisk(autoCF)
-            setStatusText("📍 Телепорт до яйця Івенту...", nil)
-            teleportSafelyTo(autoCF)
-            task.wait(0.3)
-        else
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                State.SavedEggCFrame = hrp.CFrame
-                saveCoordsToDisk(hrp.CFrame)
-            end
-        end
-    end
-
-    setStatusText("🐣 На точці! Фарм готовий.", nil)
+    setStatusText("📍 Телепорт на 7538.1, 15.7, 21965.5...", nil)
+    teleportSafelyTo(targetCF)
+    task.wait(0.3)
+    setStatusText("🐣 На точці (7538.1, 15.7, 21965.5)! Фарм активний.", nil)
 end
 
 trackConn(LocalPlayer.CharacterAdded:Connect(function()
@@ -2669,13 +2697,20 @@ env.HalloweenHubCleanup = cleanupAll
 bindButton(CloseBtn, cleanupAll)
 
 switchTab(PageFarm, TabFarmBtn)
+env.HalloweenSavedCoords = nil
 loadCoordsFromDisk()
 
 task.spawn(function()
     pcall(enterHalloweenEventAndGoToCoords)
     State.FullAutoFarm = true
-    setBlackScreenMode(true)
-    MainFrame.Visible = false
-    FloatBtn.Visible = true
-    addLog("OK", "Авто-вхід в Івент, телепорт на координати та Чорний Екран (3D ВИМК) активовано!")
+    if #findNearestEggCandidates(120) > 0 then
+        setBlackScreenMode(true)
+        MainFrame.Visible = false
+        FloatBtn.Visible = true
+    else
+        setBlackScreenMode(false)
+        MainFrame.Visible = true
+        FloatBtn.Visible = false
+    end
+    addLog("OK", "Координати 7538.1, 15.7, 21965.5 встановлено! Авто-фарм активовано.")
 end)
