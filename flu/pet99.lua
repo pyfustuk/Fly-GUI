@@ -1,1432 +1,1441 @@
---[[ ============================================================
-     🚀 PUFYFTYK-KVIRES · PET SIMULATOR 99 TRADE PLAZA & SNIPER HUB (V4.0)
-     📱 Повна підтримка Delta Mobile (Android / iOS) та ПК
-     🎯 Снайпер Stitched Cat / Dragon, Будки, Термінал та Сервер-Хоп
-     ============================================================ ]]
+repeat task.wait() until game:IsLoaded()
 
-local WS        = game:GetService("Workspace")
-local Players   = game:GetService("Players")
-local UIS       = game:GetService("UserInputService")
-local RunS      = game:GetService("RunService")
-local RepS      = game:GetService("ReplicatedStorage")
-local Lighting  = game:GetService("Lighting")
-local StarterGui= game:GetService("StarterGui")
-local HttpS     = game:GetService("HttpService")
-local TeleportS = game:GetService("TeleportService")
-local LogService= game:GetService("LogService")
-local VU        = pcall(function() return game:GetService("VirtualUser") end) and game:GetService("VirtualUser") or nil
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local LogService = game:GetService("LogService")
 
--- Очікування локального гравця
-local player = Players.LocalPlayer
-if not player then
-    repeat task.wait(0.1); player = Players.LocalPlayer until player
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    Players.PlayerAdded:Wait()
+    LocalPlayer = Players.LocalPlayer
 end
 
-local camera = WS.CurrentCamera or WS:WaitForChild("Camera")
+local getgenv = getgenv or function() return _G end
+local env = getgenv()
 
--- Закриття попередньої копії хабу
-if _G.Pufyftyk_Trade_Cleanup then
-    pcall(_G.Pufyftyk_Trade_Cleanup)
+if env.HalloweenHubCleanup then
+    pcall(env.HalloweenHubCleanup)
 end
-_G.Pufyftyk_Trade_Loaded = true
 
--- ==============================================================================
--- 🎨 ТЕМА ОФОРМЛЕННЯ
--- ==============================================================================
-local Theme = {
-    bgDark      = Color3.fromRGB(15, 17, 24),
-    bgPanel     = Color3.fromRGB(22, 25, 36),
-    bgCard      = Color3.fromRGB(30, 34, 48),
-    bgInput     = Color3.fromRGB(18, 20, 28),
-    accent      = Color3.fromRGB(150, 75, 255),
-    accentGrad  = Color3.fromRGB(0, 210, 255),
-    gold        = Color3.fromRGB(255, 185, 45),
-    green       = Color3.fromRGB(46, 204, 113),
-    red         = Color3.fromRGB(231, 76, 60),
-    blue        = Color3.fromRGB(52, 152, 219),
-    textWhite   = Color3.fromRGB(250, 250, 252),
-    textMuted   = Color3.fromRGB(160, 165, 185),
-    border      = Color3.fromRGB(42, 47, 65)
-}
+local ActiveConnections = {}
+local function trackConn(conn)
+    if conn then table.insert(ActiveConnections, conn) end
+    return conn
+end
 
--- ==============================================================================
--- ⚙️ КОНФІГУРАЦІЯ
--- ==============================================================================
-local cfg = {
-    targetPet       = "stitched",         -- "stitched_cat", "stitched_dragon", "stitched", "huge", "all", або кастомний рядок
-    targetPetName   = "Stitched (Будь-який)",
-    usePriceFilter  = false,              -- За замовчуванням ВИМКНЕНО, щоб бачити ВСІ товари!
-    minPrice        = 0,
-    maxPrice        = 999999999999,
-    autoBuySniper   = false,              -- Автоматична покупка знайденої цілі
-    maxAutoBuyPrice = 50000000,           -- Ліміт авто-покупки (50M за замовчуванням)
-    autoHopIfNone   = false,              -- Сервер-хоп якщо ціль не знайдено
-    scanInterval    = 3.0,                -- Інтервал повторного сканування
-    terminalLoop    = false,              -- Авто-пошук через Термінал
-    terminalDelay   = 5.0                 -- Інтервал терміналу (секунди)
-}
-
-local currentBargains = {}
-local isTerminalLoopActive = false
-local isAutoBuyRunning = false
-local termLoopBtn = nil
-local refreshBargainsUI = nil
-
--- ==============================================================================
--- 🛡️ АНТИ-AFK
--- ==============================================================================
-player.Idled:Connect(function()
-    pcall(function()
-        if VU then
-            VU:Button2Down(Vector2.new(0, 0), camera.CFrame)
-            task.wait(0.2)
-            VU:Button2Up(Vector2.new(0, 0), camera.CFrame)
-        end
-    end)
-end)
-
--- ==============================================================================
--- 📱 УНІВЕРСАЛЬНИЙ БІНДЕР КНОПОК ДЛЯ СЕНСОРНИХ ЕКРАНІВ (DELTA MOBILE + ПК)
--- ==============================================================================
 local function bindButton(btn, callback)
-    local debounce = false
-    local function fire()
-        if debounce then return end
-        debounce = true
-        task.spawn(function()
-            local origColor = btn.BackgroundColor3
-            pcall(function()
-                btn.BackgroundColor3 = Color3.fromRGB(
-                    math.clamp(math.floor(origColor.R * 255 + 35), 0, 255),
-                    math.clamp(math.floor(origColor.G * 255 + 35), 0, 255),
-                    math.clamp(math.floor(origColor.B * 255 + 35), 0, 255)
-                )
-            end)
-            task.wait(0.12)
-            pcall(function() btn.BackgroundColor3 = origColor end)
-            task.wait(0.08)
-            debounce = false
-        end)
-        callback()
+    local lastFire = 0
+    local function onTrigger()
+        local now = tick()
+        if now - lastFire < 0.18 then return end
+        lastFire = now
+        task.spawn(callback)
     end
-
-    btn.Activated:Connect(fire)
-    btn.MouseButton1Click:Connect(fire)
+    trackConn(btn.Activated:Connect(onTrigger))
+    trackConn(btn.MouseButton1Click:Connect(onTrigger))
 end
 
--- ==============================================================================
--- 📋 СИСТЕМА ЛОГІВ ТА ПЕРЕХОПЛЕННЯ ПОМИЛОК
--- ==============================================================================
-local logEntries = {}
-local logScrollFrame = nil
-local lastLogMsg = ""
-local lastLogCount = 1
-local lastLogLabel = nil
+local State = {
+    Running = true,
+    AutoEggs = false,
+    RemoveEggAnim = true,
+    EggAmount = 0,
+    SelectedEggName = "",
+    SavedEggCFrame = nil,
+    AutoHouses = false,
+    HouseInterval = 600,
+    LastHouseRun = 0,
+    IsVisitingHouses = false,
+    HouseWaitTime = 4.5,
+    CustomHousePoints = {},
+    AutoMinigame = true,
+    MinigameClicks = 0,
+    AutoCollectCandy = true,
+    Logs = {},
+    MaxLogs = 250
+}
 
-local function sanitizeMsg(msg)
-    if not msg then return "" end
-    local s = tostring(msg)
-    s = s:gsub("\r\n", " "):gsub("\n", " "):gsub("\r", " ")
-    s = s:gsub("\t", " ")
-    s = s:gsub("%s+", " ")
-    if #s > 140 then
-        s = s:sub(1, 137) .. "..."
-    end
-    return s
-end
+local LogBoxLabel = nil
+local LogScrollFrame = nil
 
 local function addLog(level, msg)
-    local timeStr = os.date("%H:%M:%S")
-    local cleanMsg = sanitizeMsg(msg)
-    if #cleanMsg == 0 then return end
-
-    if cleanMsg == lastLogMsg and lastLogLabel then
-        lastLogCount = lastLogCount + 1
-        pcall(function()
-            lastLogLabel.Text = string.format("[%s] [%s] %s (x%d)", timeStr, level, cleanMsg, lastLogCount)
-        end)
-        return
+    local timestamp = os.date("%H:%M:%S")
+    local entry = string.format("[%s] [%s] %s", timestamp, level, tostring(msg))
+    table.insert(State.Logs, entry)
+    if #State.Logs > State.MaxLogs then
+        table.remove(State.Logs, 1)
     end
-
-    lastLogMsg = cleanMsg
-    lastLogCount = 1
-
-    local entryText = string.format("[%s] [%s] %s", timeStr, level, cleanMsg)
-    table.insert(logEntries, { level = level, text = entryText, time = timeStr })
-    if #logEntries > 120 then table.remove(logEntries, 1) end
-
-    if logScrollFrame then
-        local col = Theme.textMuted
-        if level == "SUCCESS" then col = Theme.green
-        elseif level == "WARN" then col = Theme.gold
-        elseif level == "ERROR" then col = Theme.red
-        elseif level == "ACTION" then col = Theme.accent
-        elseif level == "ROBLOX" then col = Color3.fromRGB(255, 120, 120)
-        end
-
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, -6, 0, 18)
-        lbl.BackgroundTransparency = 1
-        lbl.Font = Enum.Font.GothamMedium
-        lbl.TextSize = 11
-        lbl.TextColor3 = col
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-        lbl.TextYAlignment = Enum.TextYAlignment.Center
-        lbl.ClipsDescendants = true
-        lbl.Text = entryText
-        lbl.Parent = logScrollFrame
-
-        lastLogLabel = lbl
-
-        task.defer(function()
-            if logScrollFrame then
-                logScrollFrame.CanvasPosition = Vector2.new(0, math.max(0, logScrollFrame.UIListLayout.AbsoluteContentSize.Y - logScrollFrame.AbsoluteSize.Y))
-            end
+    if LogBoxLabel and LogScrollFrame then
+        pcall(function()
+            LogBoxLabel.Text = table.concat(State.Logs, "\n")
+            local bounds = LogBoxLabel.TextBounds.Y
+            LogScrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(bounds + 20, 100))
+            LogScrollFrame.CanvasPosition = Vector2.new(0, math.max(0, bounds - LogScrollFrame.AbsoluteSize.Y + 20))
         end)
     end
 end
 
--- Перехоплення системних помилок Roblox
-LogService.MessageOut:Connect(function(message, msgType)
-    if msgType == Enum.MessageType.MessageError then
-        local clean = sanitizeMsg(message)
-        if clean:find("BoothSpawns__OLD") or clean:find("Pufyftyk") or clean:find("Trade") or clean:find("Network") then
-            addLog("ROBLOX", clean)
+trackConn(LogService.MessageOut:Connect(function(message, messageType)
+    if not State.Running then return end
+    if messageType == Enum.MessageType.MessageError or messageType == Enum.MessageType.MessageWarning then
+        if not string.find(message, "SimpleSpy") then
+            local tag = (messageType == Enum.MessageType.MessageError) and "ERR" or "WARN"
+            addLog(tag, message)
+        end
+    end
+end))
+
+local function copyToClipboard(text)
+    local fn = setclipboard or toclipboard or set_clipboard or (Clipboard and Clipboard.set)
+    if fn then
+        local ok = pcall(fn, tostring(text))
+        if ok then return true end
+    end
+    return false
+end
+
+local NetworkFolder = nil
+pcall(function()
+    NetworkFolder = ReplicatedStorage:WaitForChild("Network", 8)
+end)
+
+local function findRemote(name)
+    if NetworkFolder then
+        local r = NetworkFolder:FindFirstChild(name)
+        if r then return r end
+        for _, desc in ipairs(NetworkFolder:GetDescendants()) do
+            if string.lower(desc.Name) == string.lower(name) then
+                return desc
+            end
+        end
+    end
+    for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+        if string.lower(desc.Name) == string.lower(name) and (desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent")) then
+            return desc
+        end
+    end
+    return nil
+end
+
+local function invokeRemote(name, ...)
+    local r = findRemote(name)
+    if not r then return false, "NotFound" end
+    local args = {...}
+    if r:IsA("RemoteFunction") then
+        return pcall(function() return r:InvokeServer(unpack(args)) end)
+    elseif r:IsA("RemoteEvent") then
+        return pcall(function() r:FireServer(unpack(args)) end)
+    end
+    return false, "InvalidType"
+end
+
+local function getThingsFolder()
+    return Workspace:FindFirstChild("__THINGS") or Workspace:FindFirstChild("Things")
+end
+
+local OriginalPlayEggAnim = nil
+
+local function applyEggAnimationSkip(disableAnim)
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        local scriptsFolder = ps:FindFirstChild("Scripts")
+        if not scriptsFolder then return end
+        local gameFolder = scriptsFolder:FindFirstChild("Game")
+        if not gameFolder then return end
+        local eggFrontend = gameFolder:FindFirstChild("Egg Opening Frontend")
+        if eggFrontend and getsenv then
+            local senv = getsenv(eggFrontend)
+            if senv then
+                if disableAnim then
+                    if senv.PlayEggAnimation and not OriginalPlayEggAnim then
+                        OriginalPlayEggAnim = senv.PlayEggAnimation
+                    end
+                    senv.PlayEggAnimation = function() return end
+                else
+                    if OriginalPlayEggAnim then
+                        senv.PlayEggAnimation = OriginalPlayEggAnim
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, gui in ipairs(pgui:GetChildren()) do
+                local n = string.lower(gui.Name)
+                if string.find(n, "eggopening") or string.find(n, "egg_opening") or string.find(n, "hatch") then
+                    if disableAnim and gui:IsA("ScreenGui") then
+                        gui.Enabled = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+task.spawn(function()
+    while State.Running do
+        if State.RemoveEggAnim then
+            pcall(function()
+                local cam = Workspace.CurrentCamera
+                if cam then
+                    for _, child in ipairs(cam:GetChildren()) do
+                        local n = string.lower(child.Name)
+                        if string.find(n, "egg") or string.find(n, "pet") or child:IsA("Model") then
+                            child:Destroy()
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.15)
+    end
+end)
+
+local function findNearestEgg()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil, nil, nil end
+    local myPos = hrp.Position
+
+    local things = getThingsFolder()
+    local bestObj = nil
+    local bestId = nil
+    local bestDist = 80
+    local isCustom = false
+
+    if things then
+        local customEggs = things:FindFirstChild("CustomEggs")
+        if customEggs then
+            for _, egg in ipairs(customEggs:GetChildren()) do
+                local pos = nil
+                pcall(function()
+                    if egg:IsA("Model") then pos = egg:GetPivot().Position
+                    elseif egg:IsA("BasePart") then pos = egg.Position end
+                end)
+                if pos then
+                    local d = (pos - myPos).Magnitude
+                    if d < bestDist then
+                        bestDist = d
+                        bestObj = egg
+                        bestId = egg.Name
+                        isCustom = true
+                    end
+                end
+            end
+        end
+
+        local eggsFolder = things:FindFirstChild("Eggs")
+        if eggsFolder then
+            for _, folder in ipairs(eggsFolder:GetDescendants()) do
+                if folder:IsA("Model") or folder:IsA("BasePart") then
+                    local pos = nil
+                    pcall(function()
+                        if folder:IsA("Model") then pos = folder:GetPivot().Position
+                        elseif folder:IsA("BasePart") then pos = folder.Position end
+                    end)
+                    if pos then
+                        local d = (pos - myPos).Magnitude
+                        if d < bestDist then
+                            local eggName = folder:GetAttribute("EggName") or folder:GetAttribute("ID") or folder.Name
+                            if not string.find(string.lower(eggName), "part") and not string.find(string.lower(eggName), "mesh") then
+                                bestDist = d
+                                bestObj = folder
+                                bestId = eggName
+                                isCustom = false
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestId, isCustom, bestDist
+end
+
+local function detectMaxHatchAmount()
+    local maxHatch = 1
+    pcall(function()
+        if ReplicatedStorage:FindFirstChild("Library") then
+            local saveMod = ReplicatedStorage.Library:FindFirstChild("Client") and ReplicatedStorage.Library.Client:FindFirstChild("Save")
+            if saveMod then
+                local Save = require(saveMod)
+                local data = Save.Get()
+                if data and data.EggSlotsPurchased then
+                    maxHatch = math.clamp(tonumber(data.EggSlotsPurchased) or 8, 1, 99)
+                end
+            end
+        end
+    end)
+    if maxHatch <= 1 then maxHatch = 8 end
+    return maxHatch
+end
+
+local function hatchTargetEgg()
+    if State.IsVisitingHouses then return end
+    if State.RemoveEggAnim then
+        applyEggAnimationSkip(true)
+    end
+
+    local amount = State.EggAmount
+    if amount <= 0 then
+        amount = detectMaxHatchAmount()
+    end
+
+    local targetName = State.SelectedEggName
+    local isCustom = false
+
+    if not targetName or targetName == "" then
+        local nearestId, customFlag = findNearestEgg()
+        if nearestId then
+            targetName = nearestId
+            isCustom = customFlag
+        end
+    end
+
+    if targetName and targetName ~= "" then
+        if isCustom then
+            invokeRemote("CustomEggs_Hatch", targetName, amount)
+            invokeRemote("Eggs_RequestPurchase", targetName, amount)
+        else
+            invokeRemote("Eggs_RequestPurchase", targetName, amount)
+            invokeRemote("CustomEggs_Hatch", targetName, amount)
+        end
+    else
+        local nearestId = findNearestEgg()
+        if nearestId then
+            invokeRemote("CustomEggs_Hatch", nearestId, amount)
+            invokeRemote("Eggs_RequestPurchase", nearestId, amount)
+        end
+    end
+end
+
+task.spawn(function()
+    while State.Running do
+        if State.AutoEggs and not State.IsVisitingHouses then
+            pcall(hatchTargetEgg)
+            task.wait(0.08)
+        else
+            task.wait(0.25)
         end
     end
 end)
 
-local function copyAllLogs()
-    local allLines = {}
-    table.insert(allLines, "=== PUFYFTYK-KVIRES TRADE HUB V4.0 LOGS ===")
-    table.insert(allLines, "Час експорту: " .. os.date("%Y-%m-%d %H:%M:%S") .. " | Сервер: " .. tostring(game.JobId))
-    table.insert(allLines, "Кількість записів: " .. tostring(#logEntries))
-    table.insert(allLines, "--------------------------------------------------")
-    for _, e in ipairs(logEntries) do
-        table.insert(allLines, e.text)
-    end
-    local combined = table.concat(allLines, "\n")
-    local copied = false
-    if setclipboard then pcall(setclipboard, combined); copied = true
-    elseif toclipboard then pcall(toclipboard, combined); copied = true
-    end
-    addLog("SUCCESS", string.format("Логи збережено (%d рядків). Буфер: %s", #allLines, copied and "УСПІШНО" or "ПОТРІБЕН setclipboard"))
-    return combined
-end
+local function clickGuiElement(guiObj)
+    if not guiObj then return false end
+    local clicked = false
 
--- ==============================================================================
--- 💰 ПАРСИНГ ТА ФОРМАТУВАННЯ ЦІНИ
--- ==============================================================================
-local function parsePrice(str)
-    if type(str) == "number" then return str end
-    if not str then return 0 end
-    local s = tostring(str):gsub(",", ""):gsub("💎", ""):gsub("%s+", ""):lower()
-    local numPart = s:match("[%d%.]+")
-    if not numPart then return 0 end
-    local num = tonumber(numPart) or 0
-    if s:find("b") then num = num * 1000000000
-    elseif s:find("m") then num = num * 1000000
-    elseif s:find("k") then num = num * 1000
-    end
-    return math.floor(num)
-end
-
-local function formatPrice(n)
-    n = tonumber(n) or 0
-    if n >= 1000000000 then return string.format("%.2fB", n / 1000000000)
-    elseif n >= 1000000 then return string.format("%.2fM", n / 1000000)
-    elseif n >= 1000 then return string.format("%.1fK", n / 1000)
-    else return tostring(n)
-    end
-end
-
--- ==============================================================================
--- 🔍 ПЕРЕВІРКА ВІДПОВІДНОСТІ ЦІЛІ ТА ЦІНИ
--- ==============================================================================
-local function matchesPetTarget(itemId, displayName)
-    local t = cfg.targetPet or "stitched"
-    if t == "all" then return true end
-
-    local checkStr = (tostring(itemId) .. " " .. tostring(displayName)):lower()
-
-    if t == "stitched_cat" then
-        return checkStr:find("stitched") and checkStr:find("cat")
-    elseif t == "stitched_dragon" then
-        return checkStr:find("stitched") and checkStr:find("dragon")
-    elseif t == "stitched" then
-        return checkStr:find("stitched")
-    elseif t == "huge" then
-        return checkStr:find("huge")
-    else
-        return checkStr:find(t:lower()) ~= nil
-    end
-end
-
-local function matchesPriceRange(price)
-    if not cfg.usePriceFilter then return true end
-    price = tonumber(price) or 0
-    if price < cfg.minPrice then return false end
-    if cfg.maxPrice > 0 and price > cfg.maxPrice then return false end
-    return true
-end
-
--- ==============================================================================
--- 🌐 БАГАТОРІВНЕВИЙ HTTP КЛІЄНТ ДЛЯ DELTA MOBILE ТА ПК
--- ==============================================================================
-local function httpGetSafe(url)
-    local requester = syn and syn.request or http_request or request or (http and http.request)
-    if requester then
-        local ok, res = pcall(function()
-            return requester({ Url = url, Method = "GET" })
+    if firesignal then
+        pcall(function()
+            if guiObj:IsA("GuiButton") then
+                firesignal(guiObj.Activated)
+                firesignal(guiObj.MouseButton1Click)
+                firesignal(guiObj.MouseButton1Down)
+                firesignal(guiObj.MouseButton1Up)
+                clicked = true
+            end
         end)
-        if ok and res and res.Body then return res.Body end
     end
-    local ok2, res2 = pcall(function() return game:HttpGet(url, true) end)
-    if ok2 and res2 then return res2 end
-    return nil
+
+    if VirtualInputManager then
+        pcall(function()
+            local absPos = guiObj.AbsolutePosition
+            local absSize = guiObj.AbsoluteSize
+            local inset = GuiService:GetGuiInset()
+            local cx = absPos.X + (absSize.X / 2)
+            local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+            task.wait(0.01)
+            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+            clicked = true
+        end)
+    end
+
+    return clicked
 end
 
--- ==============================================================================
--- 🚀 СЕРВЕР-ХОП (SERVER HOPPING)
--- ==============================================================================
-local function setupQueueTeleport()
-    pcall(function()
-        local queue = queue_on_teleport or (syn and syn.queue_on_teleport)
-        if queue then
-            queue([[
-                task.spawn(function()
-                    task.wait(2.5)
-                    pcall(function()
-                        if readfile and pcall(readfile, "pufyftyk_mobile.lua") then
-                            loadstring(readfile("pufyftyk_mobile.lua"))()
-                        else
-                            loadstring(game:HttpGet("https://raw.githubusercontent.com/pyfustuk/Fly-GUI/refs/heads/main/flu/pet99.lua?t=" .. tostring(tick())))()
-                        end
-                    end)
-                end)
-            ]])
-        end
-    end)
-end
+local LastDotClick = {}
+local function scanAndSolveMinigame()
+    if not State.AutoMinigame then return end
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pgui then return end
 
-local function serverHop()
-    local placeId = 15502339080 -- Trading Plaza PlaceId
-    local currentJobId = game.JobId
+    local now = tick()
+    for _, screen in ipairs(pgui:GetChildren()) do
+        if screen:IsA("ScreenGui") and screen.Enabled and screen.Name ~= "HalloweenEventGui" then
+            local sName = string.lower(screen.Name)
+            local isRelevantGui = string.find(sName, "minigame")
+                or string.find(sName, "trick")
+                or string.find(sName, "treat")
+                or string.find(sName, "halloween")
+                or string.find(sName, "house")
+                or string.find(sName, "door")
+                or string.find(sName, "captcha")
+                or string.find(sName, "target")
+                or string.find(sName, "click")
+                or string.find(sName, "event")
+                or string.find(sName, "blood")
+                or string.find(sName, "spooky")
+                or string.find(sName, "game")
 
-    addLog("ACTION", "Початок пошуку нового сервера Трейд Плази...")
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "🌐 Сервер-Хоп",
-            Text = "Пошук населеного сервера Плази...",
-            Duration = 3
-        })
-    end)
+            for _, obj in ipairs(screen:GetDescendants()) do
+                if obj:IsA("GuiObject") and obj.Visible then
+                    local oName = string.lower(obj.Name)
+                    local isTargetDot = string.find(oName, "dot")
+                        or string.find(oName, "target")
+                        or string.find(oName, "circle")
+                        or string.find(oName, "hit")
+                        or string.find(oName, "point")
+                        or string.find(oName, "spot")
+                        or string.find(oName, "node")
+                        or string.find(oName, "tap")
+                        or string.find(oName, "note")
+                        or string.find(oName, "ring")
+                        or (isRelevantGui and obj:IsA("GuiButton") and obj.AbsoluteSize.X >= 18 and obj.AbsoluteSize.X <= 220 and obj.AbsoluteSize.Y >= 18 and obj.AbsoluteSize.Y <= 220)
 
-    -- Використовуємо RoProxy та офіційний API з випадковою сторінкою
-    local endpoints = {
-        string.format("https://games.roproxy.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true", tostring(placeId)),
-        string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true", tostring(placeId))
-    }
-
-    local serverList = {}
-    for _, ep in ipairs(endpoints) do
-        local body = httpGetSafe(ep)
-        if body then
-            local decOk, data = pcall(function() return HttpS:JSONDecode(body) end)
-            if decOk and data and data.data and #data.data > 0 then
-                for _, s in ipairs(data.data) do
-                    if s.id ~= currentJobId and tonumber(s.playing) and tonumber(s.maxPlayers) then
-                        local playing = tonumber(s.playing)
-                        local maxP = tonumber(s.maxPlayers)
-                        if playing >= 12 and playing < maxP - 2 then
-                            table.insert(serverList, s.id)
+                    if isTargetDot then
+                        if not string.find(oName, "close") and not string.find(oName, "exit") and not string.find(oName, "cancel") then
+                            local lastTime = LastDotClick[obj] or 0
+                            if now - lastTime > 0.08 then
+                                LastDotClick[obj] = now
+                                local targetBtn = obj:IsA("GuiButton") and obj or obj:FindFirstChildWhichIsA("GuiButton") or obj
+                                if clickGuiElement(targetBtn) then
+                                    State.MinigameClicks = State.MinigameClicks + 1
+                                end
+                            end
                         end
                     end
                 end
-                if #serverList > 0 then break end
             end
         end
     end
 
-    if #serverList > 0 then
-        local chosen = serverList[math.random(1, #serverList)]
-        addLog("ACTION", "Стрибок на сервер Трейд Плази: " .. tostring(chosen))
-        setupQueueTeleport()
-        local tpOk = pcall(function() TeleportS:TeleportToPlaceInstance(placeId, chosen, player) end)
-        if tpOk then return true end
+    if NetworkFolder then
+        for _, rem in ipairs(NetworkFolder:GetChildren()) do
+            local rn = string.lower(rem.Name)
+            if (string.find(rn, "minigame") or string.find(rn, "trickortreat") or string.find(rn, "knock")) and string.find(rn, "click") then
+                pcall(function()
+                    if rem:IsA("RemoteEvent") then rem:FireServer(true) end
+                end)
+            end
+        end
     end
-
-    addLog("WARN", "Прямий стрибок через TeleportService:Teleport...")
-    setupQueueTeleport()
-    pcall(function() TeleportS:Teleport(placeId, player) end)
-    return false
 end
 
--- ==============================================================================
--- 🛒 АВТО-ПОКУПКА ТА ПОКУПКА В 1 КЛІК ЧЕРЕЗ РЕМОУТ
--- ==============================================================================
-local function buyBoothItem(bData)
-    if not bData then return false end
-    local net = RepS:FindFirstChild("Network")
-    if not net then
-        addLog("ERROR", "ReplicatedStorage.Network не знайдено!")
-        return false
-    end
+trackConn(RunService.RenderStepped:Connect(function()
+    if not State.Running or not State.AutoMinigame then return end
+    pcall(scanAndSolveMinigame)
+end))
 
-    local buyRem = net:FindFirstChild("Booths_RequestPurchase")
-    if not buyRem or not buyRem:IsA("RemoteFunction") then
-        addLog("ERROR", "Ремоут Booths_RequestPurchase відсутній!")
-        return false
-    end
+local function triggerAllInteractionsNear(pos, radius)
+    radius = radius or 28
+    local triggered = 0
 
-    -- Визначаємо ID продавця (UserId числом або нікнейм)
-    local sellerId = tonumber(bData.ownerId) or tonumber(bData.owner)
-    if not sellerId and typeof(bData.owner) == "string" then
-        local p = Players:FindFirstChild(bData.owner)
-        if p then sellerId = p.UserId end
-    end
-
-    addLog("ACTION", string.format("Спроба покупки %s за 💎 %s у ID:%s...", bData.displayName, formatPrice(bData.price), tostring(sellerId or bData.owner)))
-
-    local ok, res = pcall(function()
-        if sellerId then
-            return buyRem:InvokeServer(sellerId, bData.uid)
-        else
-            return buyRem:InvokeServer(bData.owner, bData.uid)
+    for _, desc in ipairs(Workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local pPos = nil
+            pcall(function()
+                if desc.Parent:IsA("BasePart") then
+                    pPos = desc.Parent.Position
+                elseif desc.Parent:IsA("Model") then
+                    pPos = desc.Parent:GetPivot().Position
+                elseif desc.Parent:IsA("Attachment") then
+                    pPos = desc.Parent.WorldPosition
+                end
+            end)
+            if pPos and (pPos - pos).Magnitude <= radius then
+                pcall(function()
+                    if fireproximityprompt then
+                        fireproximityprompt(desc)
+                    else
+                        desc:InputHoldBegin()
+                        task.wait(desc.HoldDuration > 0 and desc.HoldDuration or 0.1)
+                        desc:InputHoldEnd()
+                    end
+                    triggered = triggered + 1
+                end)
+            end
+        elseif desc:IsA("ClickDetector") then
+            local pPos = nil
+            pcall(function()
+                if desc.Parent:IsA("BasePart") then
+                    pPos = desc.Parent.Position
+                elseif desc.Parent:IsA("Model") then
+                    pPos = desc.Parent:GetPivot().Position
+                end
+            end)
+            if pPos and (pPos - pos).Magnitude <= radius then
+                pcall(function()
+                    if fireclickdetector then
+                        fireclickdetector(desc)
+                        triggered = triggered + 1
+                    end
+                end)
+            end
         end
+    end
+
+    return triggered
+end
+
+local function scanHalloweenHouses()
+    local houses = {}
+    local seenPositions = {}
+
+    local function addUniqueHouse(name, pos, inst, idVal)
+        if not pos then return end
+        for _, existing in ipairs(seenPositions) do
+            if (existing - pos).Magnitude < 10 then
+                return
+            end
+        end
+        table.insert(seenPositions, pos)
+        table.insert(houses, {
+            name = name or "House",
+            pos = pos,
+            instance = inst,
+            id = idVal or (inst and inst.Name) or tostring(#houses + 1)
+        })
+    end
+
+    for idx, cf in ipairs(State.CustomHousePoints) do
+        addUniqueHouse("Point #" .. idx, cf.Position, nil, idx)
+    end
+    if #houses > 0 then
+        return houses
+    end
+
+    local searchRoots = {}
+    local things = getThingsFolder()
+    if things then
+        table.insert(searchRoots, things)
+        local instancesFolder = things:FindFirstChild("__INSTANCE_CONTAINER")
+        if instancesFolder then table.insert(searchRoots, instancesFolder) end
+    end
+    local mapFolder = Workspace:FindFirstChild("Map") or Workspace:FindFirstChild("Map2") or Workspace:FindFirstChild("Event")
+    if mapFolder then table.insert(searchRoots, mapFolder) end
+    table.insert(searchRoots, Workspace)
+
+    for _, root in ipairs(searchRoots) do
+        for _, desc in ipairs(root:GetDescendants()) do
+            local n = string.lower(desc.Name)
+            local pName = desc.Parent and string.lower(desc.Parent.Name) or ""
+
+            if desc:IsA("ProximityPrompt") then
+                local actionText = string.lower(desc.ActionText or "")
+                local objText = string.lower(desc.ObjectText or "")
+                if string.find(actionText, "knock") or string.find(actionText, "trick") or string.find(actionText, "open")
+                    or string.find(actionText, "house") or string.find(actionText, "door") or string.find(actionText, "enter")
+                    or string.find(objText, "house") or string.find(objText, "door") or string.find(objText, "trick")
+                    or string.find(n, "house") or string.find(n, "door") or string.find(n, "trick")
+                    or string.find(pName, "house") or string.find(pName, "door") or string.find(pName, "trick") then
+
+                    local pos = nil
+                    pcall(function()
+                        if desc.Parent:IsA("BasePart") then pos = desc.Parent.Position
+                        elseif desc.Parent:IsA("Model") then pos = desc.Parent:GetPivot().Position
+                        elseif desc.Parent:IsA("Attachment") then pos = desc.Parent.WorldPosition end
+                    end)
+                    if pos then
+                        addUniqueHouse(desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name, pos, desc, desc.Parent.Name)
+                    end
+                end
+            end
+
+            if (desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("Folder")) then
+                if string.find(pName, "trickortreat") or string.find(pName, "houses") or string.find(pName, "spookyhouses") or string.find(pName, "halloweenhouses") or string.find(pName, "doors") then
+                    local pos = nil
+                    pcall(function()
+                        local door = desc:FindFirstChild("Door", true) or desc:FindFirstChild("Pad", true) or desc:FindFirstChild("Interact", true) or desc:FindFirstChild("Prompt", true)
+                        if door and door:IsA("BasePart") then
+                            pos = door.Position
+                        elseif desc:IsA("Model") then
+                            pos = desc:GetPivot().Position
+                        elseif desc:IsA("BasePart") then
+                            pos = desc.Position
+                        end
+                    end)
+                    if pos then
+                        addUniqueHouse(desc.Name, pos, desc, desc.Name)
+                    end
+                end
+            end
+        end
+        if #houses > 0 then break end
+    end
+
+    if #houses == 0 then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local myPos = hrp and hrp.Position or Vector3.new(0, 0, 0)
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and desc.Enabled then
+                local pos = nil
+                pcall(function()
+                    if desc.Parent:IsA("BasePart") then pos = desc.Parent.Position
+                    elseif desc.Parent:IsA("Model") then pos = desc.Parent:GetPivot().Position
+                    elseif desc.Parent:IsA("Attachment") then pos = desc.Parent.WorldPosition end
+                end)
+                if pos and (pos - myPos).Magnitude < 600 then
+                    addUniqueHouse(desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name, pos, desc, desc.Parent.Name)
+                end
+            end
+        end
+    end
+
+    table.sort(houses, function(a, b)
+        local na = tonumber(string.match(tostring(a.id), "%d+"))
+        local nb = tonumber(string.match(tostring(b.id), "%d+"))
+        if na and nb and na ~= nb then
+            return na < nb
+        end
+        return a.pos.Z < b.pos.Z
     end)
 
-    if ok then
-        local resStr = tostring(res)
-        if res == true or resStr:lower():find("true") or resStr:lower():find("success") then
-            addLog("SUCCESS", string.format("🎉 УСПІХ! Придбано %s за 💎 %s!", bData.displayName, formatPrice(bData.price)))
+    return houses
+end
+
+local function fireHouseRemotes(house)
+    local candidateRemotes = {
+        "TrickOrTreat_Knock",
+        "TrickOrTreat_Interact",
+        "TrickOrTreat_Claim",
+        "TrickOrTreat_Open",
+        "TrickOrTreat_Enter",
+        "Halloween_KnockDoor",
+        "Halloween_TrickOrTreat",
+        "Event_TrickOrTreat",
+        "Houses_Knock",
+        "Houses_Interact",
+        "Houses_Open",
+        "BloodMoon_Knock",
+        "BloodMoon_House"
+    }
+    for _, rName in ipairs(candidateRemotes) do
+        local r = findRemote(rName)
+        if r then
             pcall(function()
-                StarterGui:SetCore("SendNotification", {
-                    Title = "🎉 СНАЙПЕР СПРАЦЮВАВ!",
-                    Text = string.format("Куплено %s за %s 💎!", bData.displayName, formatPrice(bData.price)),
-                    Duration = 5
-                })
+                if r:IsA("RemoteFunction") then
+                    r:InvokeServer(house.id)
+                    r:InvokeServer(house.instance)
+                    r:InvokeServer(tonumber(string.match(tostring(house.id), "%d+")) or 1)
+                elseif r:IsA("RemoteEvent") then
+                    r:FireServer(house.id)
+                    r:FireServer(house.instance)
+                    r:FireServer(tonumber(string.match(tostring(house.id), "%d+")) or 1)
+                end
             end)
-            return true
-        else
-            addLog("WARN", string.format("Відповідь на покупку %s: %s", bData.displayName, resStr))
-        end
-    else
-        addLog("ERROR", string.format("Помилка ремоута покупки: %s", tostring(res)))
-    end
-    return false
-end
-
--- ==============================================================================
--- 📍 ТЕЛЕПОРТАЦІЯ ДО БУДКИ
--- ==============================================================================
-local function getSafePadCFrame(booth)
-    if not booth then return nil end
-    local pad = booth:FindFirstChild("Pad") or booth:FindFirstChild("Stand")
-    if pad and pad:IsA("BasePart") then
-        return pad.CFrame + Vector3.new(0, 3, 0)
-    end
-    for _, ch in ipairs(booth:GetChildren()) do
-        if ch.Name:lower():find("pad") and ch:IsA("BasePart") then
-            return ch.CFrame + Vector3.new(0, 3, 0)
         end
     end
-    if booth:IsA("Model") then
-        local cf, size = booth:GetBoundingBox()
-        return cf + Vector3.new(0, size.Y / 2 + 2, 0)
-    elseif booth:IsA("BasePart") then
-        return booth.CFrame + Vector3.new(0, 3, 0)
+
+    if NetworkFolder then
+        for _, rem in ipairs(NetworkFolder:GetChildren()) do
+            local rn = string.lower(rem.Name)
+            if string.find(rn, "trick") or string.find(rn, "house") or string.find(rn, "knock") or (string.find(rn, "door") and not string.find(rn, "clan")) then
+                pcall(function()
+                    if rem:IsA("RemoteEvent") then
+                        rem:FireServer(house.id)
+                        local num = tonumber(string.match(tostring(house.id), "%d+"))
+                        if num then rem:FireServer(num) end
+                    elseif rem:IsA("RemoteFunction") then
+                        task.spawn(function()
+                            pcall(function() rem:InvokeServer(house.id) end)
+                        end)
+                    end
+                end)
+            end
+        end
     end
-    return nil
 end
 
-local function teleportToBooth(bData)
-    if not bData then return end
-    local char = player.Character
+local HouseStatusLabel = nil
+
+local function runHousesRoutine()
+    if State.IsVisitingHouses then return end
+    State.IsVisitingHouses = true
+
+    local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then
-        addLog("ERROR", "HumanoidRootPart не знайдено для телепортації!")
+        State.IsVisitingHouses = false
         return
     end
 
-    if bData.cframe then
-        hrp.CFrame = bData.cframe
-        addLog("SUCCESS", "Телепортовано до будки з " .. bData.displayName)
+    local returnCF = State.SavedEggCFrame or hrp.CFrame
+    local houses = scanHalloweenHouses()
+
+    if #houses == 0 then
+        addLog("WARN", "Домики не знайдено поруч. Підійди до вулиці або додай точки.")
+        if HouseStatusLabel then
+            HouseStatusLabel.Text = "Домики не знайдено поруч"
+        end
+        State.IsVisitingHouses = false
         return
     end
 
-    if bData.booth then
-        local cf = getSafePadCFrame(bData.booth)
-        if cf then
-            hrp.CFrame = cf
-            addLog("SUCCESS", "Телепортовано на майданчик будки!")
-            return
+    addLog("INFO", "Обхід домиків: " .. #houses .. " шт.")
+
+    for i, house in ipairs(houses) do
+        if not State.Running then break end
+        char = LocalPlayer.Character
+        hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then break end
+
+        if HouseStatusLabel then
+            HouseStatusLabel.Text = string.format("Дім %d/%d: %s", i, #houses, tostring(house.name))
         end
-    end
 
-    -- Пошук будки власника у Workspace
-    local things = WS:FindFirstChild("__THINGS")
-    local boothsFolder = (things and things:FindFirstChild("Booths")) or WS:FindFirstChild("Booths")
-    if boothsFolder then
-        for _, b in ipairs(boothsFolder:GetChildren()) do
-            local o = b:GetAttribute("Owner") or b:GetAttribute("Player") or b.Name
-            if tostring(o):lower() == tostring(bData.owner):lower() or tostring(o) == tostring(bData.ownerId) then
-                local cf = getSafePadCFrame(b)
-                if cf then
-                    hrp.CFrame = cf
-                    addLog("SUCCESS", "Знайдено будку " .. tostring(o) .. " та здійснено ТП!")
-                    return
-                end
-            end
-        end
-    end
-
-    addLog("WARN", "Координати будки не знайдено у 3D світі.")
-end
-
--- ==============================================================================
--- 🔍 СКАНИРОВКА БУДОК (СЕРВЕРНИЙ СТАН + WORKSPACE)
--- ==============================================================================
-local function parseSingleListing(uid, val, ownerId, boothModel)
-    if type(val) ~= "table" then return nil end
-
-    local price = tonumber(val.DiamondCost or val.Cost or val.Price or val.Diamonds) or 0
-    local itemData = val.ItemData
-    local data = (type(itemData) == "table" and itemData.data) or itemData or val.data or val
-    local class = (type(itemData) == "table" and itemData.class) or val.class or "Pet"
-
-    local itemId = nil
-    if type(data) == "table" then
-        itemId = data.id or data.Id or data.Name or data._id or data.item
-    elseif type(data) == "string" then
-        itemId = data
-    end
-    if not itemId and val.id then itemId = val.id end
-    if not itemId and val.Name then itemId = val.Name end
-
-    if itemId and price > 0 then
-        local version = (type(data) == "table" and data.pt) or 0
-        local shiny = (type(data) == "table" and data.sh) or false
-        local amount = (type(data) == "table" and tonumber(data._am)) or 1
-
-        local prefix = ""
-        if shiny then prefix = "✨ Shiny " end
-        if version == 1 then prefix = prefix .. "🌟 Golden "
-        elseif version == 2 then prefix = prefix .. "🌈 Rainbow " end
-
-        local dispName = prefix .. tostring(itemId)
-        local unitPrice = math.floor(price / math.max(1, amount))
-
-        -- Пошук CFrame для будки
-        local cf = boothModel and getSafePadCFrame(boothModel) or nil
-
-        return {
-            uid          = tostring(uid),
-            id           = tostring(itemId),
-            displayName  = dispName,
-            price        = price,
-            unitPrice    = unitPrice,
-            amount       = amount,
-            ownerId      = tonumber(ownerId) or 0,
-            owner        = tostring(ownerId),
-            class        = tostring(class),
-            booth        = boothModel,
-            cframe       = cf
-        }
-    end
-    return nil
-end
-
-local function scanAllBooths()
-    local results = {}
-    local seenUIDs = {}
-
-    -- Карта будок у Workspace для швидкого пошуку CFrame
-    local boothModelsByOwner = {}
-    local things = WS:FindFirstChild("__THINGS")
-    local boothsFolder = (things and things:FindFirstChild("Booths")) or WS:FindFirstChild("Booths")
-    if boothsFolder then
-        for _, b in ipairs(boothsFolder:GetChildren()) do
-            local o = b:GetAttribute("Owner") or b:GetAttribute("Player") or b.Name
-            if o then
-                boothModelsByOwner[tostring(o):lower()] = b
-            end
-        end
-    end
-
-    -- 1. Офіційний серверний стан (RemoteFunction Booths_GetInitialState)
-    pcall(function()
-        local net = RepS:FindFirstChild("Network")
-        local getInit = net and net:FindFirstChild("Booths_GetInitialState")
-        if getInit and getInit:IsA("RemoteFunction") then
-            local state = getInit:InvokeServer()
-            if state and type(state) == "table" then
-                for ownerKey, bInfo in pairs(state) do
-                    if type(bInfo) == "table" then
-                        local boothModel = boothModelsByOwner[tostring(ownerKey):lower()]
-                        local listings = bInfo.Listings or bInfo.Items or bInfo
-                        if type(listings) == "table" then
-                            for uidKey, itemEntry in pairs(listings) do
-                                local itemObj = parseSingleListing(uidKey, itemEntry, ownerKey, boothModel)
-                                if itemObj and not seenUIDs[itemObj.uid] then
-                                    seenUIDs[itemObj.uid] = true
-                                    table.insert(results, itemObj)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-
-    -- 2. Сканування фізичних моделей будок у Workspace якщо стан не дав результатів
-    if #results == 0 and boothsFolder then
-        for _, b in ipairs(boothsFolder:GetChildren()) do
-            pcall(function()
-                local owner = b:GetAttribute("Owner") or b:GetAttribute("Player") or b.Name
-                for _, d in ipairs(b:GetDescendants()) do
-                    if d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
-                        local txt = ""
-                        local price = 0
-                        for _, t in ipairs(d:GetDescendants()) do
-                            if t:IsA("TextLabel") or t:IsA("TextButton") then
-                                local text = t.Text
-                                if text:find("💎") or text:lower():find("price") or text:match("%d+[kmbKMB]") then
-                                    price = parsePrice(text)
-                                elseif #text >= 3 and not text:lower():find("buy") and not text:lower():find("pad") then
-                                    txt = text
-                                end
-                            end
-                        end
-                        if #txt > 0 and price > 0 then
-                            local uid = d.Name .. "_" .. tostring(price)
-                            if not seenUIDs[uid] then
-                                seenUIDs[uid] = true
-                                table.insert(results, {
-                                    uid = uid,
-                                    id = txt,
-                                    displayName = txt,
-                                    price = price,
-                                    unitPrice = price,
-                                    amount = 1,
-                                    ownerId = 0,
-                                    owner = tostring(owner),
-                                    class = "Pet",
-                                    booth = b,
-                                    cframe = getSafePadCFrame(b)
-                                })
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-
-    -- Фільтрація за ціллю та ціною
-    local filtered = {}
-    for _, item in ipairs(results) do
-        if matchesPetTarget(item.id, item.displayName) and matchesPriceRange(item.price) then
-            table.insert(filtered, item)
-        end
-    end
-
-    -- Сортування за ціною (від найдешевшого)
-    table.sort(filtered, function(a, b) return a.price < b.price end)
-
-    currentBargains = filtered
-
-    -- Перевірка авто-покупки
-    if cfg.autoBuySniper and not isAutoBuyRunning and #filtered > 0 then
-        local cheapest = filtered[1]
-        if cheapest.price <= cfg.maxAutoBuyPrice then
-            isAutoBuyRunning = true
-            task.spawn(function()
-                buyBoothItem(cheapest)
-                task.wait(1.0)
-                isAutoBuyRunning = false
-            end)
-        end
-    end
-
-    return filtered, #results
-end
-
--- ==============================================================================
--- ⚡ СЛУХАЧ МИТТЄВИХ ПОДІЙ СЕРВЕРА (BOOTHS_BROADCAST SNIPER)
--- ==============================================================================
-pcall(function()
-    local net = RepS:FindFirstChild("Network")
-    if net then
-        local bCast = net:FindFirstChild("Booths_Broadcast")
-        if bCast and bCast:IsA("RemoteEvent") then
-            addLog("SUCCESS", "Слухач Booths_Broadcast успішно підключено!")
-            bCast.OnClientEvent:Connect(function(username, message)
-                if type(message) == "table" and message["Listings"] then
-                    local ownerId = message["PlayerID"] or username
-                    for uid, listing in pairs(message["Listings"]) do
-                        local itemObj = parseSingleListing(uid, listing, ownerId, nil)
-                        if itemObj and matchesPetTarget(itemObj.id, itemObj.displayName) then
-                            addLog("ACTION", string.format("⚡ НОВИЙ ЛОТ: %s за 💎 %s у %s!", itemObj.displayName, formatPrice(itemObj.price), tostring(ownerId)))
-                            if cfg.autoBuySniper and itemObj.price <= cfg.maxAutoBuyPrice then
-                                addLog("ACTION", "⚡ МИТТЄВИЙ АВТО-СНАЙП В ЛІЧЕНІ МІЛІСЕКУНДИ...")
-                                task.spawn(function()
-                                    buyBoothItem(itemObj)
-                                end)
-                            end
-                        end
-                    end
-                    task.delay(0.2, function()
-                        if refreshBargainsUI then refreshBargainsUI(true) end
-                    end)
-                end
-            end)
-        end
-    end
-end)
-
--- ==============================================================================
--- 🖥️ ТЕРМІНАЛ / СУПЕР КОМП'ЮТЕР СНАЙПЕР (5 СЕК)
--- ==============================================================================
-local function toggleTerminalLoop()
-    isTerminalLoopActive = not isTerminalLoopActive
-    if termLoopBtn then
-        termLoopBtn.Text = isTerminalLoopActive and "⏹ Зупинити Термінал" or "🚀 Швидкий перехват (5с)"
-        termLoopBtn.BackgroundColor3 = isTerminalLoopActive and Theme.red or Color3.fromRGB(110, 50, 180)
-    end
-
-    if isTerminalLoopActive then
-        addLog("ACTION", "Запущено швидкий пошук терміналу кожні 5 сек...")
-        task.spawn(function()
-            pcall(function()
-                StarterGui:SetCore("SendNotification", {
-                    Title = "🖥️ Супер Комп'ютер",
-                    Text = "Запущено безперервний пошук (кожні 5с)!",
-                    Duration = 4
-                })
-            end)
-
-            local cycle = 0
-            while isTerminalLoopActive and _G.Pufyftyk_Trade_Loaded do
-                cycle = cycle + 1
-                local query = "Stitched Cat"
-                local t = cfg.targetPet or "stitched"
-                if t == "stitched_dragon" then query = "Stitched Dragon"
-                elseif t == "stitched" then
-                    query = (cycle % 2 == 1) and "Stitched Cat" or "Stitched Dragon"
-                elseif t == "huge" then query = "Huge"
-                elseif t ~= "all" then query = t
-                end
-
-                addLog("INFO", "Термінал: пошук '" .. query .. "'...")
-
-                pcall(function()
-                    local net = RepS:FindFirstChild("Network")
-                    if net then
-                        local termRem = net:FindFirstChild("TradingTerminal_Search") or net:FindFirstChild("TradingTerminal")
-                        if termRem and termRem:IsA("RemoteFunction") then
-                            local res = termRem:InvokeServer(query)
-                            if res then
-                                addLog("INFO", "Відповідь терміналу: " .. tostring(res))
-                                if type(res) == "table" and (res.JobId or res.Server) then
-                                    local jId = res.JobId or res.Server
-                                    addLog("SUCCESS", "Термінал знайшов сервер з " .. query .. "! Перехід...")
-                                    setupQueueTeleport()
-                                    TeleportS:TeleportToPlaceInstance(15502339080, jId, player)
-                                    isTerminalLoopActive = false
-                                    return
-                                end
-                            end
-                        end
-                    end
-                end)
-
-                -- Авто-підтвердження телепорту з вікна терміналу гри в PlayerGui
-                pcall(function()
-                    local pGui = player:FindFirstChild("PlayerGui")
-                    if pGui then
-                        for _, g in ipairs(pGui:GetDescendants()) do
-                            if g:IsA("TextButton") and g.Visible then
-                                local txt = g.Text:lower()
-                                if txt:find("teleport") or txt:find("join") or txt:find("yes") then
-                                    addLog("SUCCESS", "Знайдено кнопку підтвердження телепорту в терміналі!")
-                                    if firesignal then firesignal(g.Activated or g.MouseButton1Click) end
-                                    setupQueueTeleport()
-                                    isTerminalLoopActive = false
-                                    return
-                                end
-                            end
-                        end
-                    end
-                end)
-
-                task.wait(cfg.terminalDelay)
-            end
+        pcall(function()
+            hrp.CFrame = CFrame.new(house.pos + Vector3.new(0, 3.5, 0))
         end)
-    else
-        addLog("INFO", "Швидкий термінал зупинено.")
+        task.wait(0.35)
+
+        triggerAllInteractionsNear(house.pos, 25)
+        fireHouseRemotes(house)
+
+        local waitStart = tick()
+        while tick() - waitStart < State.HouseWaitTime and State.Running do
+            triggerAllInteractionsNear(house.pos, 25)
+            scanAndSolveMinigame()
+            task.wait(0.2)
+        end
     end
+
+    if returnCF and State.Running then
+        char = LocalPlayer.Character
+        hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            pcall(function()
+                hrp.CFrame = returnCF
+            end)
+        end
+    end
+
+    State.LastHouseRun = tick()
+    State.IsVisitingHouses = false
+    addLog("OK", "Обхід завершено (" .. #houses .. " домиків)")
 end
 
--- ==============================================================================
--- 🖥️ СТВОРЕННЯ ГРАФІЧНОГО ІНТЕРФЕЙСУ (GUI)
--- ==============================================================================
-local function getGuiParent()
-    local ok, res = pcall(function() return gethui() end)
-    if ok and res then return res end
-    local ok2, core = pcall(function() return game:GetService("CoreGui") end)
-    if ok2 and core then return core end
-    return player:WaitForChild("PlayerGui")
+task.spawn(function()
+    while State.Running do
+        if State.AutoHouses and not State.IsVisitingHouses then
+            local elapsed = tick() - State.LastHouseRun
+            local remaining = math.max(0, State.HouseInterval - elapsed)
+            if HouseStatusLabel then
+                local mins = math.floor(remaining / 60)
+                local secs = math.floor(remaining % 60)
+                HouseStatusLabel.Text = string.format("Наступний обхід: %02d:%02d", mins, secs)
+            end
+            if elapsed >= State.HouseInterval or State.LastHouseRun == 0 then
+                pcall(runHousesRoutine)
+            end
+        elseif not State.AutoHouses and HouseStatusLabel and not State.IsVisitingHouses then
+            HouseStatusLabel.Text = "Очікування"
+        end
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        if State.AutoCollectCandy then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local things = getThingsFolder()
+                if hrp and things then
+                    local orbs = things:FindFirstChild("Orbs")
+                    if orbs then
+                        local orbIds = {}
+                        for _, orb in ipairs(orbs:GetChildren()) do
+                            if orb:IsA("BasePart") then
+                                orb.CFrame = hrp.CFrame
+                            elseif orb:IsA("Model") then
+                                orb:PivotTo(hrp.CFrame)
+                            end
+                            local numId = tonumber(orb.Name)
+                            if numId then table.insert(orbIds, numId) end
+                        end
+                        if #orbIds > 0 then
+                            invokeRemote("Orbs: Collect", orbIds)
+                        end
+                    end
+
+                    local lootbags = things:FindFirstChild("Lootbags")
+                    if lootbags then
+                        for _, bag in ipairs(lootbags:GetChildren()) do
+                            if bag:IsA("BasePart") then
+                                bag.CFrame = hrp.CFrame
+                            elseif bag:IsA("Model") then
+                                bag:PivotTo(hrp.CFrame)
+                            end
+                            invokeRemote("Lootbags_Claim", { bag.Name })
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.4)
+    end
+end)
+
+local function runEventDiagnostic()
+    addLog("INFO", "=== СКАНЕР ІВЕНТУ ===")
+    local things = getThingsFolder()
+    if things then
+        local cEggs = things:FindFirstChild("CustomEggs")
+        if cEggs then
+            local names = {}
+            for _, v in ipairs(cEggs:GetChildren()) do table.insert(names, v.Name) end
+            addLog("INFO", "CustomEggs (" .. #names .. "): " .. table.concat(names, ", "))
+        end
+        local instCont = things:FindFirstChild("__INSTANCE_CONTAINER")
+        if instCont then
+            local active = instCont:FindFirstChild("Active")
+            if active then
+                for _, inst in ipairs(active:GetChildren()) do
+                    addLog("INFO", "Active: " .. inst.Name)
+                    for _, sub in ipairs(inst:GetChildren()) do
+                        addLog("INFO", "  -> " .. sub.Name .. " [" .. sub.ClassName .. "]")
+                    end
+                end
+            end
+        end
+    end
+
+    if NetworkFolder then
+        local hits = {}
+        for _, r in ipairs(NetworkFolder:GetChildren()) do
+            local rn = string.lower(r.Name)
+            if string.find(rn, "trick") or string.find(rn, "treat") or string.find(rn, "halloween")
+                or string.find(rn, "house") or string.find(rn, "door") or string.find(rn, "egg")
+                or string.find(rn, "candy") or string.find(rn, "blood") or string.find(rn, "minigame") then
+                table.insert(hits, r.Name)
+            end
+        end
+        addLog("INFO", "Remotes (" .. #hits .. "): " .. table.concat(hits, ", "))
+    end
+
+    local foundHouses = scanHalloweenHouses()
+    addLog("INFO", "Знайдено домиків: " .. #foundHouses)
 end
 
-local sg = Instance.new("ScreenGui")
-sg.Name = "PufyftykTradeHubV4"
-sg.ResetOnSpawn = false
-pcall(function() sg.Parent = getGuiParent() end)
+local ParentGui = nil
+pcall(function()
+    if gethui then ParentGui = gethui() end
+end)
+if not ParentGui then
+    pcall(function() ParentGui = game:GetService("CoreGui") end)
+end
+if not ParentGui then
+    ParentGui = LocalPlayer:WaitForChild("PlayerGui")
+end
 
-local vp = camera.ViewportSize
-local isSmall = vp.X < 850 or vp.Y < 550
-local winW = isSmall and math.clamp(vp.X - 20, 310, 480) or 560
-local winH = isSmall and math.clamp(vp.Y - 40, 360, 460) or 440
+local OldGui = ParentGui:FindFirstChild("HalloweenEventGui")
+if OldGui then OldGui:Destroy() end
 
-local win = Instance.new("Frame")
-win.Name = "MainWindow"
-win.Size = UDim2.new(0, winW, 0, winH)
-win.Position = UDim2.new(0.5, -math.floor(winW / 2), 0.5, -math.floor(winH / 2))
-win.BackgroundColor3 = Theme.bgDark
-win.BorderSizePixel = 0
-win.Active = true
-win.Draggable = true
-win.ClipsDescendants = true
-win.Parent = sg
-Instance.new("UICorner", win).CornerRadius = UDim.new(0, 12)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "HalloweenEventGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = ParentGui
 
-local winStroke = Instance.new("UIStroke", win)
-winStroke.Color = Theme.accent
-winStroke.Thickness = 1.6
+local Colors = {
+    Bg = Color3.fromRGB(16, 14, 22),
+    Header = Color3.fromRGB(26, 20, 36),
+    Card = Color3.fromRGB(24, 21, 34),
+    Stroke = Color3.fromRGB(110, 65, 190),
+    Orange = Color3.fromRGB(255, 125, 30),
+    Green = Color3.fromRGB(46, 204, 113),
+    Red = Color3.fromRGB(231, 76, 60),
+    Blue = Color3.fromRGB(52, 152, 219),
+    Text = Color3.fromRGB(245, 242, 255),
+    SubText = Color3.fromRGB(175, 168, 195),
+    InputBg = Color3.fromRGB(12, 10, 18)
+}
 
--- ==============================================================================
--- 🔘 ПЛАВАЮЧА КНОПКА ЗГОРТАННЯ/РОЗГОРТАННЯ
--- ==============================================================================
-local minBtn = Instance.new("TextButton")
-minBtn.Name = "PufyftykToggleBtn"
-minBtn.Size = UDim2.new(0, 46, 0, 46)
-minBtn.Position = UDim2.new(0, 16, 0.45, 0)
-minBtn.BackgroundColor3 = Theme.bgPanel
-minBtn.Text = "🛒"
-minBtn.TextSize = 22
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextColor3 = Theme.textWhite
-minBtn.Active = true
-minBtn.Draggable = true
-minBtn.Parent = sg
-Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 23)
-local minStroke = Instance.new("UIStroke", minBtn)
-minStroke.Color = Theme.accent
-minStroke.Thickness = 2
+local FloatBtn = Instance.new("TextButton")
+FloatBtn.Name = "FloatToggle"
+FloatBtn.Size = UDim2.new(0, 48, 0, 48)
+FloatBtn.Position = UDim2.new(0, 15, 0.5, -24)
+FloatBtn.BackgroundColor3 = Colors.Orange
+FloatBtn.Text = "🎃"
+FloatBtn.TextSize = 24
+FloatBtn.Font = Enum.Font.GothamBold
+FloatBtn.TextColor3 = Color3.new(1, 1, 1)
+FloatBtn.Visible = false
+FloatBtn.Parent = ScreenGui
+Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
+local FloatStroke = Instance.new("UIStroke", FloatBtn)
+FloatStroke.Color = Color3.new(1, 1, 1)
+FloatStroke.Thickness = 2
 
-bindButton(minBtn, function()
-    win.Visible = not win.Visible
-    addLog("INFO", win.Visible and "Вікно хабу розгорнуто" or "Вікно хабу сховано (натисніть 🛒 для відкриття)")
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 440, 0, 330)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -165)
+MainFrame.BackgroundColor3 = Colors.Bg
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Colors.Stroke
+MainStroke.Thickness = 2
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 36)
+Header.BackgroundColor3 = Colors.Header
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -85, 1, 0)
+TitleLabel.Position = UDim2.new(0, 12, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "🎃 Halloween"
+TitleLabel.TextColor3 = Colors.Orange
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 15
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = Header
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 30, 0, 26)
+MinBtn.Position = UDim2.new(1, -68, 0, 5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(48, 42, 68)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Colors.Text
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 14
+MinBtn.Parent = Header
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 26)
+CloseBtn.Position = UDim2.new(1, -34, 0, 5)
+CloseBtn.BackgroundColor3 = Colors.Red
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 14
+CloseBtn.Parent = Header
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local function makeDraggable(dragHandle, targetFrame)
+    local dragging = false
+    local dragStart, startPos
+    trackConn(dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = targetFrame.Position
+        end
+    end))
+    trackConn(UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            targetFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end))
+    trackConn(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+end
+
+makeDraggable(Header, MainFrame)
+makeDraggable(FloatBtn, FloatBtn)
+
+bindButton(MinBtn, function()
+    MainFrame.Visible = false
+    FloatBtn.Visible = true
 end)
 
--- Верхня панель (Header)
-local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 42)
-header.BackgroundColor3 = Theme.bgPanel
-header.BorderSizePixel = 0
-header.Parent = win
-Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -90, 1, 0)
-title.Position = UDim2.new(0, 14, 0, 0)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.TextColor3 = Theme.textWhite
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "🛒 PUFYFTYK · TRADE SNIPER V4.0 (DELTA)"
-title.Parent = header
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 32, 0, 30)
-closeBtn.Position = UDim2.new(1, -38, 0, 6)
-closeBtn.BackgroundColor3 = Theme.bgCard
-closeBtn.Text = "—"
-closeBtn.TextSize = 16
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextColor3 = Theme.textMuted
-closeBtn.Parent = header
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
-
-bindButton(closeBtn, function()
-    win.Visible = false
-    addLog("INFO", "Вікно сховано. Натисніть '🛒' на екрані, щоб відкрити знову!")
+bindButton(FloatBtn, function()
+    FloatBtn.Visible = false
+    MainFrame.Visible = true
 end)
 
--- Навігаційні вкладки (Tabs Header)
-local tabNav = Instance.new("Frame")
-tabNav.Size = UDim2.new(1, -20, 0, 34)
-tabNav.Position = UDim2.new(0, 10, 0, 48)
-tabNav.BackgroundTransparency = 1
-tabNav.Parent = win
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -16, 0, 30)
+TabBar.Position = UDim2.new(0, 8, 0, 40)
+TabBar.BackgroundTransparency = 1
+TabBar.Parent = MainFrame
 
-local tabLayout = Instance.new("UIListLayout", tabNav)
-tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 6)
+local function createTabButton(text, posScale, widthScale)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(widthScale, -4, 1, 0)
+    b.Position = UDim2.new(posScale, 2, 0, 0)
+    b.BackgroundColor3 = Colors.Card
+    b.Text = text
+    b.TextColor3 = Colors.SubText
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.Parent = TabBar
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
 
-local container = Instance.new("Frame")
-container.Size = UDim2.new(1, -20, 1, -92)
-container.Position = UDim2.new(0, 10, 0, 86)
-container.BackgroundTransparency = 1
-container.Parent = win
+local TabEggsBtn = createTabButton("🐣 Яйця", 0, 0.333)
+local TabHousesBtn = createTabButton("🏠 Домики", 0.333, 0.333)
+local TabLogsBtn = createTabButton("📋 Лог", 0.666, 0.334)
 
-local tabs = {}
-local tabButtons = {}
+local ContentArea = Instance.new("Frame")
+ContentArea.Size = UDim2.new(1, -16, 1, -78)
+ContentArea.Position = UDim2.new(0, 8, 0, 74)
+ContentArea.BackgroundTransparency = 1
+ContentArea.Parent = MainFrame
 
-local function createTab(name, icon)
-    local page = Instance.new("Frame")
-    page.Name = name .. "Page"
+local function createPage()
+    local page = Instance.new("ScrollingFrame")
     page.Size = UDim2.new(1, 0, 1, 0)
     page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 5
+    page.ScrollBarImageColor3 = Colors.Orange
     page.Visible = false
-    page.Parent = container
+    page.Parent = ContentArea
 
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.24, -4, 1, 0)
-    btn.BackgroundColor3 = Theme.bgPanel
-    btn.Text = icon .. " " .. name
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 11
-    btn.TextColor3 = Theme.textMuted
-    btn.Parent = tabNav
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-    local stroke = Instance.new("UIStroke", btn)
-    stroke.Color = Theme.border
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = page
 
-    bindButton(btn, function()
-        for tName, p in pairs(tabs) do
-            p.Visible = (tName == name)
-            tabButtons[tName].BackgroundColor3 = (tName == name) and Theme.accent or Theme.bgPanel
-            tabButtons[tName].TextColor3 = (tName == name) and Theme.textWhite or Theme.textMuted
-        end
-    end)
+    trackConn(layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+    end))
 
-    tabs[name] = page
-    tabButtons[name] = btn
     return page
 end
 
-local marketTab   = createTab("Ринок", "🎯")
-local settingsTab = createTab("Ціль/Ціна", "⚙️")
-local terminalTab = createTab("Термінал", "🖥️")
-local logsTab     = createTab("Логи", "📋")
+local PageEggs = createPage()
+local PageHouses = createPage()
+local PageLogs = createPage()
 
--- Активація першої вкладки
-tabs["Ринок"].Visible = true
-tabButtons["Ринок"].BackgroundColor3 = Theme.accent
-tabButtons["Ринок"].TextColor3 = Theme.textWhite
+local function switchTab(activePage, activeBtn)
+    PageEggs.Visible = (activePage == PageEggs)
+    PageHouses.Visible = (activePage == PageHouses)
+    PageLogs.Visible = (activePage == PageLogs)
 
--- ==============================================================================
--- 🎯 ВКЛАДКА 1: РИНОК & СПИСОК ЗНАЙДЕНИХ ТОВАРІВ
--- ==============================================================================
-local marketTopBar = Instance.new("Frame")
-marketTopBar.Size = UDim2.new(1, 0, 0, 36)
-marketTopBar.BackgroundTransparency = 1
-marketTopBar.Parent = marketTab
-
-local scanBtn = Instance.new("TextButton")
-scanBtn.Size = UDim2.new(0.48, -4, 1, 0)
-scanBtn.Position = UDim2.new(0, 0, 0, 0)
-scanBtn.BackgroundColor3 = Theme.accent
-scanBtn.Text = "🔄 Сканувати зараз"
-scanBtn.Font = Enum.Font.GothamBold
-scanBtn.TextSize = 12
-scanBtn.TextColor3 = Theme.textWhite
-scanBtn.Parent = marketTopBar
-Instance.new("UICorner", scanBtn).CornerRadius = UDim.new(0, 8)
-
-local autoBuyBtn = Instance.new("TextButton")
-autoBuyBtn.Size = UDim2.new(0.5, -4, 1, 0)
-autoBuyBtn.Position = UDim2.new(0.5, 2, 0, 0)
-autoBuyBtn.BackgroundColor3 = cfg.autoBuySniper and Theme.green or Theme.bgPanel
-autoBuyBtn.Text = cfg.autoBuySniper and "⚡ Авто-Снайпер: ВКЛ" or "⚡ Авто-Снайпер: ВИКЛ"
-autoBuyBtn.Font = Enum.Font.GothamBold
-autoBuyBtn.TextSize = 12
-autoBuyBtn.TextColor3 = Theme.textWhite
-autoBuyBtn.Parent = marketTopBar
-Instance.new("UICorner", autoBuyBtn).CornerRadius = UDim.new(0, 8)
-local autoBuyStroke = Instance.new("UIStroke", autoBuyBtn)
-autoBuyStroke.Color = Theme.border
-
-bindButton(autoBuyBtn, function()
-    cfg.autoBuySniper = not cfg.autoBuySniper
-    autoBuyBtn.BackgroundColor3 = cfg.autoBuySniper and Theme.green or Theme.bgPanel
-    autoBuyBtn.Text = cfg.autoBuySniper and "⚡ Авто-Снайпер: ВКЛ" or "⚡ Авто-Снайпер: ВИКЛ"
-    addLog("ACTION", "Режим Авто-Снайпера: " .. (cfg.autoBuySniper and "УВІМКНЕНО (ліміт " .. formatPrice(cfg.maxAutoBuyPrice) .. ")" or "ВИМКНЕНО"))
-end)
-
-local targetInfoLbl = Instance.new("TextLabel")
-targetInfoLbl.Size = UDim2.new(1, 0, 0, 20)
-targetInfoLbl.Position = UDim2.new(0, 0, 0, 38)
-targetInfoLbl.BackgroundTransparency = 1
-targetInfoLbl.Font = Enum.Font.GothamMedium
-targetInfoLbl.TextSize = 11
-targetInfoLbl.TextColor3 = Theme.gold
-targetInfoLbl.TextXAlignment = Enum.TextXAlignment.Left
-targetInfoLbl.Text = "🎯 Пошук: " .. cfg.targetPetName .. " | Фільтр ціни: ВИМКНЕНО"
-targetInfoLbl.Parent = marketTab
-
-local marketScroll = Instance.new("ScrollingFrame")
-marketScroll.Size = UDim2.new(1, 0, 1, -62)
-marketScroll.Position = UDim2.new(0, 0, 0, 60)
-marketScroll.BackgroundTransparency = 1
-marketScroll.ScrollBarThickness = 5
-marketScroll.ScrollBarImageColor3 = Theme.accent
-marketScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-marketScroll.Parent = marketTab
-
-local marketLayout = Instance.new("UIListLayout", marketScroll)
-marketLayout.Padding = UDim.new(0, 6)
-
-refreshBargainsUI = function(isAuto)
-    local items, totalFound = scanAllBooths()
-    targetInfoLbl.Text = string.format("🎯 Ціль: %s | Знайдено: %d із %d лотів на сервері", cfg.targetPetName, #items, totalFound)
-
-    if not isAuto then
-        addLog("INFO", string.format("Результат сканування: %d з %d лотів відповідають цілі", #items, totalFound))
-    end
-
-    for _, ch in ipairs(marketScroll:GetChildren()) do
-        if ch:IsA("Frame") then ch:Destroy() end
-    end
-
-    if #items == 0 then
-        local emptyLbl = Instance.new("TextLabel")
-        emptyLbl.Size = UDim2.new(1, 0, 0, 80)
-        emptyLbl.BackgroundTransparency = 1
-        emptyLbl.Font = Enum.Font.GothamMedium
-        emptyLbl.TextSize = 12
-        emptyLbl.TextColor3 = Theme.textMuted
-        emptyLbl.Text = "Товарів не знайдено на цьому сервері.\nНатисніть 'Термінал' або 'Сервер-Хоп' для пошуку!"
-        emptyLbl.Parent = marketScroll
-        marketScroll.CanvasSize = UDim2.new(0, 0, 0, 90)
-        return
-    end
-
-    local totalH = 0
-    for _, bData in ipairs(items) do
-        local card = Instance.new("Frame")
-        card.Size = UDim2.new(1, -6, 0, 54)
-        card.BackgroundColor3 = Theme.bgPanel
-        card.Parent = marketScroll
-        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
-        local cardStroke = Instance.new("UIStroke", card)
-        cardStroke.Color = Theme.border
-
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(0.55, -8, 0, 24)
-        nameLbl.Position = UDim2.new(0, 10, 0, 4)
-        nameLbl.BackgroundTransparency = 1
-        nameLbl.Font = Enum.Font.GothamBold
-        nameLbl.TextSize = 13
-        nameLbl.TextColor3 = Theme.textWhite
-        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.ClipsDescendants = true
-        nameLbl.Text = bData.displayName
-        nameLbl.Parent = card
-
-        local priceLbl = Instance.new("TextLabel")
-        priceLbl.Size = UDim2.new(0.55, -8, 0, 20)
-        priceLbl.Position = UDim2.new(0, 10, 0, 28)
-        priceLbl.BackgroundTransparency = 1
-        priceLbl.Font = Enum.Font.GothamBold
-        priceLbl.TextSize = 12
-        priceLbl.TextColor3 = Theme.gold
-        priceLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priceLbl.Text = "💎 " .. formatPrice(bData.price) .. (bData.amount > 1 and (" (" .. tostring(bData.amount) .. " шт)") or "")
-        priceLbl.Parent = card
-
-        local tpBtn = Instance.new("TextButton")
-        tpBtn.Size = UDim2.new(0, 68, 0, 36)
-        tpBtn.Position = UDim2.new(1, -150, 0, 9)
-        tpBtn.BackgroundColor3 = Theme.blue
-        tpBtn.Text = "📍 ТП"
-        tpBtn.Font = Enum.Font.GothamBold
-        tpBtn.TextSize = 12
-        tpBtn.TextColor3 = Theme.textWhite
-        tpBtn.Parent = card
-        Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0, 6)
-
-        bindButton(tpBtn, function()
-            teleportToBooth(bData)
-        end)
-
-        local buyBtn = Instance.new("TextButton")
-        buyBtn.Size = UDim2.new(0, 72, 0, 36)
-        buyBtn.Position = UDim2.new(1, -78, 0, 9)
-        buyBtn.BackgroundColor3 = Theme.green
-        buyBtn.Text = "🛒 Купити"
-        buyBtn.Font = Enum.Font.GothamBold
-        buyBtn.TextSize = 12
-        buyBtn.TextColor3 = Theme.textWhite
-        buyBtn.Parent = card
-        Instance.new("UICorner", buyBtn).CornerRadius = UDim.new(0, 6)
-
-        bindButton(buyBtn, function()
-            buyBoothItem(bData)
-        end)
-
-        totalH = totalH + 60
-    end
-    marketScroll.CanvasSize = UDim2.new(0, 0, 0, totalH + 10)
-end
-
-bindButton(scanBtn, function()
-    refreshBargainsUI(false)
-end)
-
--- ==============================================================================
--- ⚙️ ВКЛАДКА 2: НАЛАШТУВАННЯ ЦІЛІ ТА ЦІНОВОГО ДІАПАЗОНУ
--- ==============================================================================
-local settingsScroll = Instance.new("ScrollingFrame")
-settingsScroll.Size = UDim2.new(1, 0, 1, 0)
-settingsScroll.BackgroundTransparency = 1
-settingsScroll.ScrollBarThickness = 4
-settingsScroll.CanvasSize = UDim2.new(0, 0, 0, 380)
-settingsScroll.Parent = settingsTab
-
-local setList = Instance.new("UIListLayout", settingsScroll)
-setList.Padding = UDim.new(0, 8)
-
-local function createSectionHeader(titleText)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -6, 0, 22)
-    lbl.BackgroundTransparency = 1
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 12
-    lbl.TextColor3 = Theme.accentGrad
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Text = titleText
-    lbl.Parent = settingsScroll
-end
-
-createSectionHeader("🎯 Швидкий вибір пета для пошуку:")
-
-local presetGrid = Instance.new("Frame")
-presetGrid.Size = UDim2.new(1, -6, 0, 78)
-presetGrid.BackgroundTransparency = 1
-presetGrid.Parent = settingsScroll
-
-local presetBtns = {
-    { text = "🐱 Stitched Cat", key = "stitched_cat", name = "Stitched Cat" },
-    { text = "🐲 Stitched Dragon", key = "stitched_dragon", name = "Stitched Dragon" },
-    { text = "✨ Будь-який Stitched", key = "stitched", name = "Stitched (Cat/Dragon)" },
-    { text = "⭐ Усі Huge пети", key = "huge", name = "Huge Пети" },
-    { text = "💎 Усі товари на ринку", key = "all", name = "Усі товари" }
-}
-
-for i, p in ipairs(presetBtns) do
-    local pBtn = Instance.new("TextButton")
-    local col = (i - 1) % 2
-    local row = math.floor((i - 1) / 2)
-    pBtn.Size = UDim2.new(0.485, -2, 0, 22)
-    pBtn.Position = UDim2.new(col * 0.505, 0, 0, row * 26)
-    pBtn.BackgroundColor3 = (cfg.targetPet == p.key) and Theme.accent or Theme.bgPanel
-    pBtn.Text = p.text
-    pBtn.Font = Enum.Font.GothamMedium
-    pBtn.TextSize = 11
-    pBtn.TextColor3 = Theme.textWhite
-    pBtn.Parent = presetGrid
-    Instance.new("UICorner", pBtn).CornerRadius = UDim.new(0, 6)
-
-    bindButton(pBtn, function()
-        cfg.targetPet = p.key
-        cfg.targetPetName = p.name
-        for _, other in ipairs(presetGrid:GetChildren()) do
-            if other:IsA("TextButton") then other.BackgroundColor3 = Theme.bgPanel end
+    for _, btn in ipairs({TabEggsBtn, TabHousesBtn, TabLogsBtn}) do
+        if btn == activeBtn then
+            btn.BackgroundColor3 = Colors.Orange
+            btn.TextColor3 = Color3.new(1, 1, 1)
+        else
+            btn.BackgroundColor3 = Colors.Card
+            btn.TextColor3 = Colors.SubText
         end
-        pBtn.BackgroundColor3 = Theme.accent
-        addLog("INFO", "Змінено ціль пошуку: " .. p.name)
-        if refreshBargainsUI then refreshBargainsUI(false) end
-    end)
+    end
 end
 
--- Власне поле вводу назви
-local customTargetFrame = Instance.new("Frame")
-customTargetFrame.Size = UDim2.new(1, -6, 0, 32)
-customTargetFrame.BackgroundColor3 = Theme.bgPanel
-customTargetFrame.Parent = settingsScroll
-Instance.new("UICorner", customTargetFrame).CornerRadius = UDim.new(0, 6)
+bindButton(TabEggsBtn, function() switchTab(PageEggs, TabEggsBtn) end)
+bindButton(TabHousesBtn, function() switchTab(PageHouses, TabHousesBtn) end)
+bindButton(TabLogsBtn, function() switchTab(PageLogs, TabLogsBtn) end)
 
-local customBox = Instance.new("TextBox")
-customBox.Size = UDim2.new(1, -16, 1, 0)
-customBox.Position = UDim2.new(0, 8, 0, 0)
-customBox.BackgroundTransparency = 1
-customBox.Font = Enum.Font.GothamMedium
-customBox.TextSize = 11
-customBox.TextColor3 = Theme.textWhite
-customBox.PlaceholderText = "Або введіть свою назву пета..."
-customBox.PlaceholderColor3 = Theme.textMuted
-customBox.TextXAlignment = Enum.TextXAlignment.Left
-customBox.Text = ""
-customBox.Parent = customTargetFrame
+local AutoEggToggle = Instance.new("TextButton")
+AutoEggToggle.LayoutOrder = 1
+AutoEggToggle.Size = UDim2.new(1, -6, 0, 38)
+AutoEggToggle.BackgroundColor3 = Colors.Red
+AutoEggToggle.Text = "🐣 Авто-Яйця: ВИМК"
+AutoEggToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoEggToggle.Font = Enum.Font.GothamBold
+AutoEggToggle.TextSize = 14
+AutoEggToggle.Parent = PageEggs
+Instance.new("UICorner", AutoEggToggle).CornerRadius = UDim.new(0, 7)
 
-customBox.FocusLost:Connect(function()
-    local val = customBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
-    if #val > 0 then
-        cfg.targetPet = val
-        cfg.targetPetName = val
-        addLog("INFO", "Встановлено власну ціль пошуку: " .. val)
-        if refreshBargainsUI then refreshBargainsUI(false) end
-    end
-end)
-
-createSectionHeader("💰 Налаштування цінового фільтра:")
-
--- Перемикач фільтра ціни
-local filterToggleBtn = Instance.new("TextButton")
-filterToggleBtn.Size = UDim2.new(1, -6, 0, 30)
-filterToggleBtn.BackgroundColor3 = cfg.usePriceFilter and Theme.accent or Theme.bgPanel
-filterToggleBtn.Text = cfg.usePriceFilter and "🔘 Фільтр ціни: УВІМКНЕНО" or "⚪ Фільтр ціни: ВИМКНЕНО (показувати всі)"
-filterToggleBtn.Font = Enum.Font.GothamBold
-filterToggleBtn.TextSize = 11
-filterToggleBtn.TextColor3 = Theme.textWhite
-filterToggleBtn.Parent = settingsScroll
-Instance.new("UICorner", filterToggleBtn).CornerRadius = UDim.new(0, 6)
-
-bindButton(filterToggleBtn, function()
-    cfg.usePriceFilter = not cfg.usePriceFilter
-    filterToggleBtn.BackgroundColor3 = cfg.usePriceFilter and Theme.accent or Theme.bgPanel
-    filterToggleBtn.Text = cfg.usePriceFilter and "🔘 Фільтр ціни: УВІМКНЕНО" or "⚪ Фільтр ціни: ВИМКНЕНО (показувати всі)"
-    addLog("INFO", "Фільтр цін: " .. (cfg.usePriceFilter and "УВІМКНЕНО" or "ВИМКНЕНО"))
-    if refreshBargainsUI then refreshBargainsUI(false) end
-end)
-
-local priceInputs = Instance.new("Frame")
-priceInputs.Size = UDim2.new(1, -6, 0, 32)
-priceInputs.BackgroundTransparency = 1
-priceInputs.Parent = settingsScroll
-
-local minBox = Instance.new("TextBox")
-minBox.Size = UDim2.new(0.48, -4, 1, 0)
-minBox.Position = UDim2.new(0, 0, 0, 0)
-minBox.BackgroundColor3 = Theme.bgPanel
-minBox.Font = Enum.Font.GothamMedium
-minBox.TextSize = 11
-minBox.TextColor3 = Theme.textWhite
-minBox.PlaceholderText = "Ціна ВІД (напр. 1M)"
-minBox.Text = "0"
-minBox.Parent = priceInputs
-Instance.new("UICorner", minBox).CornerRadius = UDim.new(0, 6)
-
-local maxBox = Instance.new("TextBox")
-maxBox.Size = UDim2.new(0.5, -4, 1, 0)
-maxBox.Position = UDim2.new(0.5, 2, 0, 0)
-maxBox.BackgroundColor3 = Theme.bgPanel
-maxBox.Font = Enum.Font.GothamMedium
-maxBox.TextSize = 11
-maxBox.TextColor3 = Theme.textWhite
-maxBox.PlaceholderText = "Ціна ДО (напр. 50M)"
-maxBox.Text = "999B"
-maxBox.Parent = priceInputs
-Instance.new("UICorner", maxBox).CornerRadius = UDim.new(0, 6)
-
-minBox.FocusLost:Connect(function()
-    cfg.minPrice = parsePrice(minBox.Text)
-    addLog("INFO", "Фільтр ціни ВІД: " .. formatPrice(cfg.minPrice))
-    if refreshBargainsUI then refreshBargainsUI(false) end
-end)
-
-maxBox.FocusLost:Connect(function()
-    cfg.maxPrice = parsePrice(maxBox.Text)
-    addLog("INFO", "Фільтр ціни ДО: " .. formatPrice(cfg.maxPrice))
-    if refreshBargainsUI then refreshBargainsUI(false) end
-end)
-
-createSectionHeader("⚡ Ліміт ціни Авто-Снайпера:")
-
-local autoBuyLimitBox = Instance.new("TextBox")
-autoBuyLimitBox.Size = UDim2.new(1, -6, 0, 30)
-autoBuyLimitBox.BackgroundColor3 = Theme.bgPanel
-autoBuyLimitBox.Font = Enum.Font.GothamMedium
-autoBuyLimitBox.TextSize = 11
-autoBuyLimitBox.TextColor3 = Theme.green
-autoBuyLimitBox.PlaceholderText = "Макс. ціна для авто-покупки (напр. 25M)"
-autoBuyLimitBox.Text = formatPrice(cfg.maxAutoBuyPrice)
-autoBuyLimitBox.Parent = settingsScroll
-Instance.new("UICorner", autoBuyLimitBox).CornerRadius = UDim.new(0, 6)
-
-autoBuyLimitBox.FocusLost:Connect(function()
-    local p = parsePrice(autoBuyLimitBox.Text)
-    if p > 0 then
-        cfg.maxAutoBuyPrice = p
-        addLog("INFO", "Ліміт ціни авто-покупки встановлено: " .. formatPrice(cfg.maxAutoBuyPrice))
-    end
-end)
-
--- ==============================================================================
--- 🖥️ ВКЛАДКА 3: ТЕРМІНАЛ & СЕРВЕР-ХОП
--- ==============================================================================
-local termContainer = Instance.new("Frame")
-termContainer.Size = UDim2.new(1, 0, 1, 0)
-termContainer.BackgroundTransparency = 1
-termContainer.Parent = terminalTab
-
-termLoopBtn = Instance.new("TextButton")
-termLoopBtn.Size = UDim2.new(1, -6, 0, 42)
-termLoopBtn.Position = UDim2.new(0, 0, 0, 10)
-termLoopBtn.BackgroundColor3 = Color3.fromRGB(110, 50, 180)
-termLoopBtn.Text = "🚀 Швидкий перехват терміналу (5с)"
-termLoopBtn.Font = Enum.Font.GothamBold
-termLoopBtn.TextSize = 13
-termLoopBtn.TextColor3 = Theme.textWhite
-termLoopBtn.Parent = termContainer
-Instance.new("UICorner", termLoopBtn).CornerRadius = UDim.new(0, 8)
-
-bindButton(termLoopBtn, function()
-    toggleTerminalLoop()
-end)
-
-local termDesc = Instance.new("TextLabel")
-termDesc.Size = UDim2.new(1, -10, 0, 48)
-termDesc.Position = UDim2.new(0, 5, 0, 60)
-termDesc.BackgroundTransparency = 1
-termDesc.Font = Enum.Font.GothamMedium
-termDesc.TextSize = 11
-termDesc.TextColor3 = Theme.textMuted
-termDesc.TextWrapped = true
-termDesc.Text = "Супер Комп'ютер шукає обраного пета через серверний ремоут кожні 5 сек (обхід 60-сек затримки) та автоматично перекидає на знайдений сервер."
-termDesc.Parent = termContainer
-
-local hopNowBtn = Instance.new("TextButton")
-hopNowBtn.Size = UDim2.new(1, -6, 0, 42)
-hopNowBtn.Position = UDim2.new(0, 0, 0, 120)
-hopNowBtn.BackgroundColor3 = Theme.blue
-hopNowBtn.Text = "🌐 Сервер-Хоп зараз (новий сервер)"
-hopNowBtn.Font = Enum.Font.GothamBold
-hopNowBtn.TextSize = 13
-hopNowBtn.TextColor3 = Theme.textWhite
-hopNowBtn.Parent = termContainer
-Instance.new("UICorner", hopNowBtn).CornerRadius = UDim.new(0, 8)
-
-bindButton(hopNowBtn, function()
-    serverHop()
-end)
-
-local hopDesc = Instance.new("TextLabel")
-hopDesc.Size = UDim2.new(1, -10, 0, 40)
-hopDesc.Position = UDim2.new(0, 5, 0, 170)
-hopDesc.BackgroundTransparency = 1
-hopDesc.Font = Enum.Font.GothamMedium
-hopDesc.TextSize = 11
-hopDesc.TextColor3 = Theme.textMuted
-hopDesc.TextWrapped = true
-hopDesc.Text = "Автоматично підбирає живий, населений сервер Трейд Плази (15-40 гравців) через захищений RoProxy та перепідключає скрипт."
-hopDesc.Parent = termContainer
-
--- ==============================================================================
--- 📋 ВКЛАДКА 4: ЖУРНАЛ ЛОГІВ & ПОМИЛОК
--- ==============================================================================
-local logTopBar = Instance.new("Frame")
-logTopBar.Size = UDim2.new(1, 0, 0, 32)
-logTopBar.BackgroundTransparency = 1
-logTopBar.Parent = logsTab
-
-local copyLogBtn = Instance.new("TextButton")
-copyLogBtn.Size = UDim2.new(0.48, -4, 1, 0)
-copyLogBtn.Position = UDim2.new(0, 0, 0, 0)
-copyLogBtn.BackgroundColor3 = Theme.accent
-copyLogBtn.Text = "📋 Скопіювати всі логи"
-copyLogBtn.Font = Enum.Font.GothamBold
-copyLogBtn.TextSize = 11
-copyLogBtn.TextColor3 = Theme.textWhite
-copyLogBtn.Parent = logTopBar
-Instance.new("UICorner", copyLogBtn).CornerRadius = UDim.new(0, 6)
-
-bindButton(copyLogBtn, function()
-    copyAllLogs()
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "📋 Логи",
-            Text = "Усі логи скопійовано в буфер обміну!",
-            Duration = 3
-        })
-    end)
-end)
-
-local clearLogBtn = Instance.new("TextButton")
-clearLogBtn.Size = UDim2.new(0.5, -4, 1, 0)
-clearLogBtn.Position = UDim2.new(0.5, 2, 0, 0)
-clearLogBtn.BackgroundColor3 = Theme.bgPanel
-clearLogBtn.Text = "🗑 Очистити вікно"
-clearLogBtn.Font = Enum.Font.GothamBold
-clearLogBtn.TextSize = 11
-clearLogBtn.TextColor3 = Theme.textWhite
-clearLogBtn.Parent = logTopBar
-Instance.new("UICorner", clearLogBtn).CornerRadius = UDim.new(0, 6)
-
-bindButton(clearLogBtn, function()
-    for _, ch in ipairs(logScrollFrame:GetChildren()) do
-        if ch:IsA("TextLabel") then ch:Destroy() end
-    end
-    lastLogLabel = nil
-    lastLogMsg = ""
-    addLog("INFO", "Журнал логів очищено.")
-end)
-
-logScrollFrame = Instance.new("ScrollingFrame")
-logScrollFrame.Size = UDim2.new(1, 0, 1, -40)
-logScrollFrame.Position = UDim2.new(0, 0, 0, 38)
-logScrollFrame.BackgroundColor3 = Theme.bgPanel
-logScrollFrame.ScrollBarThickness = 4
-logScrollFrame.ScrollBarImageColor3 = Theme.accent
-logScrollFrame.ClipsDescendants = true
-logScrollFrame.Parent = logsTab
-Instance.new("UICorner", logScrollFrame).CornerRadius = UDim.new(0, 8)
-
-local logLayout = Instance.new("UIListLayout", logScrollFrame)
-logLayout.Padding = UDim.new(0, 3)
-
-logLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    logScrollFrame.CanvasSize = UDim2.new(0, 0, 0, logLayout.AbsoluteContentSize.Y + 10)
-end)
-
--- Початковий запуск та сканування
-addLog("SUCCESS", "🚀 PUFYFTYK TRADE SNIPER V4.0 УСПІШНО ЗАВАНТАЖЕНО!")
-addLog("INFO", "Перевірка ReplicatedStorage.Network...")
-
-pcall(function()
-    local net = RepS:FindFirstChild("Network")
-    if net then
-        addLog("SUCCESS", "Network знайдено! Активні ремоути для трейду підключено.")
+bindButton(AutoEggToggle, function()
+    State.AutoEggs = not State.AutoEggs
+    if State.AutoEggs then
+        AutoEggToggle.BackgroundColor3 = Colors.Green
+        AutoEggToggle.Text = "🐣 Авто-Яйця: УВІМК"
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp and not State.SavedEggCFrame then
+            State.SavedEggCFrame = hrp.CFrame
+        end
     else
-        addLog("WARN", "ReplicatedStorage.Network очікується...")
+        AutoEggToggle.BackgroundColor3 = Colors.Red
+        AutoEggToggle.Text = "🐣 Авто-Яйця: ВИМК"
     end
 end)
 
-task.spawn(function()
-    task.wait(1.0)
-    if refreshBargainsUI then refreshBargainsUI(false) end
+local SkipAnimBtn = Instance.new("TextButton")
+SkipAnimBtn.LayoutOrder = 2
+SkipAnimBtn.Size = UDim2.new(1, -6, 0, 34)
+SkipAnimBtn.BackgroundColor3 = Colors.Green
+SkipAnimBtn.Text = "⚡ Без анімації: УВІМК"
+SkipAnimBtn.TextColor3 = Color3.new(1, 1, 1)
+SkipAnimBtn.Font = Enum.Font.GothamBold
+SkipAnimBtn.TextSize = 13
+SkipAnimBtn.Parent = PageEggs
+Instance.new("UICorner", SkipAnimBtn).CornerRadius = UDim.new(0, 7)
+
+bindButton(SkipAnimBtn, function()
+    State.RemoveEggAnim = not State.RemoveEggAnim
+    applyEggAnimationSkip(State.RemoveEggAnim)
+    if State.RemoveEggAnim then
+        SkipAnimBtn.BackgroundColor3 = Colors.Green
+        SkipAnimBtn.Text = "⚡ Без анімації: УВІМК"
+    else
+        SkipAnimBtn.BackgroundColor3 = Colors.Red
+        SkipAnimBtn.Text = "⚡ Без анімації: ВИМК"
+    end
 end)
 
--- Фоновий цикл авто-оновлення ринку кожні 3.5 сек
-task.spawn(function()
-    while _G.Pufyftyk_Trade_Loaded do
-        task.wait(cfg.scanInterval)
-        if win.Visible and tabs["Ринок"].Visible then
-            pcall(function()
-                if refreshBargainsUI then refreshBargainsUI(true) end
-            end)
+local CountRow = Instance.new("Frame")
+CountRow.LayoutOrder = 3
+CountRow.Size = UDim2.new(1, -6, 0, 32)
+CountRow.BackgroundTransparency = 1
+CountRow.Parent = PageEggs
+
+local EggCountBtns = {}
+local function makeCountBtn(label, val, idx)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.25, -4, 1, 0)
+    b.Position = UDim2.new((idx - 1) * 0.25, 2, 0, 0)
+    b.BackgroundColor3 = (State.EggAmount == val) and Colors.Orange or Colors.Card
+    b.Text = label
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Parent = CountRow
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    EggCountBtns[val] = b
+    bindButton(b, function()
+        State.EggAmount = val
+        for k, btn in pairs(EggCountBtns) do
+            btn.BackgroundColor3 = (k == val) and Colors.Orange or Colors.Card
         end
+    end)
+end
+
+makeCountBtn("1x", 1, 1)
+makeCountBtn("3x", 3, 2)
+makeCountBtn("8x", 8, 3)
+makeCountBtn("MAX", 0, 4)
+
+local SaveEggPosBtn = Instance.new("TextButton")
+SaveEggPosBtn.LayoutOrder = 4
+SaveEggPosBtn.Size = UDim2.new(1, -6, 0, 34)
+SaveEggPosBtn.BackgroundColor3 = Colors.Blue
+SaveEggPosBtn.Text = "📍 Зберегти позицію яйця"
+SaveEggPosBtn.TextColor3 = Color3.new(1, 1, 1)
+SaveEggPosBtn.Font = Enum.Font.GothamBold
+SaveEggPosBtn.TextSize = 13
+SaveEggPosBtn.Parent = PageEggs
+Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 7)
+
+bindButton(SaveEggPosBtn, function()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        State.SavedEggCFrame = hrp.CFrame
+        SaveEggPosBtn.Text = "✅ Позицію збережено"
+        task.delay(1.5, function()
+            if SaveEggPosBtn then SaveEggPosBtn.Text = "📍 Зберегти позицію яйця" end
+        end)
     end
 end)
 
--- Функція деініціалізації
-_G.Pufyftyk_Trade_Cleanup = function()
-    _G.Pufyftyk_Trade_Loaded = false
-    isTerminalLoopActive = false
-    pcall(function() sg:Destroy() end)
+local EggInput = Instance.new("TextBox")
+EggInput.LayoutOrder = 5
+EggInput.Size = UDim2.new(1, -6, 0, 32)
+EggInput.BackgroundColor3 = Colors.InputBg
+EggInput.Text = ""
+EggInput.PlaceholderText = "Назва яйця (порожньо = найближче)"
+EggInput.PlaceholderColor3 = Colors.SubText
+EggInput.TextColor3 = Colors.Text
+EggInput.Font = Enum.Font.Gotham
+EggInput.TextSize = 12
+EggInput.ClearTextOnFocus = false
+EggInput.Parent = PageEggs
+Instance.new("UICorner", EggInput).CornerRadius = UDim.new(0, 6)
+
+trackConn(EggInput.FocusLost:Connect(function()
+    State.SelectedEggName = string.gsub(EggInput.Text or "", "^%s*(.-)%s*$", "%1")
+end))
+
+local AutoHousesToggle = Instance.new("TextButton")
+AutoHousesToggle.LayoutOrder = 1
+AutoHousesToggle.Size = UDim2.new(1, -6, 0, 38)
+AutoHousesToggle.BackgroundColor3 = Colors.Red
+AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): ВИМК"
+AutoHousesToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoHousesToggle.Font = Enum.Font.GothamBold
+AutoHousesToggle.TextSize = 14
+AutoHousesToggle.Parent = PageHouses
+Instance.new("UICorner", AutoHousesToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(AutoHousesToggle, function()
+    State.AutoHouses = not State.AutoHouses
+    if State.AutoHouses then
+        AutoHousesToggle.BackgroundColor3 = Colors.Green
+        AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): УВІМК"
+        State.LastHouseRun = 0
+    else
+        AutoHousesToggle.BackgroundColor3 = Colors.Red
+        AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): ВИМК"
+    end
+end)
+
+HouseStatusLabel = Instance.new("TextLabel")
+HouseStatusLabel.LayoutOrder = 2
+HouseStatusLabel.Size = UDim2.new(1, -6, 0, 20)
+HouseStatusLabel.BackgroundTransparency = 1
+HouseStatusLabel.Text = "Очікування"
+HouseStatusLabel.TextColor3 = Colors.Orange
+HouseStatusLabel.Font = Enum.Font.GothamBold
+HouseStatusLabel.TextSize = 12
+HouseStatusLabel.Parent = PageHouses
+
+local IntervalRow = Instance.new("Frame")
+IntervalRow.LayoutOrder = 3
+IntervalRow.Size = UDim2.new(1, -6, 0, 30)
+IntervalRow.BackgroundTransparency = 1
+IntervalRow.Parent = PageHouses
+
+local IntervalBtns = {}
+local function makeIntervalBtn(label, secs, idx)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.25, -4, 1, 0)
+    b.Position = UDim2.new((idx - 1) * 0.25, 2, 0, 0)
+    b.BackgroundColor3 = (State.HouseInterval == secs) and Colors.Orange or Colors.Card
+    b.Text = label
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Parent = IntervalRow
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    IntervalBtns[secs] = b
+    bindButton(b, function()
+        State.HouseInterval = secs
+        for k, btn in pairs(IntervalBtns) do
+            btn.BackgroundColor3 = (k == secs) and Colors.Orange or Colors.Card
+        end
+    end)
 end
+
+makeIntervalBtn("10 хв", 600, 1)
+makeIntervalBtn("5 хв", 300, 2)
+makeIntervalBtn("1 хв", 60, 3)
+makeIntervalBtn("10 сек", 10, 4)
+
+local RunHousesNowBtn = Instance.new("TextButton")
+RunHousesNowBtn.LayoutOrder = 4
+RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 34)
+RunHousesNowBtn.BackgroundColor3 = Colors.Orange
+RunHousesNowBtn.Text = "⚡ Обійти домики зараз"
+RunHousesNowBtn.TextColor3 = Color3.new(1, 1, 1)
+RunHousesNowBtn.Font = Enum.Font.GothamBold
+RunHousesNowBtn.TextSize = 13
+RunHousesNowBtn.Parent = PageHouses
+Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 7)
+
+bindButton(RunHousesNowBtn, function()
+    task.spawn(runHousesRoutine)
+end)
+
+local AutoCapToggle = Instance.new("TextButton")
+AutoCapToggle.LayoutOrder = 5
+AutoCapToggle.Size = UDim2.new(1, -6, 0, 34)
+AutoCapToggle.BackgroundColor3 = Colors.Green
+AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
+AutoCapToggle.TextColor3 = Color3.new(1, 1, 1)
+AutoCapToggle.Font = Enum.Font.GothamBold
+AutoCapToggle.TextSize = 13
+AutoCapToggle.Parent = PageHouses
+Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(AutoCapToggle, function()
+    State.AutoMinigame = not State.AutoMinigame
+    if State.AutoMinigame then
+        AutoCapToggle.BackgroundColor3 = Colors.Green
+        AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
+    else
+        AutoCapToggle.BackgroundColor3 = Colors.Red
+        AutoCapToggle.Text = "🎯 Авто-Точки (Капча): ВИМК"
+    end
+end)
+
+local CandyToggle = Instance.new("TextButton")
+CandyToggle.LayoutOrder = 6
+CandyToggle.Size = UDim2.new(1, -6, 0, 34)
+CandyToggle.BackgroundColor3 = Colors.Green
+CandyToggle.Text = "🍬 Авто-Цукерки: УВІМК"
+CandyToggle.TextColor3 = Color3.new(1, 1, 1)
+CandyToggle.Font = Enum.Font.GothamBold
+CandyToggle.TextSize = 13
+CandyToggle.Parent = PageHouses
+Instance.new("UICorner", CandyToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(CandyToggle, function()
+    State.AutoCollectCandy = not State.AutoCollectCandy
+    if State.AutoCollectCandy then
+        CandyToggle.BackgroundColor3 = Colors.Green
+        CandyToggle.Text = "🍬 Авто-Цукерки: УВІМК"
+    else
+        CandyToggle.BackgroundColor3 = Colors.Red
+        CandyToggle.Text = "🍬 Авто-Цукерки: ВИМК"
+    end
+end)
+
+local RouteRow = Instance.new("Frame")
+RouteRow.LayoutOrder = 7
+RouteRow.Size = UDim2.new(1, -6, 0, 32)
+RouteRow.BackgroundTransparency = 1
+RouteRow.Parent = PageHouses
+
+local AddPointBtn = Instance.new("TextButton")
+AddPointBtn.Size = UDim2.new(0.6, -3, 1, 0)
+AddPointBtn.Position = UDim2.new(0, 0, 0, 0)
+AddPointBtn.BackgroundColor3 = Colors.Blue
+AddPointBtn.Text = "➕ Додати точку (0)"
+AddPointBtn.TextColor3 = Color3.new(1, 1, 1)
+AddPointBtn.Font = Enum.Font.GothamBold
+AddPointBtn.TextSize = 12
+AddPointBtn.Parent = RouteRow
+Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 6)
+
+local ClearPointsBtn = Instance.new("TextButton")
+ClearPointsBtn.Size = UDim2.new(0.4, -3, 1, 0)
+ClearPointsBtn.Position = UDim2.new(0.6, 3, 0, 0)
+ClearPointsBtn.BackgroundColor3 = Colors.Card
+ClearPointsBtn.Text = "🗑️ Авто"
+ClearPointsBtn.TextColor3 = Colors.Text
+ClearPointsBtn.Font = Enum.Font.GothamBold
+ClearPointsBtn.TextSize = 12
+ClearPointsBtn.Parent = RouteRow
+Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 6)
+
+bindButton(AddPointBtn, function()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        table.insert(State.CustomHousePoints, hrp.CFrame)
+        AddPointBtn.Text = "➕ Додати точку (" .. #State.CustomHousePoints .. ")"
+    end
+end)
+
+bindButton(ClearPointsBtn, function()
+    State.CustomHousePoints = {}
+    AddPointBtn.Text = "➕ Додати точку (0)"
+end)
+
+local LogBtnsRow = Instance.new("Frame")
+LogBtnsRow.LayoutOrder = 1
+LogBtnsRow.Size = UDim2.new(1, -6, 0, 32)
+LogBtnsRow.BackgroundTransparency = 1
+LogBtnsRow.Parent = PageLogs
+
+local CopyLogsBtn = Instance.new("TextButton")
+CopyLogsBtn.Size = UDim2.new(0.34, -3, 1, 0)
+CopyLogsBtn.Position = UDim2.new(0, 0, 0, 0)
+CopyLogsBtn.BackgroundColor3 = Colors.Green
+CopyLogsBtn.Text = "📋 Копіювати"
+CopyLogsBtn.TextColor3 = Color3.new(1, 1, 1)
+CopyLogsBtn.Font = Enum.Font.GothamBold
+CopyLogsBtn.TextSize = 12
+CopyLogsBtn.Parent = LogBtnsRow
+Instance.new("UICorner", CopyLogsBtn).CornerRadius = UDim.new(0, 6)
+
+local DiagEventBtn = Instance.new("TextButton")
+DiagEventBtn.Size = UDim2.new(0.34, -3, 1, 0)
+DiagEventBtn.Position = UDim2.new(0.34, 2, 0, 0)
+DiagEventBtn.BackgroundColor3 = Colors.Orange
+DiagEventBtn.Text = "🔍 Сканер"
+DiagEventBtn.TextColor3 = Color3.new(1, 1, 1)
+DiagEventBtn.Font = Enum.Font.GothamBold
+DiagEventBtn.TextSize = 12
+DiagEventBtn.Parent = LogBtnsRow
+Instance.new("UICorner", DiagEventBtn).CornerRadius = UDim.new(0, 6)
+
+local ClearLogsBtn = Instance.new("TextButton")
+ClearLogsBtn.Size = UDim2.new(0.32, -3, 1, 0)
+ClearLogsBtn.Position = UDim2.new(0.68, 4, 0, 0)
+ClearLogsBtn.BackgroundColor3 = Colors.Red
+ClearLogsBtn.Text = "🗑️ Очистити"
+ClearLogsBtn.TextColor3 = Color3.new(1, 1, 1)
+ClearLogsBtn.Font = Enum.Font.GothamBold
+ClearLogsBtn.TextSize = 12
+ClearLogsBtn.Parent = LogBtnsRow
+Instance.new("UICorner", ClearLogsBtn).CornerRadius = UDim.new(0, 6)
+
+LogScrollFrame = Instance.new("ScrollingFrame")
+LogScrollFrame.LayoutOrder = 2
+LogScrollFrame.Size = UDim2.new(1, -6, 0, 195)
+LogScrollFrame.BackgroundColor3 = Colors.InputBg
+LogScrollFrame.BorderSizePixel = 0
+LogScrollFrame.ScrollBarThickness = 5
+LogScrollFrame.ScrollBarImageColor3 = Colors.Orange
+LogScrollFrame.Parent = PageLogs
+Instance.new("UICorner", LogScrollFrame).CornerRadius = UDim.new(0, 6)
+
+LogBoxLabel = Instance.new("TextLabel")
+LogBoxLabel.Size = UDim2.new(1, -12, 0, 190)
+LogBoxLabel.Position = UDim2.new(0, 6, 0, 4)
+LogBoxLabel.BackgroundTransparency = 1
+LogBoxLabel.Text = ""
+LogBoxLabel.TextColor3 = Color3.fromRGB(210, 230, 215)
+LogBoxLabel.Font = Enum.Font.Code
+LogBoxLabel.TextSize = 11
+LogBoxLabel.TextXAlignment = Enum.TextXAlignment.Left
+LogBoxLabel.TextYAlignment = Enum.TextYAlignment.Top
+LogBoxLabel.TextWrapped = true
+LogBoxLabel.AutomaticSize = Enum.AutomaticSize.Y
+LogBoxLabel.Parent = LogScrollFrame
+
+bindButton(CopyLogsBtn, function()
+    local fullText = table.concat(State.Logs, "\n")
+    if copyToClipboard(fullText) then
+        CopyLogsBtn.Text = "✅ Скопійовано"
+        task.delay(1.2, function()
+            if CopyLogsBtn then CopyLogsBtn.Text = "📋 Копіювати" end
+        end)
+    end
+end)
+
+bindButton(DiagEventBtn, function()
+    task.spawn(runEventDiagnostic)
+end)
+
+bindButton(ClearLogsBtn, function()
+    State.Logs = {}
+    if LogBoxLabel then LogBoxLabel.Text = "" end
+end)
+
+local function cleanupAll()
+    State.Running = false
+    State.AutoEggs = false
+    State.AutoHouses = false
+    State.AutoMinigame = false
+    State.AutoCollectCandy = false
+    applyEggAnimationSkip(false)
+    for _, c in ipairs(ActiveConnections) do
+        pcall(function() c:Disconnect() end)
+    end
+    ActiveConnections = {}
+    if ScreenGui then
+        pcall(function() ScreenGui:Destroy() end)
+    end
+end
+
+env.HalloweenHubCleanup = cleanupAll
+bindButton(CloseBtn, cleanupAll)
+
+applyEggAnimationSkip(true)
+switchTab(PageEggs, TabEggsBtn)
+addLog("OK", "Готово")
