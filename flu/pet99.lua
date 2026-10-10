@@ -3,7 +3,6 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LogService = game:GetService("LogService")
 
@@ -44,23 +43,23 @@ end
 
 local State = {
     Running = true,
+    FullAutoFarm = false,
     AutoEggs = false,
-    RemoveEggAnim = true,
-    EggAmount = 0,
+    MaxHatchDetected = 1,
+    WorkingEggAmount = nil,
     SelectedEggName = "",
     LastCapturedEggRemote = nil,
     LastCapturedEggArgs = nil,
     SavedEggCFrame = nil,
-    AutoHouses = false,
-    HouseInterval = 600,
-    LastHouseRun = 0,
+    MaxUnlockedHouses = 0,
+    HouseCooldownDefault = 600,
+    HouseCooldownMap = {},
     IsVisitingHouses = false,
-    HouseWaitTime = 4.0,
     CustomHousePoints = {},
     LastCapturedHouseRemote = nil,
     LastCapturedHouseArgs = nil,
-    AutoMinigame = false,
-    AutoCollectCandy = false,
+    AutoMinigame = true,
+    AutoCollectCandy = true,
     Logs = {},
     MaxLogs = 250
 }
@@ -131,14 +130,16 @@ end
 
 local function invokeRemote(name, ...)
     local r = findRemote(name)
-    if not r then return false, "NotFound" end
+    if not r then return false, nil end
     local args = {...}
     if r:IsA("RemoteFunction") then
-        return pcall(function() return r:InvokeServer(unpack(args)) end)
+        local ok, res = pcall(function() return r:InvokeServer(unpack(args)) end)
+        return ok, res
     elseif r:IsA("RemoteEvent") then
-        return pcall(function() r:FireServer(unpack(args)) end)
+        local ok = pcall(function() r:FireServer(unpack(args)) end)
+        return ok, true
     end
-    return false, "InvalidType"
+    return false, nil
 end
 
 local function getThingsFolder()
@@ -147,7 +148,7 @@ end
 
 local function getActiveInstanceContainer()
     local things = getThingsFolder()
-    if not things then return nil end
+    if not things then return nil, nil end
     local ic = things:FindFirstChild("__INSTANCE_CONTAINER")
     if ic then
         local active = ic:FindFirstChild("Active")
@@ -170,15 +171,11 @@ pcall(function()
             if (method == "InvokeServer" or method == "FireServer") and typeof(self) == "Instance" then
                 local rName = string.lower(self.Name)
                 local args = {...}
-                if string.find(rName, "egg") or string.find(rName, "hatch") then
-                    if not string.find(rName, "anim") then
-                        State.LastCapturedEggRemote = self
-                        State.LastCapturedEggArgs = args
-                        if EggStatusLabel and args[1] then
-                            pcall(function()
-                                EggStatusLabel.Text = "Яйце: " .. tostring(args[1])
-                            end)
-                        end
+                if (string.find(rName, "egg") or string.find(rName, "hatch")) and not string.find(rName, "anim") then
+                    State.LastCapturedEggRemote = self
+                    State.LastCapturedEggArgs = args
+                    if type(args[2]) == "number" and args[2] > State.MaxHatchDetected then
+                        State.MaxHatchDetected = args[2]
                     end
                 elseif string.find(rName, "trick") or string.find(rName, "house") or string.find(rName, "door") or string.find(rName, "knock") or string.find(rName, "instancing") then
                     local arg1 = tostring(args[1] or "")
@@ -195,59 +192,14 @@ pcall(function()
     end
 end)
 
-local OriginalPlayEggAnim = nil
-
-local function applyEggAnimationSkip(disableAnim)
-    pcall(function()
-        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
-        if not ps then return end
-        local scriptsFolder = ps:FindFirstChild("Scripts")
-        if not scriptsFolder then return end
-        local gameFolder = scriptsFolder:FindFirstChild("Game")
-        if not gameFolder then return end
-        local eggFrontend = gameFolder:FindFirstChild("Egg Opening Frontend")
-        if eggFrontend and getsenv then
-            local senv = getsenv(eggFrontend)
-            if senv then
-                if disableAnim then
-                    if senv.PlayEggAnimation and not OriginalPlayEggAnim then
-                        OriginalPlayEggAnim = senv.PlayEggAnimation
-                    end
-                    senv.PlayEggAnimation = function() return end
-                else
-                    if OriginalPlayEggAnim then
-                        senv.PlayEggAnimation = OriginalPlayEggAnim
-                    end
-                end
-            end
-        end
-    end)
-end
-
-task.spawn(function()
-    while State.Running do
-        if State.RemoveEggAnim and State.AutoEggs then
-            pcall(function()
-                local cam = Workspace.CurrentCamera
-                if cam then
-                    for _, child in ipairs(cam:GetChildren()) do
-                        local n = string.lower(child.Name)
-                        if string.find(n, "egg") or string.find(n, "pet") then
-                            child:Destroy()
-                        end
-                    end
-                end
-            end)
-        end
-        task.wait(0.2)
-    end
-end)
-
 local function getObjectPosition(obj)
+    if not obj then return nil end
     local pos = nil
     pcall(function()
         if obj:IsA("BasePart") then
             pos = obj.Position
+        elseif obj:IsA("Attachment") then
+            pos = obj.WorldPosition
         elseif obj:IsA("Model") then
             pos = obj:GetPivot().Position
         else
@@ -258,186 +210,257 @@ local function getObjectPosition(obj)
     return pos
 end
 
-local function findNearestEgg()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil, nil, nil end
-    local myPos = hrp.Position
+local function detectPlayerMaxEggHatch()
+    local bestMax = State.MaxHatchDetected or 1
 
-    local things = getThingsFolder()
-    local bestId = nil
-    local bestDist = 75
-    local isCustom = false
-
-    local customContainers = {}
-    if things then
-        local ce = things:FindFirstChild("CustomEggs")
-        if ce then table.insert(customContainers, ce) end
-    end
-    local activeInst, activeFolder = getActiveInstanceContainer()
-    if activeFolder then
-        for _, d in ipairs(activeFolder:GetDescendants()) do
-            if d.Name == "CustomEggs" or d.Name == "Eggs" then
-                table.insert(customContainers, d)
-            end
-        end
-    end
-
-    for _, container in ipairs(customContainers) do
-        for _, egg in ipairs(container:GetChildren()) do
-            local pos = getObjectPosition(egg)
-            if pos then
-                local d = (pos - myPos).Magnitude
-                if d < bestDist then
-                    bestDist = d
-                    bestId = egg:GetAttribute("id") or egg:GetAttribute("EggName") or egg:GetAttribute("ID") or egg.Name
-                    isCustom = (container.Name == "CustomEggs")
-                end
-            end
-        end
-    end
-
-    if things then
-        local eggsFolder = things:FindFirstChild("Eggs")
-        if eggsFolder then
-            for _, eggModel in ipairs(eggsFolder:GetChildren()) do
-                local pos = getObjectPosition(eggModel)
-                if pos then
-                    local d = (pos - myPos).Magnitude
-                    if d < bestDist then
-                        bestDist = d
-                        local idAttr = eggModel:GetAttribute("EggName") or eggModel:GetAttribute("id") or eggModel:GetAttribute("ID")
-                        if not idAttr then
-                            for _, sub in ipairs(eggModel:GetDescendants()) do
-                                local a = sub:GetAttribute("EggName") or sub:GetAttribute("id")
-                                if a then idAttr = a break end
-                            end
-                        end
-                        bestId = idAttr or eggModel.Name
-                        isCustom = false
-                    end
-                end
-            end
-        end
-    end
-
-    if not bestId and activeInst then
-        for _, desc in ipairs(activeInst:GetDescendants()) do
-            if desc:IsA("Model") or desc:IsA("BasePart") then
-                local n = string.lower(desc.Name)
-                local eggAttr = desc:GetAttribute("EggName") or desc:GetAttribute("EggId") or desc:GetAttribute("CustomEgg")
-                if eggAttr or string.find(n, "egg") then
-                    local pos = getObjectPosition(desc)
-                    if pos then
-                        local d = (pos - myPos).Magnitude
-                        if d < bestDist then
-                            bestDist = d
-                            bestId = eggAttr or desc.Name
-                            isCustom = true
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return bestId, isCustom, bestDist
-end
-
-local function detectMaxHatchAmount()
-    local maxHatch = 1
     pcall(function()
-        if ReplicatedStorage:FindFirstChild("Library") then
-            local saveMod = ReplicatedStorage.Library:FindFirstChild("Client") and ReplicatedStorage.Library.Client:FindFirstChild("Save")
+        local lib = ReplicatedStorage:FindFirstChild("Library")
+        local client = lib and lib:FindFirstChild("Client")
+        if client then
+            local eggCmdsMod = client:FindFirstChild("EggCmds")
+            if eggCmdsMod then
+                local EggCmds = require(eggCmdsMod)
+                if EggCmds and type(EggCmds.GetMaxHatch) == "function" then
+                    local m = tonumber(EggCmds.GetMaxHatch())
+                    if m and m > bestMax then bestMax = m end
+                end
+            end
+            local customEggMod = client:FindFirstChild("CustomEggCmds")
+            if customEggMod then
+                local CustomEggCmds = require(customEggMod)
+                if CustomEggCmds and type(CustomEggCmds.GetMaxHatch) == "function" then
+                    local m = tonumber(CustomEggCmds.GetMaxHatch())
+                    if m and m > bestMax then bestMax = m end
+                end
+            end
+            local saveMod = client:FindFirstChild("Save")
             if saveMod then
                 local Save = require(saveMod)
-                local data = Save.Get()
+                local data = Save and Save.Get and Save.Get()
                 if data then
-                    local slots = data.EggSlotsPurchased or data.EggsHatchedAtOnce or data.MaxEggs
-                    if slots then
-                        maxHatch = math.clamp(tonumber(slots) or 8, 1, 99)
+                    for _, k in ipairs({"EggsHatched", "CustomEggsHatched", "EggSlotsPurchased", "MaxEggs"}) do
+                        local v = tonumber(data[k])
+                        if v and v > bestMax then bestMax = v end
                     end
                 end
             end
         end
     end)
-    if maxHatch <= 1 then maxHatch = 8 end
-    return maxHatch
+
+    State.MaxHatchDetected = math.clamp(bestMax, 1, 150)
+    return State.MaxHatchDetected
+end
+
+local function buildSmartHatchAmounts()
+    local maxH = detectPlayerMaxEggHatch()
+    local list = {}
+    local added = {}
+
+    local function push(n)
+        n = math.floor(tonumber(n) or 0)
+        if n >= 1 and not added[n] then
+            added[n] = true
+            table.insert(list, n)
+        end
+    end
+
+    if State.WorkingEggAmount and State.WorkingEggAmount >= maxH then
+        push(State.WorkingEggAmount)
+    end
+    push(maxH)
+    if State.WorkingEggAmount then
+        push(State.WorkingEggAmount)
+    end
+    if maxH > 4 then
+        push(math.floor(maxH * 0.75))
+        push(math.floor(maxH * 0.5))
+        push(math.floor(maxH * 0.25))
+    end
+    for _, v in ipairs({99, 75, 50, 30, 20, 15, 10, 8, 6, 4, 3, 2, 1}) do
+        if v <= maxH or maxH <= 1 then
+            push(v)
+        end
+    end
+    push(1)
+    return list
+end
+
+local function findNearestEggCandidates()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return {} end
+    local myPos = hrp.Position
+
+    local candidates = {}
+    local seen = {}
+
+    local function addCand(uid, attrId, pos, isCustom, obj)
+        if not pos then return end
+        local d = (pos - myPos).Magnitude
+        if d > 65 then return end
+        local key = tostring(uid) .. "|" .. tostring(attrId)
+        if seen[key] then return end
+        seen[key] = true
+        table.insert(candidates, {
+            uid = uid,
+            attrId = attrId,
+            pos = pos,
+            dist = d,
+            isCustom = isCustom,
+            obj = obj
+        })
+    end
+
+    local things = getThingsFolder()
+    if things then
+        local ce = things:FindFirstChild("CustomEggs")
+        if ce then
+            for _, egg in ipairs(ce:GetChildren()) do
+                local pos = getObjectPosition(egg)
+                local attr = egg:GetAttribute("id") or egg:GetAttribute("EggName") or egg:GetAttribute("ID")
+                addCand(egg.Name, attr, pos, true, egg)
+            end
+        end
+        local ef = things:FindFirstChild("Eggs")
+        if ef then
+            for _, egg in ipairs(ef:GetChildren()) do
+                local pos = getObjectPosition(egg)
+                local attr = egg:GetAttribute("EggName") or egg:GetAttribute("id") or egg:GetAttribute("ID")
+                local cleanName = string.match(egg.Name, "^%d+%s*-%s*(.+)$") or egg.Name
+                addCand(egg.Name, attr or cleanName, pos, false, egg)
+            end
+        end
+    end
+
+    local activeInst, activeFolder = getActiveInstanceContainer()
+    if activeFolder then
+        for _, d in ipairs(activeFolder:GetDescendants()) do
+            if d.Parent and (d.Parent.Name == "CustomEggs" or d.Parent.Name == "Eggs" or d.Parent.Name == "EggCapsules") then
+                local pos = getObjectPosition(d)
+                local attr = d:GetAttribute("id") or d:GetAttribute("EggName") or d:GetAttribute("ID")
+                addCand(d.Name, attr, pos, d.Parent.Name == "CustomEggs", d)
+            end
+        end
+    end
+
+    table.sort(candidates, function(a, b) return a.dist < b.dist end)
+    return candidates
+end
+
+local function tryHatchCall(remoteName, arg1, amountsToTry)
+    local r = findRemote(remoteName)
+    if not r then return false end
+    for _, amt in ipairs(amountsToTry) do
+        local ok, res = pcall(function()
+            if r:IsA("RemoteFunction") then
+                return r:InvokeServer(arg1, amt)
+            elseif r:IsA("RemoteEvent") then
+                r:FireServer(arg1, amt)
+                return true
+            end
+        end)
+        if ok and res ~= false and res ~= nil then
+            State.WorkingEggAmount = amt
+            if amt > State.MaxHatchDetected then State.MaxHatchDetected = amt end
+            return true
+        end
+    end
+    return false
 end
 
 local function hatchTargetEgg()
     if State.IsVisitingHouses then return end
-    if State.RemoveEggAnim then
-        applyEggAnimationSkip(true)
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local cands = findNearestEggCandidates()
+
+    if #cands == 0 then
+        if State.SavedEggCFrame and hrp and (hrp.Position - State.SavedEggCFrame.Position).Magnitude > 25 then
+            pcall(function() hrp.CFrame = State.SavedEggCFrame end)
+            task.wait(0.15)
+            cands = findNearestEggCandidates()
+        end
+    else
+        if hrp and not State.SavedEggCFrame then
+            State.SavedEggCFrame = hrp.CFrame
+        end
     end
 
-    local amount = State.EggAmount
-    if amount <= 0 then
-        amount = detectMaxHatchAmount()
+    local amounts = buildSmartHatchAmounts()
+
+    if State.LastCapturedEggRemote and State.LastCapturedEggArgs then
+        local rem = State.LastCapturedEggRemote
+        local baseArgs = State.LastCapturedEggArgs
+        for _, amt in ipairs(amounts) do
+            local callArgs = {}
+            for i, v in ipairs(baseArgs) do callArgs[i] = v end
+            if #callArgs >= 2 and type(callArgs[2]) == "number" then
+                callArgs[2] = amt
+            end
+            local ok, res = pcall(function()
+                if rem:IsA("RemoteFunction") then
+                    return rem:InvokeServer(unpack(callArgs))
+                elseif rem:IsA("RemoteEvent") then
+                    rem:FireServer(unpack(callArgs))
+                    return true
+                end
+            end)
+            if ok and res ~= false and res ~= nil then
+                State.WorkingEggAmount = amt
+                if EggStatusLabel then
+                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (Макс: %dx)", tostring(callArgs[1]), amt)
+                end
+                return
+            end
+        end
     end
 
     local manualName = State.SelectedEggName
     if manualName and manualName ~= "" then
-        if EggStatusLabel then EggStatusLabel.Text = "Яйце: " .. manualName end
-        invokeRemote("CustomEggs_Hatch", manualName, amount)
-        invokeRemote("Eggs_RequestPurchase", manualName, amount)
-        local activeInst = getActiveInstanceContainer()
-        if activeInst then
-            invokeRemote("Instancing_InvokeCustomFromClient", activeInst.Name, "HatchEgg", manualName, amount)
-            invokeRemote("Instancing_FireCustomFromClient", activeInst.Name, "HatchEgg", manualName, amount)
-        end
-        return
-    end
-
-    local nearestId, isCustom, dist = findNearestEgg()
-    if nearestId then
-        if EggStatusLabel then
-            EggStatusLabel.Text = string.format("Яйце: %s (%.0fм)", tostring(nearestId), dist or 0)
-        end
-        if isCustom then
-            invokeRemote("CustomEggs_Hatch", nearestId, amount)
-            invokeRemote("Eggs_RequestPurchase", nearestId, amount)
-        else
-            invokeRemote("Eggs_RequestPurchase", nearestId, amount)
-            invokeRemote("CustomEggs_Hatch", nearestId, amount)
-        end
-        local activeInst = getActiveInstanceContainer()
-        if activeInst then
-            invokeRemote("Instancing_InvokeCustomFromClient", activeInst.Name, "CustomEggs_Hatch", nearestId, amount)
-            invokeRemote("Instancing_FireCustomFromClient", activeInst.Name, "CustomEggs_Hatch", nearestId, amount)
-        end
-        return
-    end
-
-    if State.LastCapturedEggRemote and State.LastCapturedEggArgs then
-        local rem = State.LastCapturedEggRemote
-        local args = {}
-        for i, v in ipairs(State.LastCapturedEggArgs) do args[i] = v end
-        if State.EggAmount > 0 and #args >= 2 and type(args[2]) == "number" then
-            args[2] = State.EggAmount
-        end
-        pcall(function()
-            if rem:IsA("RemoteFunction") then
-                rem:InvokeServer(unpack(args))
-            elseif rem:IsA("RemoteEvent") then
-                rem:FireServer(unpack(args))
+        if tryHatchCall("CustomEggs_Hatch", manualName, amounts) or tryHatchCall("Eggs_RequestPurchase", manualName, amounts) then
+            if EggStatusLabel then
+                EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", manualName, State.WorkingEggAmount or 1)
             end
-        end)
-        return
+            return
+        end
     end
 
-    if EggStatusLabel then
-        EggStatusLabel.Text = "Підійди до яйця (або відкрий 1 раз вручну)"
+    if #cands > 0 then
+        local best = cands[1]
+        if best.uid then
+            if tryHatchCall("CustomEggs_Hatch", best.uid, amounts) or tryHatchCall("Eggs_RequestPurchase", best.uid, amounts) then
+                if EggStatusLabel then
+                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(best.attrId or best.uid), State.WorkingEggAmount or 1)
+                end
+                return
+            end
+        end
+        if best.attrId and best.attrId ~= best.uid then
+            if tryHatchCall("Eggs_RequestPurchase", best.attrId, amounts) or tryHatchCall("CustomEggs_Hatch", best.attrId, amounts) then
+                if EggStatusLabel then
+                    EggStatusLabel.Text = string.format("🐣 Відкриття: %s (%dx)", tostring(best.attrId), State.WorkingEggAmount or 1)
+                end
+                return
+            end
+        end
+        if EggStatusLabel then
+            EggStatusLabel.Text = string.format("🐣 Поруч: %s (відкрий 1 раз вручну)", tostring(best.attrId or best.uid))
+        end
+    else
+        if EggStatusLabel then
+            EggStatusLabel.Text = "🐣 Стань біля яйця і відкрий 1 раз"
+        end
     end
 end
 
 task.spawn(function()
     while State.Running do
-        if State.AutoEggs and not State.IsVisitingHouses then
+        if (State.AutoEggs or State.FullAutoFarm) and not State.IsVisitingHouses then
             pcall(hatchTargetEgg)
-            task.wait(0.1)
-        else
             task.wait(0.25)
+        else
+            task.wait(0.3)
         end
     end
 end)
@@ -458,31 +481,35 @@ local function fireSafeSignal(guiObj)
 end
 
 local LastDotClick = {}
-local function scanAndSolveMinigame()
-    if not State.AutoMinigame then return end
+local function isMinigameActiveOnScreen()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pgui then return end
-
+    if not pgui then return false end
+    local foundActive = false
     local now = tick()
+
     for _, screen in ipairs(pgui:GetChildren()) do
         if screen:IsA("ScreenGui") and screen.Enabled and screen.Name ~= "HalloweenEventGui" then
             local sName = string.lower(screen.Name)
             local isMinigameScreen = string.find(sName, "minigame")
                 or string.find(sName, "trickortreat")
                 or string.find(sName, "trick_or_treat")
+                or string.find(sName, "hatchbattle")
+                or string.find(sName, "hatch_battle")
                 or string.find(sName, "doorgame")
-                or string.find(sName, "housegame")
                 or string.find(sName, "captcha")
 
             if isMinigameScreen then
                 for _, obj in ipairs(screen:GetDescendants()) do
                     if obj:IsA("GuiButton") and obj.Visible then
                         local oName = string.lower(obj.Name)
-                        if not string.find(oName, "close") and not string.find(oName, "exit") and not string.find(oName, "cancel") then
-                            local lastTime = LastDotClick[obj] or 0
-                            if now - lastTime > 0.08 then
-                                LastDotClick[obj] = now
-                                fireSafeSignal(obj)
+                        if not string.find(oName, "close") and not string.find(oName, "exit") and not string.find(oName, "cancel") and not string.find(oName, "leave") then
+                            foundActive = true
+                            if State.AutoMinigame then
+                                local lastTime = LastDotClick[obj] or 0
+                                if now - lastTime > 0.08 then
+                                    LastDotClick[obj] = now
+                                    fireSafeSignal(obj)
+                                end
                             end
                         end
                     end
@@ -490,12 +517,13 @@ local function scanAndSolveMinigame()
             end
         end
     end
+    return foundActive
 end
 
 task.spawn(function()
     while State.Running do
         if State.AutoMinigame then
-            pcall(scanAndSolveMinigame)
+            pcall(isMinigameActiveOnScreen)
             task.wait(0.05)
         else
             task.wait(0.3)
@@ -503,8 +531,258 @@ task.spawn(function()
     end
 end)
 
-local function triggerInteractionsAt(pos, inst, radius)
-    radius = radius or 22
+local function parseCooldownFromText(txt)
+    if not txt or txt == "" then return nil end
+    local lower = string.lower(txt)
+    local m, s = string.match(lower, "(%d+)%s*:%s*(%d+)")
+    if m and s then
+        return tonumber(m) * 60 + tonumber(s)
+    end
+    local m2, s2 = string.match(lower, "(%d+)%s*m%s*(%d+)%s*s")
+    if m2 and s2 then
+        return tonumber(m2) * 60 + tonumber(s2)
+    end
+    local onlyM = string.match(lower, "(%d+)%s*m")
+    if onlyM and (string.find(lower, "cooldown") or string.find(lower, "wait") or #lower <= 8) then
+        return tonumber(onlyM) * 60
+    end
+    local onlyS = string.match(lower, "^%s*(%d+)%s*s%s*$")
+    if onlyS then
+        return tonumber(onlyS)
+    end
+    return nil
+end
+
+local function inspectDoorState(inst, pos)
+    local isLocked = false
+    local cooldownSecs = nil
+
+    local function checkObj(rootObj)
+        if not rootObj then return end
+        if rootObj:GetAttribute("Locked") == true or rootObj:GetAttribute("Disabled") == true then
+            isLocked = true
+        end
+        local cdAttr = tonumber(rootObj:GetAttribute("Cooldown"))
+        if cdAttr and cdAttr > 0 then
+            cooldownSecs = cdAttr
+        end
+        for _, d in ipairs(rootObj:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Visible then
+                local raw = d.Text or ""
+                local low = string.lower(raw)
+                if string.find(low, "locked") or string.find(low, "unlock") then
+                    isLocked = true
+                end
+                local parsed = parseCooldownFromText(raw)
+                if parsed and parsed > 0 then
+                    cooldownSecs = parsed
+                end
+            elseif d:IsA("ProximityPrompt") and not d.Enabled then
+                if not cooldownSecs then
+                    cooldownSecs = 60
+                end
+            end
+        end
+    end
+
+    pcall(function()
+        if inst then
+            checkObj(inst)
+            if inst.Parent and inst.Parent ~= Workspace then
+                checkObj(inst.Parent)
+            end
+        elseif pos then
+            for _, desc in ipairs(Workspace:GetDescendants()) do
+                if (desc:IsA("BillboardGui") or desc:IsA("SurfaceGui")) and desc.Enabled then
+                    local pPos = getObjectPosition(desc.Adornee or desc.Parent)
+                    if pPos and (pPos - pos).Magnitude <= 16 then
+                        checkObj(desc)
+                    end
+                end
+            end
+        end
+    end)
+
+    return isLocked, cooldownSecs
+end
+
+local function isBlockedByLockedZoneGate(fromPos, toPos)
+    local blocked = false
+    pcall(function()
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local ignore = {}
+        if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
+        params.FilterDescendantsInstances = ignore
+
+        local startP = Vector3.new(fromPos.X, fromPos.Y + 3, fromPos.Z)
+        local endP = Vector3.new(toPos.X, fromPos.Y + 3, toPos.Z)
+        local result = Workspace:Raycast(startP, endP - startP, params)
+        if result and result.Instance then
+            local hit = result.Instance
+            local full = string.lower(hit:GetFullName())
+            if hit.CanCollide and (string.find(full, "gate") or string.find(full, "barrier") or string.find(full, "lock") or string.find(full, "forcefield") or string.find(full, "zonewall")) then
+                blocked = true
+            end
+        end
+    end)
+    return blocked
+end
+
+local function findGroundDoorPosition(modelOrPart, playerGroundY)
+    if modelOrPart:IsA("BasePart") then
+        if math.abs(modelOrPart.Position.Y - playerGroundY) <= 12 then
+            return Vector3.new(modelOrPart.Position.X, playerGroundY, modelOrPart.Position.Z), modelOrPart
+        end
+        return nil, nil
+    end
+
+    local bestPart = nil
+    local bestScore = -999
+
+    for _, d in ipairs(modelOrPart:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Parent and d.Parent:IsA("BasePart") then
+            local p = d.Parent
+            if math.abs(p.Position.Y - playerGroundY) <= 14 then
+                return Vector3.new(p.Position.X, playerGroundY, p.Position.Z), p
+            end
+        elseif d:IsA("TouchTransmitter") and d.Parent and d.Parent:IsA("BasePart") then
+            local p = d.Parent
+            if math.abs(p.Position.Y - playerGroundY) <= 12 then
+                return Vector3.new(p.Position.X, playerGroundY, p.Position.Z), p
+            end
+        elseif d:IsA("BasePart") then
+            local n = string.lower(d.Name)
+            local yDiff = math.abs(d.Position.Y - playerGroundY)
+            if yDiff <= 12 then
+                local score = 0
+                if string.find(n, "pad") or string.find(n, "interact") or string.find(n, "prompt") or string.find(n, "trigger") or string.find(n, "ring") or string.find(n, "zone") then
+                    score = 50 - yDiff
+                elseif string.find(n, "door") or string.find(n, "step") or string.find(n, "mat") then
+                    score = 30 - yDiff
+                end
+                if score > bestScore then
+                    bestScore = score
+                    bestPart = d
+                end
+            end
+        end
+    end
+
+    if bestPart then
+        local offset = bestPart.CFrame.LookVector * 3.5
+        return Vector3.new(bestPart.Position.X + offset.X, playerGroundY, bestPart.Position.Z + offset.Z), bestPart
+    end
+
+    return nil, nil
+end
+
+local function scanAllUnlockedHouses(playerGroundY, originPos)
+    local houses = {}
+    local seenPositions = {}
+
+    local function addUniqueHouse(name, pos, inst, idVal)
+        if not pos then return end
+        local groundPos = Vector3.new(pos.X, playerGroundY, pos.Z)
+        for _, existing in ipairs(seenPositions) do
+            if (existing - groundPos).Magnitude < 14 then
+                return
+            end
+        end
+        local key = string.format("%d_%d", math.floor(groundPos.X / 10), math.floor(groundPos.Z / 10))
+        local isLocked, liveCd = inspectDoorState(inst, groundPos)
+        if isLocked then return end
+
+        local now = tick()
+        if liveCd and liveCd > 0 then
+            State.HouseCooldownMap[key] = now + liveCd
+        end
+        local readyAt = State.HouseCooldownMap[key] or 0
+        local remCd = math.max(0, readyAt - now)
+
+        table.insert(seenPositions, groundPos)
+        table.insert(houses, {
+            key = key,
+            name = name or ("Дім #" .. (#houses + 1)),
+            pos = groundPos,
+            instance = inst,
+            id = idVal or (inst and inst.Name) or tostring(#houses + 1),
+            remainingCd = remCd,
+            isReady = (remCd <= 0)
+        })
+    end
+
+    if #State.CustomHousePoints > 0 then
+        for idx, cf in ipairs(State.CustomHousePoints) do
+            addUniqueHouse("Дім #" .. idx, cf.Position, nil, idx)
+        end
+        return houses
+    end
+
+    local searchRoots = {}
+    local activeInst, activeFolder = getActiveInstanceContainer()
+    if activeInst then table.insert(searchRoots, activeInst) end
+    if activeFolder then table.insert(searchRoots, activeFolder) end
+    local things = getThingsFolder()
+    if things then table.insert(searchRoots, things) end
+    local mapFolder = Workspace:FindFirstChild("Map") or Workspace:FindFirstChild("Map2")
+    if mapFolder then table.insert(searchRoots, mapFolder) end
+
+    for _, root in ipairs(searchRoots) do
+        for _, desc in ipairs(root:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and desc.Enabled then
+                local pPos = getObjectPosition(desc.Parent)
+                if pPos and math.abs(pPos.Y - playerGroundY) <= 14 then
+                    local actionTxt = string.lower((desc.ActionText or "") .. " " .. (desc.ObjectText or "") .. " " .. desc:GetFullName())
+                    if not string.find(actionTxt, "egg") and not string.find(actionTxt, "leave") and not string.find(actionTxt, "exit") and not string.find(actionTxt, "teleport") and not string.find(actionTxt, "upgrade") then
+                        if not isBlockedByLockedZoneGate(originPos, pPos) then
+                            addUniqueHouse(desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name, pPos, desc.Parent, desc.Parent.Name)
+                        end
+                    end
+                end
+            end
+        end
+        if #houses > 0 then break end
+    end
+
+    if #houses == 0 then
+        for _, root in ipairs(searchRoots) do
+            for _, folder in ipairs(root:GetDescendants()) do
+                local fn = string.lower(folder.Name)
+                if (folder:IsA("Folder") or folder:IsA("Model")) and (fn == "houses" or fn == "trickortreat" or fn == "spookyhouses" or fn == "doors") then
+                    for _, hModel in ipairs(folder:GetChildren()) do
+                        local doorPos, doorPart = findGroundDoorPosition(hModel, playerGroundY)
+                        if doorPos and not isBlockedByLockedZoneGate(originPos, doorPos) then
+                            addUniqueHouse(hModel.Name, doorPos, doorPart or hModel, hModel.Name)
+                        end
+                    end
+                end
+            end
+            if #houses > 0 then break end
+        end
+    end
+
+    table.sort(houses, function(a, b)
+        local na = tonumber(string.match(tostring(a.id), "%d+"))
+        local nb = tonumber(string.match(tostring(b.id), "%d+"))
+        if na and nb and na ~= nb then
+            return na < nb
+        end
+        return (a.pos - originPos).Magnitude < (b.pos - originPos).Magnitude
+    end)
+
+    if State.MaxUnlockedHouses > 0 and #houses > State.MaxUnlockedHouses then
+        local limited = {}
+        for i = 1, State.MaxUnlockedHouses do
+            table.insert(limited, houses[i])
+        end
+        return limited
+    end
+
+    return houses
+end
+
+local function triggerDoorAt(pos, inst)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
@@ -516,7 +794,7 @@ local function triggerInteractionsAt(pos, inst, radius)
                     firetouchinterest(hrp, inst, 1)
                 elseif inst:IsA("Model") then
                     for _, p in ipairs(inst:GetDescendants()) do
-                        if p:IsA("BasePart") then
+                        if p:IsA("BasePart") and math.abs(p.Position.Y - pos.Y) <= 10 then
                             firetouchinterest(hrp, p, 0)
                             firetouchinterest(hrp, p, 1)
                         end
@@ -527,7 +805,7 @@ local function triggerInteractionsAt(pos, inst, radius)
         for _, desc in ipairs(Workspace:GetDescendants()) do
             if desc:IsA("TouchTransmitter") and desc.Parent and desc.Parent:IsA("BasePart") then
                 local p = desc.Parent
-                if (p.Position - pos).Magnitude <= radius then
+                if (p.Position - pos).Magnitude <= 14 and math.abs(p.Position.Y - pos.Y) <= 10 then
                     pcall(function()
                         firetouchinterest(hrp, p, 0)
                         firetouchinterest(hrp, p, 1)
@@ -540,20 +818,20 @@ local function triggerInteractionsAt(pos, inst, radius)
     for _, desc in ipairs(Workspace:GetDescendants()) do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
             local pPos = getObjectPosition(desc.Parent)
-            if pPos and (pPos - pos).Magnitude <= radius then
+            if pPos and (pPos - pos).Magnitude <= 16 then
                 pcall(function()
                     if fireproximityprompt then
                         fireproximityprompt(desc)
                     else
                         desc:InputHoldBegin()
-                        task.wait(0.1)
+                        task.wait(0.08)
                         desc:InputHoldEnd()
                     end
                 end)
             end
         elseif desc:IsA("ClickDetector") then
             local pPos = getObjectPosition(desc.Parent)
-            if pPos and (pPos - pos).Magnitude <= radius then
+            if pPos and (pPos - pos).Magnitude <= 16 then
                 pcall(function()
                     if fireclickdetector then
                         fireclickdetector(desc)
@@ -562,96 +840,6 @@ local function triggerInteractionsAt(pos, inst, radius)
             end
         end
     end
-end
-
-local function scanHalloweenHouses()
-    local houses = {}
-    local seenPositions = {}
-
-    local function addUniqueHouse(name, pos, inst, idVal)
-        if not pos then return end
-        for _, existing in ipairs(seenPositions) do
-            if (existing - pos).Magnitude < 12 then
-                return
-            end
-        end
-        table.insert(seenPositions, pos)
-        table.insert(houses, {
-            name = name or "House",
-            pos = pos,
-            instance = inst,
-            id = idVal or (inst and inst.Name) or tostring(#houses + 1)
-        })
-    end
-
-    for idx, cf in ipairs(State.CustomHousePoints) do
-        addUniqueHouse("Точка #" .. idx, cf.Position, nil, idx)
-    end
-    if #houses > 0 then
-        return houses
-    end
-
-    local searchRoots = {}
-    local activeInst, activeFolder = getActiveInstanceContainer()
-    if activeInst then table.insert(searchRoots, activeInst) end
-    if activeFolder then table.insert(searchRoots, activeFolder) end
-
-    local things = getThingsFolder()
-    if things then table.insert(searchRoots, things) end
-
-    local mapFolder = Workspace:FindFirstChild("Map") or Workspace:FindFirstChild("Map2")
-    if mapFolder then table.insert(searchRoots, mapFolder) end
-
-    for _, root in ipairs(searchRoots) do
-        for _, desc in ipairs(root:GetDescendants()) do
-            local fullPath = string.lower(desc:GetFullName())
-            local n = string.lower(desc.Name)
-
-            if desc:IsA("ProximityPrompt") and desc.Enabled then
-                local pos = getObjectPosition(desc.Parent)
-                if pos then
-                    addUniqueHouse(desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name, pos, desc.Parent, desc.Parent.Name)
-                end
-            elseif (desc:IsA("Model") or desc:IsA("BasePart")) then
-                local isHouseFolder = string.find(fullPath, "trickortreat")
-                    or string.find(fullPath, "houses")
-                    or string.find(fullPath, "spookyhouse")
-                    or string.find(fullPath, "doors")
-                    or string.find(n, "house")
-                    or string.find(n, "trickortreat")
-
-                if isHouseFolder then
-                    local targetPart = nil
-                    if desc:IsA("Model") then
-                        targetPart = desc:FindFirstChild("Door", true)
-                            or desc:FindFirstChild("Pad", true)
-                            or desc:FindFirstChild("Interact", true)
-                            or desc:FindFirstChild("Prompt", true)
-                            or desc:FindFirstChild("Hitbox", true)
-                            or desc.PrimaryPart
-                    elseif desc:IsA("BasePart") and (n == "door" or n == "pad" or n == "interact" or n == "prompt") then
-                        targetPart = desc
-                    end
-                    local pos = targetPart and getObjectPosition(targetPart) or getObjectPosition(desc)
-                    if pos then
-                        addUniqueHouse(desc.Name, pos, targetPart or desc, desc.Name)
-                    end
-                end
-            end
-        end
-        if #houses > 0 then break end
-    end
-
-    table.sort(houses, function(a, b)
-        local na = tonumber(string.match(tostring(a.id), "%d+"))
-        local nb = tonumber(string.match(tostring(b.id), "%d+"))
-        if na and nb and na ~= nb then
-            return na < nb
-        end
-        return a.pos.Z < b.pos.Z
-    end)
-
-    return houses
 end
 
 local function fireHouseRemotes(house)
@@ -672,14 +860,10 @@ local function fireHouseRemotes(house)
     local instName = activeInst and activeInst.Name or "HalloweenEvent"
     local numId = tonumber(string.match(tostring(house.id), "%d+")) or house.id
 
-    local actions = { "Knock", "TrickOrTreat", "ClaimHouse", "OpenDoor", "Interact", "VisitHouse", "Claim" }
+    local actions = { "Knock", "TrickOrTreat", "ClaimHouse", "OpenDoor", "Interact" }
     for _, act in ipairs(actions) do
         invokeRemote("Instancing_FireCustomFromClient", instName, act, numId)
         invokeRemote("Instancing_InvokeCustomFromClient", instName, act, numId)
-        if numId ~= house.id then
-            invokeRemote("Instancing_FireCustomFromClient", instName, act, house.id)
-            invokeRemote("Instancing_InvokeCustomFromClient", instName, act, house.id)
-        end
     end
 
     local directRemotes = {
@@ -687,102 +871,133 @@ local function fireHouseRemotes(house)
         "TrickOrTreat_Interact",
         "TrickOrTreat_Claim",
         "Halloween_KnockDoor",
-        "Houses_Knock",
-        "Houses_Interact"
+        "Houses_Knock"
     }
     for _, rName in ipairs(directRemotes) do
         invokeRemote(rName, numId)
-        if numId ~= house.id then
-            invokeRemote(rName, house.id)
-        end
     end
 end
 
-local function runHousesRoutine()
+local function teleportSafelyTo(targetCF)
+    for _ = 1, 4 do
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                hrp.CFrame = targetCF
+            end)
+        end
+        task.wait(0.06)
+    end
+end
+
+local function visitReadyHousesAndReturn(forceAll)
     if State.IsVisitingHouses then return end
-    State.IsVisitingHouses = true
 
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        State.IsVisitingHouses = false
-        return
+    if not hrp then return end
+
+    if not State.SavedEggCFrame then
+        local cands = findNearestEggCandidates()
+        if #cands > 0 then
+            State.SavedEggCFrame = hrp.CFrame
+        end
     end
 
     local returnCF = State.SavedEggCFrame or hrp.CFrame
-    local houses = scanHalloweenHouses()
+    local groundY = returnCF.Position.Y
+    local allHouses = scanAllUnlockedHouses(groundY, returnCF.Position)
 
-    if #houses == 0 then
-        addLog("WARN", "Домики не знайдено. Додай точки кнопкою '+ Додати точку' або натисни 'Сканер' у Логах.")
+    if #allHouses == 0 then
         if HouseStatusLabel then
-            HouseStatusLabel.Text = "Не знайдено (додай точки вручну)"
+            HouseStatusLabel.Text = "🏠 Домики: підійди до дверей і натисни '+ Додати дім'"
         end
-        State.IsVisitingHouses = false
         return
     end
 
-    addLog("INFO", "Обхід домиків: " .. #houses .. " шт.")
+    local readyHouses = {}
+    local minCd = 999999
+    for _, h in ipairs(allHouses) do
+        if forceAll or h.isReady then
+            table.insert(readyHouses, h)
+        else
+            if h.remainingCd < minCd then
+                minCd = h.remainingCd
+            end
+        end
+    end
 
-    for i, house in ipairs(houses) do
-        if not State.Running then break end
-        char = LocalPlayer.Character
-        hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then break end
-
+    if #readyHouses == 0 then
         if HouseStatusLabel then
-            HouseStatusLabel.Text = string.format("Дім %d/%d: %s", i, #houses, tostring(house.name))
+            local mins = math.floor(minCd / 60)
+            local secs = math.floor(minCd % 60)
+            HouseStatusLabel.Text = string.format("🏠 Всі %d домиків на КД (найближчий: %02d:%02d)", #allHouses, mins, secs)
         end
+        return
+    end
 
-        pcall(function()
-            hrp.CFrame = CFrame.new(house.pos + Vector3.new(0, 3, 0))
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end)
-        task.wait(0.35)
+    State.IsVisitingHouses = true
+    addLog("INFO", "Відкриття готових домиків без КД: " .. #readyHouses .. " із " .. #allHouses)
 
-        triggerInteractionsAt(house.pos, house.instance, 22)
-        fireHouseRemotes(house)
+    local ok, err = pcall(function()
+        for i, house in ipairs(readyHouses) do
+            if not State.Running then break end
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then break end
 
-        local waitStart = tick()
-        while tick() - waitStart < State.HouseWaitTime and State.Running do
-            triggerInteractionsAt(house.pos, house.instance, 22)
-            scanAndSolveMinigame()
+            if HouseStatusLabel then
+                HouseStatusLabel.Text = string.format("🏠 Відкриваю дім %d/%d (%s)...", i, #readyHouses, tostring(house.name))
+            end
+
+            local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
+            pcall(function()
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.CFrame = doorGroundCF
+            end)
+            task.wait(0.2)
+
+            triggerDoorAt(doorGroundCF.Position, house.instance)
+            fireHouseRemotes(house)
             task.wait(0.25)
+
+            local waitStart = tick()
+            while isMinigameActiveOnScreen() and (tick() - waitStart < 3.0) and State.Running do
+                task.wait(0.1)
+            end
+
+            local _, newLiveCd = inspectDoorState(house.instance, house.pos)
+            State.HouseCooldownMap[house.key] = tick() + (newLiveCd and newLiveCd > 0 and newLiveCd or State.HouseCooldownDefault)
         end
+    end)
+
+    if not ok then
+        addLog("ERR", "Помилка: " .. tostring(err))
     end
 
     if returnCF and State.Running then
-        char = LocalPlayer.Character
-        hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            pcall(function()
-                hrp.CFrame = returnCF
-                hrp.AssemblyLinearVelocity = Vector3.zero
-            end)
+        if HouseStatusLabel then
+            HouseStatusLabel.Text = "🔙 Повернення до яйця..."
         end
+        teleportSafelyTo(returnCF)
     end
 
-    State.LastHouseRun = tick()
     State.IsVisitingHouses = false
-    addLog("OK", "Обхід завершено (" .. #houses .. " домиків)")
 end
 
 task.spawn(function()
     while State.Running do
-        if State.AutoHouses and not State.IsVisitingHouses then
-            local elapsed = tick() - State.LastHouseRun
-            local remaining = math.max(0, State.HouseInterval - elapsed)
-            if HouseStatusLabel then
-                local mins = math.floor(remaining / 60)
-                local secs = math.floor(remaining % 60)
-                HouseStatusLabel.Text = string.format("Наступний обхід: %02d:%02d", mins, secs)
-            end
-            if elapsed >= State.HouseInterval or State.LastHouseRun == 0 then
-                pcall(runHousesRoutine)
-            end
-        elseif not State.AutoHouses and HouseStatusLabel and not State.IsVisitingHouses then
-            HouseStatusLabel.Text = "Очікування"
+        if State.FullAutoFarm and not State.IsVisitingHouses then
+            pcall(function()
+                visitReadyHousesAndReturn(false)
+            end)
+            task.wait(1.5)
+        else
+            task.wait(0.5)
         end
-        task.wait(0.5)
     end
 end)
 
@@ -834,55 +1049,21 @@ local function runEventDiagnostic()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local myPos = hrp and hrp.Position or Vector3.zero
-    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f", myPos.X, myPos.Y, myPos.Z))
+    addLog("INFO", string.format("Позиція: %.1f, %.1f, %.1f | Макс яєць: %d", myPos.X, myPos.Y, myPos.Z, detectPlayerMaxEggHatch()))
 
-    local things = getThingsFolder()
-    if things then
-        local cEggs = things:FindFirstChild("CustomEggs")
-        if cEggs then
-            for _, v in ipairs(cEggs:GetChildren()) do
-                local p = getObjectPosition(v)
-                local d = p and (p - myPos).Magnitude or -1
-                if d >= 0 and d <= 150 then
-                    addLog("INFO", string.format("CustomEgg: '%s' (%.1fм)", v.Name, d))
-                end
-            end
-        end
-        local eggsF = things:FindFirstChild("Eggs")
-        if eggsF then
-            for _, v in ipairs(eggsF:GetChildren()) do
-                local p = getObjectPosition(v)
-                local d = p and (p - myPos).Magnitude or -1
-                if d >= 0 and d <= 150 then
-                    addLog("INFO", string.format("Egg: '%s' (%.1fм)", v.Name, d))
-                end
-            end
-        end
-        local instCont = things:FindFirstChild("__INSTANCE_CONTAINER")
-        if instCont and instCont:FindFirstChild("Active") then
-            for _, inst in ipairs(instCont.Active:GetChildren()) do
-                addLog("INFO", "Active World: " .. inst.Name)
-                for _, sub in ipairs(inst:GetChildren()) do
-                    addLog("INFO", "  Folder: " .. sub.Name .. " (" .. #sub:GetChildren() .. ")")
-                    for _, item in ipairs(sub:GetChildren()) do
-                        local p = getObjectPosition(item)
-                        local d = p and (p - myPos).Magnitude or -1
-                        if d >= 0 and d <= 200 then
-                            addLog("INFO", string.format("    -> %s [%s] (%.1fм)", item.Name, item.ClassName, d))
-                        end
-                    end
-                end
-            end
-        end
+    local cands = findNearestEggCandidates()
+    addLog("INFO", "Яєць поруч (" .. #cands .. "):")
+    for i, c in ipairs(cands) do
+        addLog("INFO", string.format("  [%d] uid='%s' id='%s' dist=%.1f", i, tostring(c.uid), tostring(c.attrId), c.dist))
     end
 
-    if State.LastCapturedEggRemote then
-        addLog("INFO", "Captured Egg Remote: " .. State.LastCapturedEggRemote.Name)
+    local houses = scanAllUnlockedHouses(myPos.Y, myPos)
+    addLog("INFO", "Відкритих домиків (" .. #houses .. "):")
+    for i, h in ipairs(houses) do
+        addLog("INFO", string.format("  [%d] %s | Готовий=%s | КД=%.0fс", i, tostring(h.name), tostring(h.isReady), h.remainingCd))
     end
-    if State.LastCapturedHouseRemote then
-        addLog("INFO", "Captured House Remote: " .. State.LastCapturedHouseRemote.Name)
-    end
-    addLog("OK", "Сканування завершено! Натисни 'Копіювати'.")
+
+    addLog("OK", "Готово! Натисни 'Копіювати'.")
 end
 
 local ParentGui = nil
@@ -937,8 +1118,8 @@ FloatStroke.Thickness = 2
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 440, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -220, 0.5, -170)
+MainFrame.Size = UDim2.new(0, 440, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -175)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1054,7 +1235,7 @@ local function createTabButton(text, posScale, widthScale)
     return b
 end
 
-local TabEggsBtn = createTabButton("🐣 Яйця", 0, 0.333)
+local TabFarmBtn = createTabButton("⚡ Авто-Фарм", 0, 0.333)
 local TabHousesBtn = createTabButton("🏠 Домики", 0.333, 0.333)
 local TabLogsBtn = createTabButton("📋 Лог", 0.666, 0.334)
 
@@ -1086,16 +1267,16 @@ local function createPage()
     return page
 end
 
-local PageEggs = createPage()
+local PageFarm = createPage()
 local PageHouses = createPage()
 local PageLogs = createPage()
 
 local function switchTab(activePage, activeBtn)
-    PageEggs.Visible = (activePage == PageEggs)
+    PageFarm.Visible = (activePage == PageFarm)
     PageHouses.Visible = (activePage == PageHouses)
     PageLogs.Visible = (activePage == PageLogs)
 
-    for _, btn in ipairs({TabEggsBtn, TabHousesBtn, TabLogsBtn}) do
+    for _, btn in ipairs({TabFarmBtn, TabHousesBtn, TabLogsBtn}) do
         if btn == activeBtn then
             btn.BackgroundColor3 = Colors.Orange
             btn.TextColor3 = Color3.new(1, 1, 1)
@@ -1106,122 +1287,127 @@ local function switchTab(activePage, activeBtn)
     end
 end
 
-bindButton(TabEggsBtn, function() switchTab(PageEggs, TabEggsBtn) end)
+bindButton(TabFarmBtn, function() switchTab(PageFarm, TabFarmBtn) end)
 bindButton(TabHousesBtn, function() switchTab(PageHouses, TabHousesBtn) end)
 bindButton(TabLogsBtn, function() switchTab(PageLogs, TabLogsBtn) end)
 
-local AutoEggToggle = Instance.new("TextButton")
-AutoEggToggle.LayoutOrder = 1
-AutoEggToggle.Size = UDim2.new(1, -6, 0, 38)
-AutoEggToggle.BackgroundColor3 = Colors.Red
-AutoEggToggle.Text = "🐣 Авто-Яйця: ВИМК"
-AutoEggToggle.TextColor3 = Color3.new(1, 1, 1)
-AutoEggToggle.Font = Enum.Font.GothamBold
-AutoEggToggle.TextSize = 14
-AutoEggToggle.Parent = PageEggs
-Instance.new("UICorner", AutoEggToggle).CornerRadius = UDim.new(0, 7)
+local FullAutoToggle = Instance.new("TextButton")
+FullAutoToggle.LayoutOrder = 1
+FullAutoToggle.Size = UDim2.new(1, -6, 0, 42)
+FullAutoToggle.BackgroundColor3 = Colors.Red
+FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + ДОМИКИ ПО КД: ВИМК"
+FullAutoToggle.TextColor3 = Color3.new(1, 1, 1)
+FullAutoToggle.Font = Enum.Font.GothamBold
+FullAutoToggle.TextSize = 13
+FullAutoToggle.Parent = PageFarm
+Instance.new("UICorner", FullAutoToggle).CornerRadius = UDim.new(0, 8)
 
 EggStatusLabel = Instance.new("TextLabel")
 EggStatusLabel.LayoutOrder = 2
-EggStatusLabel.Size = UDim2.new(1, -6, 0, 20)
+EggStatusLabel.Size = UDim2.new(1, -6, 0, 18)
 EggStatusLabel.BackgroundTransparency = 1
-EggStatusLabel.Text = "Підійди до яйця (або відкрий 1 раз вручну)"
+EggStatusLabel.Text = "🐣 Стань біля яйця і увімкни"
 EggStatusLabel.TextColor3 = Colors.Orange
 EggStatusLabel.Font = Enum.Font.GothamBold
 EggStatusLabel.TextSize = 12
-EggStatusLabel.Parent = PageEggs
+EggStatusLabel.Parent = PageFarm
 
-bindButton(AutoEggToggle, function()
+HouseStatusLabel = Instance.new("TextLabel")
+HouseStatusLabel.LayoutOrder = 3
+HouseStatusLabel.Size = UDim2.new(1, -6, 0, 18)
+HouseStatusLabel.BackgroundTransparency = 1
+HouseStatusLabel.Text = "🏠 Домики: очікування"
+HouseStatusLabel.TextColor3 = Colors.Green
+HouseStatusLabel.Font = Enum.Font.GothamBold
+HouseStatusLabel.TextSize = 12
+HouseStatusLabel.Parent = PageFarm
+
+bindButton(FullAutoToggle, function()
+    State.FullAutoFarm = not State.FullAutoFarm
+    if State.FullAutoFarm then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            State.SavedEggCFrame = hrp.CFrame
+        end
+        FullAutoToggle.BackgroundColor3 = Colors.Green
+        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + ДОМИКИ ПО КД: УВІМК"
+    else
+        FullAutoToggle.BackgroundColor3 = Colors.Red
+        FullAutoToggle.Text = "⚡ АВТО: ЯЙЦЯ (МАКС) + ДОМИКИ ПО КД: ВИМК"
+    end
+end)
+
+local OnlyEggsToggle = Instance.new("TextButton")
+OnlyEggsToggle.LayoutOrder = 4
+OnlyEggsToggle.Size = UDim2.new(1, -6, 0, 34)
+OnlyEggsToggle.BackgroundColor3 = Colors.Card
+OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс): ВИМК"
+OnlyEggsToggle.TextColor3 = Colors.Text
+OnlyEggsToggle.Font = Enum.Font.GothamBold
+OnlyEggsToggle.TextSize = 13
+OnlyEggsToggle.Parent = PageFarm
+Instance.new("UICorner", OnlyEggsToggle).CornerRadius = UDim.new(0, 7)
+
+bindButton(OnlyEggsToggle, function()
     State.AutoEggs = not State.AutoEggs
     if State.AutoEggs then
-        AutoEggToggle.BackgroundColor3 = Colors.Green
-        AutoEggToggle.Text = "🐣 Авто-Яйця: УВІМК"
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp and not State.SavedEggCFrame then
             State.SavedEggCFrame = hrp.CFrame
         end
+        OnlyEggsToggle.BackgroundColor3 = Colors.Green
+        OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс): УВІМК"
     else
-        AutoEggToggle.BackgroundColor3 = Colors.Red
-        AutoEggToggle.Text = "🐣 Авто-Яйця: ВИМК"
+        OnlyEggsToggle.BackgroundColor3 = Colors.Card
+        OnlyEggsToggle.Text = "🐣 Тільки Авто-Яйця (Макс): ВИМК"
     end
 end)
 
-local SkipAnimBtn = Instance.new("TextButton")
-SkipAnimBtn.LayoutOrder = 3
-SkipAnimBtn.Size = UDim2.new(1, -6, 0, 34)
-SkipAnimBtn.BackgroundColor3 = Colors.Green
-SkipAnimBtn.Text = "⚡ Без анімації: УВІМК"
-SkipAnimBtn.TextColor3 = Color3.new(1, 1, 1)
-SkipAnimBtn.Font = Enum.Font.GothamBold
-SkipAnimBtn.TextSize = 13
-SkipAnimBtn.Parent = PageEggs
-Instance.new("UICorner", SkipAnimBtn).CornerRadius = UDim.new(0, 7)
-
-bindButton(SkipAnimBtn, function()
-    State.RemoveEggAnim = not State.RemoveEggAnim
-    applyEggAnimationSkip(State.RemoveEggAnim)
-    if State.RemoveEggAnim then
-        SkipAnimBtn.BackgroundColor3 = Colors.Green
-        SkipAnimBtn.Text = "⚡ Без анімації: УВІМК"
-    else
-        SkipAnimBtn.BackgroundColor3 = Colors.Red
-        SkipAnimBtn.Text = "⚡ Без анімації: ВИМК"
-    end
-end)
-
-local CountRow = Instance.new("Frame")
-CountRow.LayoutOrder = 4
-CountRow.Size = UDim2.new(1, -6, 0, 32)
-CountRow.BackgroundTransparency = 1
-CountRow.Parent = PageEggs
-
-local EggCountBtns = {}
-local function makeCountBtn(label, val, idx)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0.25, -4, 1, 0)
-    b.Position = UDim2.new((idx - 1) * 0.25, 2, 0, 0)
-    b.BackgroundColor3 = (State.EggAmount == val) and Colors.Orange or Colors.Card
-    b.Text = label
-    b.TextColor3 = Color3.new(1, 1, 1)
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 12
-    b.Parent = CountRow
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    EggCountBtns[val] = b
-    bindButton(b, function()
-        State.EggAmount = val
-        for k, btn in pairs(EggCountBtns) do
-            btn.BackgroundColor3 = (k == val) and Colors.Orange or Colors.Card
-        end
-    end)
-end
-
-makeCountBtn("1x", 1, 1)
-makeCountBtn("3x", 3, 2)
-makeCountBtn("8x", 8, 3)
-makeCountBtn("MAX", 0, 4)
+local PosRow = Instance.new("Frame")
+PosRow.LayoutOrder = 5
+PosRow.Size = UDim2.new(1, -6, 0, 34)
+PosRow.BackgroundTransparency = 1
+PosRow.Parent = PageFarm
 
 local SaveEggPosBtn = Instance.new("TextButton")
-SaveEggPosBtn.LayoutOrder = 5
-SaveEggPosBtn.Size = UDim2.new(1, -6, 0, 34)
+SaveEggPosBtn.Size = UDim2.new(0.6, -3, 1, 0)
+SaveEggPosBtn.Position = UDim2.new(0, 0, 0, 0)
 SaveEggPosBtn.BackgroundColor3 = Colors.Blue
 SaveEggPosBtn.Text = "📍 Зберегти позицію яйця"
 SaveEggPosBtn.TextColor3 = Color3.new(1, 1, 1)
 SaveEggPosBtn.Font = Enum.Font.GothamBold
-SaveEggPosBtn.TextSize = 13
-SaveEggPosBtn.Parent = PageEggs
-Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 7)
+SaveEggPosBtn.TextSize = 12
+SaveEggPosBtn.Parent = PosRow
+Instance.new("UICorner", SaveEggPosBtn).CornerRadius = UDim.new(0, 6)
+
+local ReturnToEggBtn = Instance.new("TextButton")
+ReturnToEggBtn.Size = UDim2.new(0.4, -3, 1, 0)
+ReturnToEggBtn.Position = UDim2.new(0.6, 3, 0, 0)
+ReturnToEggBtn.BackgroundColor3 = Colors.Card
+ReturnToEggBtn.Text = "🔙 До яйця"
+ReturnToEggBtn.TextColor3 = Colors.Text
+ReturnToEggBtn.Font = Enum.Font.GothamBold
+ReturnToEggBtn.TextSize = 12
+ReturnToEggBtn.Parent = PosRow
+Instance.new("UICorner", ReturnToEggBtn).CornerRadius = UDim.new(0, 6)
 
 bindButton(SaveEggPosBtn, function()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if hrp then
         State.SavedEggCFrame = hrp.CFrame
-        SaveEggPosBtn.Text = "✅ Позицію збережено"
+        SaveEggPosBtn.Text = "✅ Збережено!"
         task.delay(1.5, function()
             if SaveEggPosBtn then SaveEggPosBtn.Text = "📍 Зберегти позицію яйця" end
         end)
+    end
+end)
+
+bindButton(ReturnToEggBtn, function()
+    if State.SavedEggCFrame then
+        teleportSafelyTo(State.SavedEggCFrame)
     end
 end)
 
@@ -1230,89 +1416,24 @@ EggInput.LayoutOrder = 6
 EggInput.Size = UDim2.new(1, -6, 0, 32)
 EggInput.BackgroundColor3 = Colors.InputBg
 EggInput.Text = ""
-EggInput.PlaceholderText = "Назва яйця (порожньо = авто-пошук)"
+EggInput.PlaceholderText = "Назва яйця (порожньо = найближче біля тебе)"
 EggInput.PlaceholderColor3 = Colors.SubText
 EggInput.TextColor3 = Colors.Text
 EggInput.Font = Enum.Font.Gotham
 EggInput.TextSize = 12
 EggInput.ClearTextOnFocus = false
-EggInput.Parent = PageEggs
+EggInput.Parent = PageFarm
 Instance.new("UICorner", EggInput).CornerRadius = UDim.new(0, 6)
 
 trackConn(EggInput.FocusLost:Connect(function()
     State.SelectedEggName = string.gsub(EggInput.Text or "", "^%s*(.-)%s*$", "%1")
 end))
 
-local AutoHousesToggle = Instance.new("TextButton")
-AutoHousesToggle.LayoutOrder = 1
-AutoHousesToggle.Size = UDim2.new(1, -6, 0, 38)
-AutoHousesToggle.BackgroundColor3 = Colors.Red
-AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): ВИМК"
-AutoHousesToggle.TextColor3 = Color3.new(1, 1, 1)
-AutoHousesToggle.Font = Enum.Font.GothamBold
-AutoHousesToggle.TextSize = 14
-AutoHousesToggle.Parent = PageHouses
-Instance.new("UICorner", AutoHousesToggle).CornerRadius = UDim.new(0, 7)
-
-bindButton(AutoHousesToggle, function()
-    State.AutoHouses = not State.AutoHouses
-    if State.AutoHouses then
-        AutoHousesToggle.BackgroundColor3 = Colors.Green
-        AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): УВІМК"
-        State.LastHouseRun = 0
-    else
-        AutoHousesToggle.BackgroundColor3 = Colors.Red
-        AutoHousesToggle.Text = "🏠 Авто-Домики (10 хв): ВИМК"
-    end
-end)
-
-HouseStatusLabel = Instance.new("TextLabel")
-HouseStatusLabel.LayoutOrder = 2
-HouseStatusLabel.Size = UDim2.new(1, -6, 0, 20)
-HouseStatusLabel.BackgroundTransparency = 1
-HouseStatusLabel.Text = "Очікування"
-HouseStatusLabel.TextColor3 = Colors.Orange
-HouseStatusLabel.Font = Enum.Font.GothamBold
-HouseStatusLabel.TextSize = 12
-HouseStatusLabel.Parent = PageHouses
-
-local IntervalRow = Instance.new("Frame")
-IntervalRow.LayoutOrder = 3
-IntervalRow.Size = UDim2.new(1, -6, 0, 30)
-IntervalRow.BackgroundTransparency = 1
-IntervalRow.Parent = PageHouses
-
-local IntervalBtns = {}
-local function makeIntervalBtn(label, secs, idx)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0.25, -4, 1, 0)
-    b.Position = UDim2.new((idx - 1) * 0.25, 2, 0, 0)
-    b.BackgroundColor3 = (State.HouseInterval == secs) and Colors.Orange or Colors.Card
-    b.Text = label
-    b.TextColor3 = Color3.new(1, 1, 1)
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 12
-    b.Parent = IntervalRow
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    IntervalBtns[secs] = b
-    bindButton(b, function()
-        State.HouseInterval = secs
-        for k, btn in pairs(IntervalBtns) do
-            btn.BackgroundColor3 = (k == secs) and Colors.Orange or Colors.Card
-        end
-    end)
-end
-
-makeIntervalBtn("10 хв", 600, 1)
-makeIntervalBtn("5 хв", 300, 2)
-makeIntervalBtn("1 хв", 60, 3)
-makeIntervalBtn("10 сек", 10, 4)
-
 local RunHousesNowBtn = Instance.new("TextButton")
-RunHousesNowBtn.LayoutOrder = 4
-RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 34)
+RunHousesNowBtn.LayoutOrder = 1
+RunHousesNowBtn.Size = UDim2.new(1, -6, 0, 38)
 RunHousesNowBtn.BackgroundColor3 = Colors.Orange
-RunHousesNowBtn.Text = "⚡ Обійти домики зараз"
+RunHousesNowBtn.Text = "⚡ Відкрити доступні домики зараз і до яйця"
 RunHousesNowBtn.TextColor3 = Color3.new(1, 1, 1)
 RunHousesNowBtn.Font = Enum.Font.GothamBold
 RunHousesNowBtn.TextSize = 13
@@ -1320,17 +1441,98 @@ RunHousesNowBtn.Parent = PageHouses
 Instance.new("UICorner", RunHousesNowBtn).CornerRadius = UDim.new(0, 7)
 
 bindButton(RunHousesNowBtn, function()
-    task.spawn(runHousesRoutine)
+    State.HouseCooldownMap = {}
+    task.spawn(function()
+        visitReadyHousesAndReturn(true)
+    end)
 end)
 
+local RouteRow = Instance.new("Frame")
+RouteRow.LayoutOrder = 2
+RouteRow.Size = UDim2.new(1, -6, 0, 34)
+RouteRow.BackgroundTransparency = 1
+RouteRow.Parent = PageHouses
+
+local AddPointBtn = Instance.new("TextButton")
+AddPointBtn.Size = UDim2.new(0.62, -3, 1, 0)
+AddPointBtn.Position = UDim2.new(0, 0, 0, 0)
+AddPointBtn.BackgroundColor3 = Colors.Blue
+AddPointBtn.Text = "➕ Додати відкритий дім (0)"
+AddPointBtn.TextColor3 = Color3.new(1, 1, 1)
+AddPointBtn.Font = Enum.Font.GothamBold
+AddPointBtn.TextSize = 12
+AddPointBtn.Parent = RouteRow
+Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 6)
+
+local ClearPointsBtn = Instance.new("TextButton")
+ClearPointsBtn.Size = UDim2.new(0.38, -3, 1, 0)
+ClearPointsBtn.Position = UDim2.new(0.62, 3, 0, 0)
+ClearPointsBtn.BackgroundColor3 = Colors.Card
+ClearPointsBtn.Text = "🗑️ Скинути"
+ClearPointsBtn.TextColor3 = Colors.Text
+ClearPointsBtn.Font = Enum.Font.GothamBold
+ClearPointsBtn.TextSize = 12
+ClearPointsBtn.Parent = RouteRow
+Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 6)
+
+bindButton(AddPointBtn, function()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        table.insert(State.CustomHousePoints, hrp.CFrame)
+        AddPointBtn.Text = "➕ Додати відкритий дім (" .. #State.CustomHousePoints .. ")"
+        HouseStatusLabel.Text = "🏠 Додано відкритий дім #" .. #State.CustomHousePoints
+    end
+end)
+
+bindButton(ClearPointsBtn, function()
+    State.CustomHousePoints = {}
+    State.HouseCooldownMap = {}
+    AddPointBtn.Text = "➕ Додати відкритий дім (0)"
+    HouseStatusLabel.Text = "🏠 Точки скинуто (Авто-пошук)"
+end)
+
+local LimitRow = Instance.new("Frame")
+LimitRow.LayoutOrder = 3
+LimitRow.Size = UDim2.new(1, -6, 0, 30)
+LimitRow.BackgroundTransparency = 1
+LimitRow.Parent = PageHouses
+
+local LimitBtns = {}
+local function makeLimitBtn(label, val, idx)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.2, -3, 1, 0)
+    b.Position = UDim2.new((idx - 1) * 0.2, 1, 0, 0)
+    b.BackgroundColor3 = (State.MaxUnlockedHouses == val) and Colors.Orange or Colors.Card
+    b.Text = label
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 11
+    b.Parent = LimitRow
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    LimitBtns[val] = b
+    bindButton(b, function()
+        State.MaxUnlockedHouses = val
+        for k, btn in pairs(LimitBtns) do
+            btn.BackgroundColor3 = (k == val) and Colors.Orange or Colors.Card
+        end
+    end)
+end
+
+makeLimitBtn("1 дім", 1, 1)
+makeLimitBtn("2 доми", 2, 2)
+makeLimitBtn("3 доми", 3, 3)
+makeLimitBtn("4 доми", 4, 4)
+makeLimitBtn("Всі", 0, 5)
+
 local AutoCapToggle = Instance.new("TextButton")
-AutoCapToggle.LayoutOrder = 5
+AutoCapToggle.LayoutOrder = 4
 AutoCapToggle.Size = UDim2.new(1, -6, 0, 34)
-AutoCapToggle.BackgroundColor3 = Colors.Red
-AutoCapToggle.Text = "🎯 Авто-Точки (Капча): ВИМК"
+AutoCapToggle.BackgroundColor3 = Colors.Green
+AutoCapToggle.Text = "🎯 Авто-Точки (Капча): УВІМК"
 AutoCapToggle.TextColor3 = Color3.new(1, 1, 1)
 AutoCapToggle.Font = Enum.Font.GothamBold
-AutoCapToggle.TextSize = 13
+AutoCapToggle.TextSize = 12
 AutoCapToggle.Parent = PageHouses
 Instance.new("UICorner", AutoCapToggle).CornerRadius = UDim.new(0, 7)
 
@@ -1346,13 +1548,13 @@ bindButton(AutoCapToggle, function()
 end)
 
 local CandyToggle = Instance.new("TextButton")
-CandyToggle.LayoutOrder = 6
+CandyToggle.LayoutOrder = 5
 CandyToggle.Size = UDim2.new(1, -6, 0, 34)
-CandyToggle.BackgroundColor3 = Colors.Red
-CandyToggle.Text = "🍬 Авто-Цукерки: ВИМК"
+CandyToggle.BackgroundColor3 = Colors.Green
+CandyToggle.Text = "🍬 Авто-Цукерки: УВІМК"
 CandyToggle.TextColor3 = Color3.new(1, 1, 1)
 CandyToggle.Font = Enum.Font.GothamBold
-CandyToggle.TextSize = 13
+CandyToggle.TextSize = 12
 CandyToggle.Parent = PageHouses
 Instance.new("UICorner", CandyToggle).CornerRadius = UDim.new(0, 7)
 
@@ -1365,48 +1567,6 @@ bindButton(CandyToggle, function()
         CandyToggle.BackgroundColor3 = Colors.Red
         CandyToggle.Text = "🍬 Авто-Цукерки: ВИМК"
     end
-end)
-
-local RouteRow = Instance.new("Frame")
-RouteRow.LayoutOrder = 7
-RouteRow.Size = UDim2.new(1, -6, 0, 32)
-RouteRow.BackgroundTransparency = 1
-RouteRow.Parent = PageHouses
-
-local AddPointBtn = Instance.new("TextButton")
-AddPointBtn.Size = UDim2.new(0.6, -3, 1, 0)
-AddPointBtn.Position = UDim2.new(0, 0, 0, 0)
-AddPointBtn.BackgroundColor3 = Colors.Blue
-AddPointBtn.Text = "➕ Додати точку (0)"
-AddPointBtn.TextColor3 = Color3.new(1, 1, 1)
-AddPointBtn.Font = Enum.Font.GothamBold
-AddPointBtn.TextSize = 12
-AddPointBtn.Parent = RouteRow
-Instance.new("UICorner", AddPointBtn).CornerRadius = UDim.new(0, 6)
-
-local ClearPointsBtn = Instance.new("TextButton")
-ClearPointsBtn.Size = UDim2.new(0.4, -3, 1, 0)
-ClearPointsBtn.Position = UDim2.new(0.6, 3, 0, 0)
-ClearPointsBtn.BackgroundColor3 = Colors.Card
-ClearPointsBtn.Text = "🗑️ Авто"
-ClearPointsBtn.TextColor3 = Colors.Text
-ClearPointsBtn.Font = Enum.Font.GothamBold
-ClearPointsBtn.TextSize = 12
-ClearPointsBtn.Parent = RouteRow
-Instance.new("UICorner", ClearPointsBtn).CornerRadius = UDim.new(0, 6)
-
-bindButton(AddPointBtn, function()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        table.insert(State.CustomHousePoints, hrp.CFrame)
-        AddPointBtn.Text = "➕ Додати точку (" .. #State.CustomHousePoints .. ")"
-    end
-end)
-
-bindButton(ClearPointsBtn, function()
-    State.CustomHousePoints = {}
-    AddPointBtn.Text = "➕ Додати точку (0)"
 end)
 
 local LogBtnsRow = Instance.new("Frame")
@@ -1493,11 +1653,10 @@ end)
 
 local function cleanupAll()
     State.Running = false
+    State.FullAutoFarm = false
     State.AutoEggs = false
-    State.AutoHouses = false
     State.AutoMinigame = false
     State.AutoCollectCandy = false
-    applyEggAnimationSkip(false)
     for _, c in ipairs(ActiveConnections) do
         pcall(function() c:Disconnect() end)
     end
@@ -1510,6 +1669,5 @@ end
 env.HalloweenHubCleanup = cleanupAll
 bindButton(CloseBtn, cleanupAll)
 
-applyEggAnimationSkip(true)
-switchTab(PageEggs, TabEggsBtn)
+switchTab(PageFarm, TabFarmBtn)
 addLog("OK", "Готово")
