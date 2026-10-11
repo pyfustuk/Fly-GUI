@@ -1033,7 +1033,32 @@ local function setupInstantEggAnimationBypass()
 end
 
 setupInstantEggAnimationBypass()
-State.TapEggUntil = tick() + 3.0
+State.TapEggUntil = 0
+
+local function closeEggMenuIfOpen()
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pgui then return end
+        for _, gui in ipairs(pgui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HalloweenEventGui" and gui.Name ~= "Message" then
+                local gLow = string.lower(gui.Name)
+                if gLow == "eggs" or gLow == "customeggs" or gLow == "eggmenu" or gLow == "eggshop" or string.find(gLow, "eggpurchase") or string.find(gLow, "egghatch") then
+                    for _, d in ipairs(gui:GetDescendants()) do
+                        if d:IsA("GuiButton") and isGuiActuallyVisible(d) then
+                            local bn = string.lower(d.Name .. " " .. (d:IsA("TextButton") and (d.Text or "") or ""))
+                            if string.find(bn, "close") or string.find(bn, "cancel") or string.find(bn, "exit") or bn == "x" then
+                                fireSafeSignal(d)
+                            end
+                        end
+                    end
+                    local f = gui:FindFirstChild("Frame")
+                    if f and f:IsA("GuiObject") then f.Visible = false end
+                    gui.Enabled = false
+                end
+            end
+        end
+    end)
+end
 
 local function areEggsRenderingOnCamera()
     local cam = Workspace.CurrentCamera
@@ -1059,9 +1084,11 @@ end
 
 local function clearCameraEggModelsAndTap()
     if UserInputService:GetFocusedTextBox() then return false end
+    closeEggMenuIfOpen()
+
     local hasEggOnCam = areEggsRenderingOnCamera()
     if hasEggOnCam then
-        State.TapEggUntil = math.max(State.TapEggUntil or 0, tick() + 0.85)
+        State.TapEggUntil = math.max(State.TapEggUntil or 0, tick() + 0.65)
     end
 
     local shouldTapNow = hasEggOnCam or (tick() < (State.TapEggUntil or 0))
@@ -1086,8 +1113,6 @@ local function clearCameraEggModelsAndTap()
             end
         end
     end
-
-    pressKeyE(0.015)
 
     if VirtualUser then
         pcall(function()
@@ -1123,26 +1148,6 @@ local function clearCameraEggModelsAndTap()
             end
         end)
     end
-
-    pcall(function()
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pgui then return end
-        for _, gui in ipairs(pgui:GetChildren()) do
-            if gui:IsA("ScreenGui") and gui.Enabled and gui.Name ~= "HalloweenEventGui" and gui.Name ~= "Message" then
-                local gName = string.lower(gui.Name)
-                if string.find(gName, "egg") or string.find(gName, "hatch") or string.find(gName, "open") or string.find(gName, "anim") then
-                    for _, d in ipairs(gui:GetDescendants()) do
-                        if d:IsA("GuiButton") and d.Visible then
-                            local dn = string.lower(d.Name)
-                            if not string.find(dn, "close") and not string.find(dn, "cancel") and not string.find(dn, "exit") and not string.find(dn, "auto") then
-                                fireSafeSignal(d)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
 
     return true
 end
@@ -2108,6 +2113,16 @@ local function visitReadyHousesAndReturn(forceAll)
     end
 
     State.IsVisitingHouses = true
+    local waitClearStart = tick()
+    while (State.IsHatchingNow or areEggsRenderingOnCamera()) and (tick() - waitClearStart < 4.0) and State.Running do
+        clearCameraEggModelsAndTap()
+        task.wait(0.04)
+    end
+    State.TapEggUntil = 0
+    closeEggMenuIfOpen()
+    checkAndDismissGamePopups()
+    task.wait(0.2)
+
     local stepWait = math.max(1.0, tonumber(State.HouseStepDelay) or 4.0)
 
     local ok, err = pcall(function()
@@ -2117,6 +2132,7 @@ local function visitReadyHousesAndReturn(forceAll)
             hrp = char and char:FindFirstChild("HumanoidRootPart")
             if not hrp then break end
 
+            closeEggMenuIfOpen()
             local _, _, _, lollipopsBefore = updatePetsAndLollipopsInventory()
             local doorGroundCF = CFrame.new(house.pos.X, groundY + 0.5, house.pos.Z)
             teleportSafelyTo(doorGroundCF)
@@ -2985,7 +3001,10 @@ updatePetsAndLollipopsInventory()
 refreshAllMenuLabels()
 
 task.spawn(function()
+    State.IsVisitingHouses = true
     pcall(enterHalloweenEventAndGoToCoords)
+    closeEggMenuIfOpen()
+    checkAndDismissGamePopups()
     State.HouseCooldownMap = {}
     State.LockedHouseInfo = {}
     State.ConfirmedUnlockedHouses = {}
@@ -2993,18 +3012,20 @@ task.spawn(function()
         local refCF = State.SavedEggCFrame or DefaultSpawnCFrame
         scanAllHousesWithState(refCF.Position.Y, refCF.Position)
     end)
-    State.NextAutoHouseCheckTime = tick() + 4
     State.FullAutoFarm = true
     refreshAllMenuLabels()
     if #findNearestEggCandidates(120) > 0 then
         setBlackScreenMode(true)
         MainFrame.Visible = false
         FloatBtn.Visible = true
-        task.spawn(fastHatchOnce)
     else
         setBlackScreenMode(false)
         MainFrame.Visible = true
         FloatBtn.Visible = false
     end
+    State.IsVisitingHouses = false
+    pcall(function() visitReadyHousesAndReturn(false) end)
+    State.IsVisitingHouses = false
+    State.NextAutoHouseCheckTime = tick() + 15
     addLog("OK", "Ready.")
 end)
