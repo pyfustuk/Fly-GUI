@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Diamond Mountain - Winter AFK Hub"
-local _VERSION = "2.3.0"
+local _VERSION = "2.4.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -46,7 +46,11 @@ pcall(function()
     end)
 end)
 
-repeat task.wait() until game:IsLoaded()
+pcall(function()
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
+    end
+end)
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -126,9 +130,14 @@ local State = {
     CurrentActionText = "Starting Winter Farm... | by pufyftyk"
 }
 
-pcall(function()
+local function getHRP()
     local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+pcall(function()
+    local hrp = getHRP()
     if hrp then
         State.FarmCFrame = hrp.CFrame
     end
@@ -173,7 +182,7 @@ local function findRemote(name)
             if res then return res end
         end
     end
-    local r2 = ReplicatedStorage:FindFirstChild(name, true)
+    local r2 = ReplicatedStorage:FindFirstChild(name)
     if r2 then
         local res = checkRemote(r2)
         if res then return res end
@@ -181,66 +190,67 @@ local function findRemote(name)
     return nil
 end
 
-local function invokeRemote(name, ...)
-    local r = findRemote(name)
-    if not r then return false end
+local function safeNetworkFire(name, ...)
     local args = { ... }
-    if r:IsA("RemoteEvent") or r.ClassName == "UnreliableRemoteEvent" then
-        pcall(function() r:FireServer(unpack(args)) end)
-        return true
-    elseif r:IsA("RemoteFunction") then
-        local ok, res = pcall(function() return r:InvokeServer(unpack(args)) end)
-        return ok, res
+    local fired = false
+    if GameNetwork then
+        pcall(function()
+            if GameNetwork.UnreliableFire then
+                GameNetwork.UnreliableFire(GameNetwork, name, unpack(args))
+                fired = true
+            elseif GameNetwork.Fire then
+                GameNetwork.Fire(GameNetwork, name, unpack(args))
+                fired = true
+            end
+        end)
+        if not fired then
+            pcall(function()
+                if GameNetwork.UnreliableFire then
+                    GameNetwork.UnreliableFire(name, unpack(args))
+                    fired = true
+                elseif GameNetwork.Fire then
+                    GameNetwork.Fire(name, unpack(args))
+                    fired = true
+                end
+            end)
+        end
     end
-    return false
+    if not fired then
+        local r = findRemote(name)
+        if r and (r:IsA("RemoteEvent") or r.ClassName == "UnreliableRemoteEvent") then
+            pcall(function() r:FireServer(unpack(args)) end)
+            fired = true
+        end
+    end
+    return fired
 end
 
 local function safeNetworkInvoke(name, ...)
     local args = { ... }
-    if GameNetwork then
-        local ok, res = pcall(function()
-            if GameNetwork.Invoke then
-                return GameNetwork.Invoke(GameNetwork, name, unpack(args))
-            end
-        end)
-        if ok and res ~= nil then return ok, res end
-        local ok2, res2 = pcall(function()
-            if GameNetwork.Invoke then
-                return GameNetwork.Invoke(name, unpack(args))
-            end
-        end)
-        if ok2 and res2 ~= nil then return ok2, res2 end
-    end
-    return invokeRemote(name, unpack(args))
-end
+    local resVal = nil
+    local okVal = false
+    local done = false
 
-local function safeNetworkFire(name, ...)
-    local args = { ... }
-    if GameNetwork then
-        local done = false
-        pcall(function()
-            if GameNetwork.UnreliableFire then
-                GameNetwork.UnreliableFire(GameNetwork, name, unpack(args))
-                done = true
-            elseif GameNetwork.Fire then
-                GameNetwork.Fire(GameNetwork, name, unpack(args))
-                done = true
-            end
-        end)
-        if not done then
-            pcall(function()
-                if GameNetwork.UnreliableFire then
-                    GameNetwork.UnreliableFire(name, unpack(args))
-                    done = true
-                elseif GameNetwork.Fire then
-                    GameNetwork.Fire(name, unpack(args))
-                    done = true
-                end
-            end)
+    task.spawn(function()
+        if GameNetwork and GameNetwork.Invoke then
+            local ok, res = pcall(function() return GameNetwork.Invoke(GameNetwork, name, unpack(args)) end)
+            if ok and res ~= nil then okVal = true resVal = res done = true return end
+            local ok2, res2 = pcall(function() return GameNetwork.Invoke(name, unpack(args)) end)
+            if ok2 and res2 ~= nil then okVal = true res2 = res done = true return end
         end
-        if done then return true end
+        local r = findRemote(name)
+        if r and r:IsA("RemoteFunction") then
+            local ok, res = pcall(function() return r:InvokeServer(unpack(args)) end)
+            if ok then okVal = true resVal = res done = true return end
+        end
+        done = true
+    end)
+
+    local started = os.clock()
+    while not done and (os.clock() - started) < 1.2 do
+        task.wait(0.05)
     end
-    return invokeRemote(name, unpack(args))
+    return okVal, resVal
 end
 
 local ThingsFolder = nil
@@ -250,12 +260,19 @@ local function getThingsFolder()
     return ThingsFolder
 end
 
+local function getBreakablesFolder()
+    local things = getThingsFolder()
+    if things and things:FindFirstChild("Breakables") then return things.Breakables end
+    if Workspace:FindFirstChild("Breakables") then return Workspace.Breakables end
+    return nil
+end
+
 local function getObjectPosition(obj)
     if not obj then return nil end
     if obj:IsA("BasePart") then return obj.Position end
     if obj:IsA("Model") then
         if obj.PrimaryPart then return obj.PrimaryPart.Position end
-        local p = obj:FindFirstChildWhichIsA("BasePart", true)
+        local p = obj:FindFirstChildWhichIsA("BasePart")
         if p then return p.Position end
     end
     return nil
@@ -388,12 +405,12 @@ local function updateCurrencies()
 end
 
 local function collectOrbsAndLootbags()
-    pcall(function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local things = getThingsFolder()
-        if not hrp or not things then return end
+    local hrp = getHRP()
+    if not hrp then return end
+    local things = getThingsFolder()
+    if not things then return end
 
+    pcall(function()
         local orbs = things:FindFirstChild("Orbs")
         if orbs then
             local orbIds = {}
@@ -450,17 +467,17 @@ local function commandPetsToAttack(b)
             local petCmds = client:FindFirstChild("PetCmds")
             if petCmds then
                 local m = require(petCmds)
-                if m then
-                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(b) end) end
-                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(uid) end) end
+                if m and type(m.SetTarget) == "function" then
+                    pcall(function() m.SetTarget(b) end)
+                    pcall(function() m.SetTarget(uid) end)
                 end
             end
             local playerPet = client:FindFirstChild("PlayerPet")
             if playerPet then
                 local m = require(playerPet)
-                if m then
-                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(b) end) end
-                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(uid) end) end
+                if m and type(m.SetTarget) == "function" then
+                    pcall(function() m.SetTarget(b) end)
+                    pcall(function() m.SetTarget(uid) end)
                 end
             end
         end
@@ -475,52 +492,54 @@ local function commandPetsToAttack(b)
 end
 
 local function farmNearbyBreakables()
-    pcall(function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local things = getThingsFolder()
-        if not hrp or not things then return end
-        local breakables = things:FindFirstChild("Breakables")
-        if not breakables then return end
+    local hrp = getHRP()
+    if not hrp then return end
+    local myPos = hrp.Position
+    local bFolder = getBreakablesFolder()
+    if not bFolder then return end
 
-        local myPos = hrp.Position
-        local wallTarget = nil
+    local wallTarget = nil
+    local normalTargets = {}
 
-        for _, b in ipairs(breakables:GetChildren()) do
+    for _, b in ipairs(bFolder:GetChildren()) do
+        local bPos = getObjectPosition(b)
+        if bPos then
+            local dist = (bPos - myPos).Magnitude
             local low = string.lower(b.Name)
-            if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "yeti") or string.find(low, "boss") or string.find(low, "chest") or string.find(low, "gate") then
-                local bPos = getObjectPosition(b)
-                if bPos and (bPos - myPos).Magnitude <= 140 then
+            if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "yeti") or string.find(low, "boss") or string.find(low, "gate") or string.find(low, "chest") then
+                if dist <= 160 then
                     wallTarget = b
                     break
                 end
+            elseif dist <= 95 then
+                table.insert(normalTargets, { obj = b, dist = dist })
             end
         end
+    end
 
-        if wallTarget then
-            State.CurrentActionText = "Attacking Rubble Wall / Boss! | by pufyftyk"
-            commandPetsToAttack(wallTarget)
-            return
-        end
+    if wallTarget then
+        State.CurrentActionText = "Attacking Rubble Wall / Boss! | by pufyftyk"
+        commandPetsToAttack(wallTarget)
+        return
+    end
 
-        local count = 0
-        for _, b in ipairs(breakables:GetChildren()) do
-            local bPos = getObjectPosition(b)
-            if bPos and (bPos - myPos).Magnitude <= 85 then
-                commandPetsToAttack(b)
-                count = count + 1
-                if count >= 4 then break end
-            end
-        end
-    end)
+    table.sort(normalTargets, function(a, b) return a.dist < b.dist end)
+    local maxAttacks = math.min(#normalTargets, 5)
+    for i = 1, maxAttacks do
+        commandPetsToAttack(normalTargets[i].obj)
+    end
+
+    if maxAttacks > 0 then
+        State.CurrentActionText = string.format("Farming %d Breakables | Camp %d | by pufyftyk", maxAttacks, State.CurrentZone)
+    else
+        State.CurrentActionText = string.format("Zone %d: Searching Breakables... | by pufyftyk", State.CurrentZone)
+    end
 end
 
 local function findNearestEggMachine(maxDist)
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp = getHRP()
     if not hrp then return nil, nil, nil, nil end
     local myPos = hrp.Position
-    local things = getThingsFolder()
     local limit = maxDist or 120
 
     local eggCandidates = {}
@@ -536,6 +555,7 @@ local function findNearestEggMachine(maxDist)
         end
     end
 
+    local things = getThingsFolder()
     if things then
         for _, fName in ipairs({ "CustomEggs", "Eggs", "EggCapsules", "EggMachines" }) do
             local f = things:FindFirstChild(fName)
@@ -547,20 +567,6 @@ local function findNearestEggMachine(maxDist)
         end
     end
 
-    pcall(function()
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") then
-                local act = string.lower(desc.ActionText or "")
-                local objTxt = string.lower(desc.ObjectText or "")
-                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
-                if string.find(act, "egg") or string.find(act, "hatch") or string.find(act, "open") or
-                   string.find(objTxt, "egg") or string.find(pName, "egg") then
-                    checkCandidate(desc.Parent, nil, desc)
-                end
-            end
-        end
-    end)
-
     table.sort(eggCandidates, function(a, b) return a.dist < b.dist end)
     if #eggCandidates > 0 then
         return eggCandidates[1].obj, eggCandidates[1].id, eggCandidates[1].pos, eggCandidates[1].prompt
@@ -570,14 +576,10 @@ end
 
 local function autoEquipBestPets()
     if not Config.AutoEquipBest then return end
-    pcall(function()
-        safeNetworkFire("Pets_EquipBest")
-        safeNetworkFire("EquipBest")
-        safeNetworkFire("Pets: EquipBest")
-        safeNetworkInvoke("Pets_EquipBest")
-        safeNetworkInvoke("EquipBest")
-        safeNetworkInvoke("Pets: EquipBest")
-    end)
+    safeNetworkFire("Pets_EquipBest")
+    safeNetworkFire("EquipBest")
+    safeNetworkFire("Pets: EquipBest")
+
     pcall(function()
         local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
         if client then
@@ -586,13 +588,14 @@ local function autoEquipBestPets()
                 if mod then
                     local m = require(mod)
                     if m then
-                        if type(m.EquipBest) == "function" then m.EquipBest() end
-                        if type(m.AllEquipBest) == "function" then m.AllEquipBest() end
+                        if type(m.EquipBest) == "function" then pcall(m.EquipBest) end
+                        if type(m.AllEquipBest) == "function" then pcall(m.AllEquipBest) end
                     end
                 end
             end
         end
     end)
+
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         if pgui then
@@ -601,8 +604,10 @@ local function autoEquipBestPets()
                     local nameLow = string.lower(b.Name)
                     local textLow = (b:IsA("TextButton") and string.lower(b.Text)) or ""
                     if string.find(nameLow, "equipbest") or string.find(textLow, "equip best") then
-                        if firesignal then firesignal(b.MouseButton1Click) end
-                        if firesignal then firesignal(b.Activated) end
+                        if firesignal then
+                            firesignal(b.MouseButton1Click)
+                            firesignal(b.Activated)
+                        end
                     end
                 end
             end
@@ -616,8 +621,7 @@ local function hatchNearestEgg()
     local eggObj, eggId, eggPos, eggPrompt = findNearestEggMachine(120)
     if not eggObj or not eggId then return false end
 
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp = getHRP()
     if not hrp then return false end
 
     if eggPos and (hrp.Position - eggPos).Magnitude > 14 then
@@ -677,7 +681,7 @@ local function hatchNearestEgg()
             State.EggsHatched = State.EggsHatched + actualCount
         end
         State.LastHatchTime = os.clock()
-        pcall(autoEquipBestPets)
+        task.spawn(autoEquipBestPets)
         return true
     end
 
@@ -687,37 +691,15 @@ end
 local function buyZone1Upgrades()
     if not Config.AutoUpgrades then return end
     local now = os.clock()
-    if now - State.LastUpgradeTime < 6.0 then return end
+    if now - State.LastUpgradeTime < 5.0 then return end
     State.LastUpgradeTime = now
 
     pcall(function()
         local targetUpgrades = { "Wall Power", "Expedition Speed", "Acorn Drops", "Offline Power", "Speed", "More Diamonds", "Luck", "Damage" }
         for _, upg in ipairs(targetUpgrades) do
-            safeNetworkInvoke("Upgrades_Purchase", upg)
             safeNetworkFire("Upgrades_Purchase", upg)
-            safeNetworkInvoke("EventUpgrades_Purchase", upg)
             safeNetworkFire("EventUpgrades_Purchase", upg)
-            safeNetworkInvoke("Upgrades: Purchase", upg)
             safeNetworkFire("Upgrades: Purchase", upg)
-        end
-    end)
-
-    pcall(function()
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") then
-                local act = string.lower(desc.ActionText or "")
-                local objTxt = string.lower(desc.ObjectText or "")
-                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
-                if string.find(act, "upgrade") or string.find(objTxt, "upgrade") or string.find(pName, "upgrade") then
-                    local p = desc.Parent
-                    local pos = getObjectPosition(p)
-                    local char = LocalPlayer.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    if pos and hrp and (pos - hrp.Position).Magnitude <= 25 then
-                        if fireproximityprompt then fireproximityprompt(desc) end
-                    end
-                end
-            end
         end
     end)
 end
@@ -730,9 +712,9 @@ local function buyMerchantBuffs()
 
     pcall(function()
         for slot = 1, 3 do
-            safeNetworkInvoke("Merchant: RequestPurchase", "DiamondMountain", slot)
-            safeNetworkInvoke("Merchants: RequestPurchase", "DiamondMountain", slot)
-            safeNetworkInvoke("Merchant_RequestPurchase", "DiamondMountain", slot)
+            safeNetworkFire("Merchant: RequestPurchase", "DiamondMountain", slot)
+            safeNetworkFire("Merchants: RequestPurchase", "DiamondMountain", slot)
+            safeNetworkFire("Merchant_RequestPurchase", "DiamondMountain", slot)
         end
     end)
 end
@@ -758,18 +740,12 @@ local function handleExpeditions()
     if now - State.LastExpeditionCheck < 15.0 then return end
     State.LastExpeditionCheck = now
     pcall(function()
-        safeNetworkInvoke("Expeditions_ClaimAll")
         safeNetworkFire("Expeditions_ClaimAll")
-        safeNetworkInvoke("Expeditions: ClaimAll")
         safeNetworkFire("Expeditions: ClaimAll")
         for id = 1, 4 do
-            safeNetworkInvoke("Expeditions: Claim", id)
             safeNetworkFire("Expeditions: Claim", id)
-            safeNetworkInvoke("Expeditions_Claim", id)
             safeNetworkFire("Expeditions_Claim", id)
-            safeNetworkInvoke("Expeditions_UnlockPedestal", id)
             safeNetworkFire("Expeditions_UnlockPedestal", id)
-            safeNetworkInvoke("Expeditions_Send", id)
             safeNetworkFire("Expeditions_Send", id)
         end
     end)
@@ -1047,8 +1023,7 @@ trackConn(BlackExitBtn.MouseButton1Click:Connect(function()
 end))
 
 trackConn(BtnAdvanceCamp.MouseButton1Click:Connect(function()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp = getHRP()
     if hrp then
         State.CurrentZone = math.min(Config.TargetMaxZone or 6, State.CurrentZone + 1)
         local forwardCF = hrp.CFrame + (hrp.CFrame.LookVector * 45) + Vector3.new(0, 3.5, 0)
@@ -1060,8 +1035,7 @@ trackConn(BtnAdvanceCamp.MouseButton1Click:Connect(function()
 end))
 
 trackConn(BtnSetFarmPos.MouseButton1Click:Connect(function()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hrp = getHRP()
     if hrp then
         State.FarmCFrame = hrp.CFrame
         State.CurrentActionText = "Farm Anchor Saved to Current Position! | by pufyftyk"
@@ -1078,8 +1052,7 @@ end))
 
 local function antiFallCheck()
     pcall(function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hrp = getHRP()
         if hrp and State.FarmCFrame then
             if hrp.Position.Y < -40 or (hrp.Position - State.FarmCFrame.Position).Magnitude > 350 then
                 hrp.CFrame = State.FarmCFrame + Vector3.new(0, 3, 0)
@@ -1089,67 +1062,68 @@ local function antiFallCheck()
     end)
 end
 
-local function runZoneFarmCycle()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    if not State.FarmCFrame then
-        State.FarmCFrame = hrp.CFrame
-    end
-
-    local myPos = hrp.Position
-    antiFallCheck()
-
-    if Config.AutoFarmBreakables then
-        farmNearbyBreakables()
-        collectOrbsAndLootbags()
-    end
-
-    if Config.AutoHatch then
-        local now = os.clock()
-        if now - State.LastHatchTime >= 1.2 then
-            hatchNearestEgg()
-        end
-    end
-
-    if Config.FocusTunnel6 and State.CurrentZone >= 6 and State.Tunnel6CF then
-        if (myPos - State.Tunnel6CF.Position).Magnitude > 30 then
-            hrp.CFrame = State.Tunnel6CF + Vector3.new(0, 3, 0)
-        end
-        State.CurrentActionText = "In Tunnel 6: Hatching Lucky Huge Egg! | by pufyftyk"
-    else
-        State.CurrentActionText = string.format("Zone %d: Farming Acorns & Pets Attacking | by pufyftyk", State.CurrentZone)
-    end
-
-    buyZone1Upgrades()
-    buyMerchantBuffs()
-    collectSecretRelics()
-    handleExpeditions()
-end
-
 task.spawn(function()
     applyPotatoGraphics(Config.PotatoGraphics)
-    autoEquipBestPets()
-    collectSecretRelics()
+end)
 
+task.spawn(function()
     while State.Running do
-        pcall(updateCurrencies)
-        pcall(runZoneFarmCycle)
-
         pcall(function()
             local elapsed = os.clock() - State.StartTime
             StatTimeVal.Text = formatDuration(elapsed)
             StatAcornsVal.Text = string.format("%s (+%s)", formatNumber(State.CurrentAcorns), formatNumber(State.AcornsGained))
             StatGemsVal.Text = string.format("%s (+%s)", formatNumber(State.CurrentDiamonds), formatNumber(State.DiamondsGained))
-            StatZoneVal.Text = string.format("Zone %d/6", State.CurrentZone)
+            StatZoneVal.Text = string.format("Camp %d/6", State.CurrentZone)
             StatEggsVal.Text = formatNumber(State.EggsHatched)
             StatPetsVal.Text = string.format("%d / %d", State.HugesHatched, State.TitanicsHatched)
             StatRelicsVal.Text = string.format("%d/6", State.RelicsCollected)
             StatStatusVal.Text = State.CurrentActionText
         end)
+        task.wait(0.2)
+    end
+end)
 
-        task.wait(0.25)
+task.spawn(function()
+    while State.Running do
+        pcall(updateCurrencies)
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        if Config.AutoFarmBreakables then
+            pcall(farmNearbyBreakables)
+            pcall(collectOrbsAndLootbags)
+        end
+        task.wait(0.15)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        if Config.AutoHatch then
+            pcall(hatchNearestEgg)
+        end
+        task.wait(1.2)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        pcall(autoEquipBestPets)
+        pcall(buyZone1Upgrades)
+        pcall(buyMerchantBuffs)
+        pcall(collectSecretRelics)
+        pcall(handleExpeditions)
+        task.wait(5.0)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        pcall(antiFallCheck)
+        task.wait(1.0)
     end
 end)
 
