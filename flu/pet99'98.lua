@@ -1,4 +1,3 @@
-
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Diamond Mountain - Full Master Progression Hub v2.0"
 local _VERSION = "2.0.0"
@@ -137,20 +136,22 @@ local function trackConn(conn)
     return conn
 end
 
+local UserConfig = (type(env.Config) == "table" and env.Config) or (type(_G.Config) == "table" and _G.Config) or {}
+
 local Config = {
-    AutoStages = true,
-    TargetMaxZone = 6,
-    AutoHatch = true,
-    HatchBatch = 10,
-    FocusTunnel6 = true,
-    MinAcornsForTunnel = 300,
-    AutoFarmBreakables = true,
-    AutoEquipBest = true,
-    AutoBuyMerchants = true,
-    AutoUpgrades = true,
-    AutoCollectRelics = true,
-    PotatoGraphics = true,
-    BlackScreen = false,
+    AutoStages = (UserConfig.AutoStages ~= nil) and (UserConfig.AutoStages == true) or true,
+    TargetMaxZone = tonumber(UserConfig.TargetMaxZone) or 6,
+    AutoHatch = (UserConfig.AutoHatch ~= nil) and (UserConfig.AutoHatch == true) or true,
+    HatchBatch = tonumber(UserConfig.HatchBatch) or tonumber(UserConfig.EggCount) or tonumber(UserConfig.Batch) or 10,
+    FocusTunnel6 = (UserConfig.FocusTunnel6 ~= nil) and (UserConfig.FocusTunnel6 == true) or true,
+    MinAcornsForTunnel = tonumber(UserConfig.MinAcornsForTunnel) or tonumber(UserConfig.MinAcorns) or 300,
+    AutoFarmBreakables = (UserConfig.AutoFarmBreakables ~= nil) and (UserConfig.AutoFarmBreakables == true) or true,
+    AutoEquipBest = (UserConfig.AutoEquipBest ~= nil) and (UserConfig.AutoEquipBest == true) or true,
+    AutoBuyMerchants = (UserConfig.AutoBuyMerchants ~= nil) and (UserConfig.AutoBuyMerchants == true) or true,
+    AutoUpgrades = (UserConfig.AutoUpgrades ~= nil) and (UserConfig.AutoUpgrades == true) or true,
+    AutoCollectRelics = (UserConfig.AutoCollectRelics ~= nil) and (UserConfig.AutoCollectRelics == true) or true,
+    PotatoGraphics = (UserConfig.PotatoGraphics ~= nil) and (UserConfig.PotatoGraphics == true) or true,
+    BlackScreen = (UserConfig.BlackScreen ~= nil) and (UserConfig.BlackScreen == true) or false,
     EggHatchDelay = 0.12,
     WallAttackDelay = 0.08,
     ZoneCheckInterval = 2.0
@@ -812,6 +813,40 @@ local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign)
     return l
 end
 
+local ParentGui = nil
+pcall(function()
+    if gethui then
+        ParentGui = gethui()
+    end
+end)
+if not ParentGui then
+    pcall(function()
+        ParentGui = game:GetService("CoreGui")
+    end)
+end
+if not ParentGui then
+    pcall(function()
+        ParentGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+    end)
+end
+if not ParentGui then
+    ParentGui = Workspace
+end
+
+pcall(function()
+    if ParentGui:FindFirstChild("DiamondMountainHub") then
+        ParentGui:FindFirstChild("DiamondMountainHub"):Destroy()
+    end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DiamondMountainHub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.DisplayOrder = 100
+pcall(function() ScreenGui.IgnoreGuiInset = true end)
+ScreenGui.Parent = ParentGui
+
 local BlackScreenFrame = Instance.new("Frame")
 BlackScreenFrame.Name = "BlackScreenAFK"
 BlackScreenFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -1014,9 +1049,9 @@ FarmBox.Parent = PageFarm
 addCornerAndStroke(FarmBox, 8, Colors.Stroke, 1.5)
 
 makeLabel(FarmBox, UDim2.new(1, -16, 0, 24), UDim2.new(0, 10, 0, 8), "TUNNEL 6 & ZONE 6 FARMING", Colors.IceAccent, Enum.Font.SourceSansBold, 13)
-makeLabel(FarmBox, UDim2.new(1, -16, 0, 40), UDim2.new(0, 10, 0, 32), "Prioritizes Tunnel 6 (300x egg). If acorns run low, retreats to Zone 6 farm spot. If closed, farms Zone 6 & egg.", Colors.SubText, Enum.Font.SourceSans, 11).TextWrapped = true
+makeLabel(FarmBox, UDim2.new(1, -16, 0, 40), UDim2.new(0, 10, 0, 32), "Prioritizes Tunnel 6 (100x-300x egg). If acorns run low, retreats to Zone 6 farm spot. If closed, farms Zone 6 & egg.", Colors.SubText, Enum.Font.SourceSans, 11).TextWrapped = true
 
-local BtnToggleTunnel6 = makeBtn(FarmBox, UDim2.new(1, -20, 0, 38), UDim2.new(0, 10, 0, 78), Colors.Green, "Focus Tunnel 6 (300x Lucky Egg): ON", 12, 6)
+local BtnToggleTunnel6 = makeBtn(FarmBox, UDim2.new(1, -20, 0, 38), UDim2.new(0, 10, 0, 78), Colors.Green, "Focus Tunnel 6 (Lucky Egg): ON", 12, 6)
 local BtnTeleportZone6Farm = makeBtn(FarmBox, UDim2.new(1, -20, 0, 38), UDim2.new(0, 10, 0, 122), Colors.HeaderBg, "[*] Teleport to Zone 6 Farm Spot", 12, 6)
 local BtnTeleportTunnel6Now = makeBtn(FarmBox, UDim2.new(1, -20, 0, 38), UDim2.new(0, 10, 0, 166), Colors.Purple, "[*] Teleport to Tunnel 6 (Inside)", 12, 6)
 local BtnCycleHatchBatch = makeBtn(FarmBox, UDim2.new(1, -20, 0, 38), UDim2.new(0, 10, 0, 210), Colors.IceAccent, "Egg Hatch Batch: 10 eggs", 12, 6)
@@ -1076,7 +1111,7 @@ local function toggleTunnel6()
     local bg = Config.FocusTunnel6 and Colors.Green or Colors.CardBg
     BtnTunnel6Q.Text = txt
     BtnTunnel6Q.BackgroundColor3 = bg
-    BtnToggleTunnel6.Text = "Focus Tunnel 6 (300x Lucky Egg): " .. (Config.FocusTunnel6 and "ON" or "OFF")
+    BtnToggleTunnel6.Text = "Focus Tunnel 6 (Lucky Egg): " .. (Config.FocusTunnel6 and "ON" or "OFF")
     BtnToggleTunnel6.BackgroundColor3 = bg
 end
 
@@ -1207,7 +1242,7 @@ local function analyzeWorldZonesAndGates()
 
         for _, obj in ipairs(Workspace:GetDescendants()) do
             local low = string.lower(obj.Name)
-            if string.find(low, "tunnel6") or string.find(low, "300x") or (string.find(low, "tunnel") and string.find(low, "6")) then
+            if string.find(low, "tunnel6") or string.find(low, "300x") or string.find(low, "100x") or string.find(low, "200x") or (string.find(low, "tunnel") and (string.find(low, "6") or string.find(low, "secret") or string.find(low, "lucky") or string.find(low, "egg"))) then
                 local cf = getObjectCFrame(obj)
                 if cf then
                     State.Tunnel6CF = cf
@@ -1292,7 +1327,7 @@ local function runTunnel6AndZone6Loop()
             end
             State.InTunnel6 = true
             State.AtZoneFarm = false
-            State.CurrentActionText = "In Tunnel 6: Hatching 300x Egg! | by pufyftyk"
+            State.CurrentActionText = "In Tunnel 6: Hatching Huge Egg! | by pufyftyk"
 
             local eggObj, eggId = findNearestEggMachine(85)
             if eggObj and eggId then
