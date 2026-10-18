@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Diamond Mountain - Winter AFK Hub"
-local _VERSION = "2.4.0"
+local _VERSION = "2.6.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -92,10 +92,10 @@ local Config = {
     FocusTunnel6 = (UserConfig.FocusTunnel6 ~= nil) and (UserConfig.FocusTunnel6 == true) or false,
     MinAcornsForTunnel = tonumber(UserConfig.MinAcornsForTunnel) or 300,
     AutoFarmBreakables = (UserConfig.AutoFarmBreakables ~= nil) and (UserConfig.AutoFarmBreakables == true) or true,
-    AutoHatch = (UserConfig.AutoHatch ~= nil) and (UserConfig.AutoHatch == true) or true,
+    AutoHatch = (UserConfig.AutoHatch == true),
     AutoEquipBest = (UserConfig.AutoEquipBest ~= nil) and (UserConfig.AutoEquipBest == true) or true,
     AutoBuyMerchants = (UserConfig.AutoBuyMerchants ~= nil) and (UserConfig.AutoBuyMerchants == true) or true,
-    AutoUpgrades = (UserConfig.AutoUpgrades ~= nil) and (UserConfig.AutoUpgrades == true) or true,
+    AutoUpgrades = (UserConfig.AutoUpgrades == true),
     AutoCollectRelics = (UserConfig.AutoCollectRelics ~= nil) and (UserConfig.AutoCollectRelics == true) or true,
     PotatoGraphics = (UserConfig.PotatoGraphics ~= nil) and (UserConfig.PotatoGraphics == true) or true,
     BlackScreen = (UserConfig.BlackScreen ~= nil) and (UserConfig.BlackScreen == true) or false,
@@ -112,6 +112,8 @@ local State = {
     Tunnel6CF = nil,
     WorkingBatch = nil,
     StartEggsOpened = nil,
+    HadWallTarget = false,
+    CampPoints = {},
     CurrentAcorns = 0,
     StartAcorns = nil,
     AcornsGained = 0,
@@ -127,6 +129,7 @@ local State = {
     LastMerchantTime = 0,
     LastRelicScan = 0,
     LastExpeditionCheck = 0,
+    LastWallInteraction = 0,
     CurrentActionText = "Starting Winter Farm... | by pufyftyk"
 }
 
@@ -140,6 +143,25 @@ pcall(function()
     local hrp = getHRP()
     if hrp then
         State.FarmCFrame = hrp.CFrame
+        State.CampPoints[1] = hrp.CFrame
+    end
+end)
+
+pcall(function()
+    local userPoints = UserConfig.CampPoints or UserConfig.CampPositions
+    if type(userPoints) == "table" then
+        for i = 1, 6 do
+            local p = userPoints[i]
+            if p then
+                if typeof and typeof(p) == "CFrame" then
+                    State.CampPoints[i] = p
+                elseif typeof and typeof(p) == "Vector3" then
+                    State.CampPoints[i] = CFrame.new(p)
+                elseif type(p) == "table" and p.X then
+                    State.CampPoints[i] = CFrame.new(p.X, p.Y, p.Z)
+                end
+            end
+        end
     end
 end)
 
@@ -324,6 +346,68 @@ local function applyPotatoGraphics(enable)
     end)
 end
 
+local function detectCurrentZone()
+    pcall(function()
+        local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
+        local saveMod = client and client:FindFirstChild("Save")
+        if saveMod then
+            local save = require(saveMod).Get()
+            if save then
+                local z = save.DiamondMountainCamp or save.DiamondMountainZone or save.Camp or save.CurrentCamp or save.Zone or save.MaxZone
+                if z and tonumber(z) then
+                    local nz = tonumber(z)
+                    if nz >= 1 and nz <= 6 then State.CurrentZone = nz end
+                end
+                if save.UnlockedZones and type(save.UnlockedZones) == "table" then
+                    local count = 0
+                    for k, v in pairs(save.UnlockedZones) do
+                        local num = tonumber(k) or tonumber(v) or tonumber(string.match(tostring(k), "%d+"))
+                        if num and num > count then count = num end
+                    end
+                    if count >= 1 and count <= 6 then
+                        State.CurrentZone = count
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, desc in ipairs(pgui:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Visible then
+                    local t = desc.Text or desc.ContentText or ""
+                    local cMatch = string.match(t, "[Cc]amp%s*(%d+)") or string.match(t, "[Zz]one%s*(%d+)")
+                    if cMatch then
+                        local n = tonumber(cMatch)
+                        if n and n >= 1 and n <= 6 then
+                            State.CurrentZone = n
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local map = Workspace:FindFirstChild("Map") or Workspace
+        for _, child in ipairs(map:GetChildren()) do
+            local low = string.lower(child.Name)
+            local num = string.match(low, "camp%s*(%d+)") or string.match(low, "zone%s*(%d+)")
+            if num then
+                local idx = tonumber(num)
+                if idx and idx >= 1 and idx <= 6 and not State.CampPoints[idx] then
+                    local p = getObjectPosition(child)
+                    if p then
+                        State.CampPoints[idx] = CFrame.new(p) + Vector3.new(0, 3, 0)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 local function updateCurrencies()
     pcall(function()
         local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
@@ -461,6 +545,7 @@ end
 local function commandPetsToAttack(b)
     if not b then return end
     local uid = b:GetAttribute("UID") or b:GetAttribute("id") or b.Name
+
     pcall(function()
         local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
         if client then
@@ -475,20 +560,163 @@ local function commandPetsToAttack(b)
             local playerPet = client:FindFirstChild("PlayerPet")
             if playerPet then
                 local m = require(playerPet)
-                if m and type(m.SetTarget) == "function" then
-                    pcall(function() m.SetTarget(b) end)
-                    pcall(function() m.SetTarget(uid) end)
+                if m then
+                    if type(m.SetTarget) == "function" then
+                        pcall(function() m.SetTarget(b) end)
+                        pcall(function() m.SetTarget(uid) end)
+                    end
+                    local allPets = (m.GetAll and m.GetAll()) or (m.GetAllForPlayer and m.GetAllForPlayer(LocalPlayer)) or (m.GetPets and m.GetPets())
+                    if type(allPets) == "table" then
+                        for _, p in pairs(allPets) do
+                            if type(p) == "table" and p.SetTarget then
+                                pcall(function() p:SetTarget(b) end)
+                                pcall(function() p.SetTarget(p, b) end)
+                            end
+                        end
+                    end
                 end
             end
         end
     end)
+
+    local petIds = {}
+    pcall(function()
+        local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
+        local saveMod = client and client:FindFirstChild("Save")
+        if saveMod then
+            local save = require(saveMod).Get()
+            if save and save.EquippedPets then
+                for k, v in pairs(save.EquippedPets) do
+                    local pId = (type(v) == "string" and v) or (type(v) == "table" and (v.id or v.UUID or v.UID)) or (type(k) == "string" and k)
+                    if pId then table.insert(petIds, pId) end
+                end
+            end
+        end
+    end)
+
     safeNetworkFire("Breakables_PlayerDealDamage", uid)
     safeNetworkFire("Breakables: PlayerDealDamage", uid)
     safeNetworkFire("Breakables_RequestTarget", uid)
     safeNetworkFire("Breakables: RequestTarget", uid)
     safeNetworkFire("Breakables_JoinPet", uid)
     safeNetworkFire("Breakables: JoinPet", uid)
-    safeNetworkFire("Breakables_JoinPet", uid, {})
+    if #petIds > 0 then
+        safeNetworkFire("Breakables_JoinPet", uid, petIds)
+        safeNetworkFire("Breakables: JoinPet", uid, petIds)
+    else
+        safeNetworkFire("Breakables_JoinPet", uid, {})
+    end
+end
+
+local function handleRubbleWallInteraction()
+    local hrp = getHRP()
+    if not hrp then return end
+    local myPos = hrp.Position
+    local now = os.clock()
+    if now - State.LastWallInteraction < 1.5 then return end
+    State.LastWallInteraction = now
+
+    local foundPrompt = nil
+    pcall(function()
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            for _, desc in ipairs(map:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") then
+                    local act = string.lower(desc.ActionText or "")
+                    local objTxt = string.lower(desc.ObjectText or "")
+                    local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                    if string.find(act, "wall") or string.find(act, "rubble") or string.find(act, "break") or string.find(act, "mine") or
+                       string.find(objTxt, "wall") or string.find(objTxt, "rubble") or
+                       string.find(pName, "wall") or string.find(pName, "rubble") or string.find(pName, "gate") then
+                        local p = desc.Parent
+                        local pos = getObjectPosition(p)
+                        if pos and (pos - myPos).Magnitude <= 50 then
+                            foundPrompt = desc
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    if not foundPrompt then
+        local things = getThingsFolder()
+        if things and things:FindFirstChild("Breakables") then
+            for _, b in ipairs(things.Breakables:GetChildren()) do
+                local low = string.lower(b.Name)
+                if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "gate") then
+                    local p = b:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if p then
+                        local pos = getObjectPosition(b)
+                        if pos and (pos - myPos).Magnitude <= 50 then
+                            foundPrompt = p
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if foundPrompt and fireproximityprompt then
+        pcall(function() fireproximityprompt(foundPrompt) end)
+    end
+
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pgui then return end
+
+        for _, g in ipairs(pgui:GetChildren()) do
+            if g:IsA("ScreenGui") and g.Enabled and g.Name ~= "DiamondMountainHub" then
+                local selectBtn = nil
+                local confirmBtn = nil
+                local petButtons = {}
+
+                for _, desc in ipairs(g:GetDescendants()) do
+                    if (desc:IsA("TextButton") or desc:IsA("ImageButton")) and desc.Visible then
+                        local tLow = (desc:IsA("TextButton") and string.lower(desc.Text)) or ""
+                        local nLow = string.lower(desc.Name)
+
+                        if string.find(tLow, "select all") or string.find(tLow, "auto select") or string.find(nLow, "autoselect") or string.find(nLow, "selectall") or string.find(tLow, "best") then
+                            selectBtn = desc
+                        elseif string.find(tLow, "break") or string.find(tLow, "send") or string.find(tLow, "start") or string.find(tLow, "deploy") or string.find(tLow, "attack") or string.find(tLow, "confirm") or string.find(tLow, "smash") then
+                            confirmBtn = desc
+                        elseif string.find(nLow, "pet") or string.find(nLow, "slot") or string.find(nLow, "icon") then
+                            table.insert(petButtons, desc)
+                        end
+                    end
+                end
+
+                if selectBtn or confirmBtn then
+                    if selectBtn then
+                        if firesignal then
+                            firesignal(selectBtn.MouseButton1Click)
+                            firesignal(selectBtn.Activated)
+                        end
+                    else
+                        for i = 1, math.min(#petButtons, 12) do
+                            local pb = petButtons[i]
+                            if firesignal then
+                                firesignal(pb.MouseButton1Click)
+                                firesignal(pb.Activated)
+                            end
+                        end
+                    end
+
+                    task.wait(0.08)
+
+                    if confirmBtn then
+                        if firesignal then
+                            firesignal(confirmBtn.MouseButton1Click)
+                            firesignal(confirmBtn.Activated)
+                        end
+                        State.CurrentActionText = string.format("Pets Selected & Sent to Wall! | Camp %d | by pufyftyk", State.CurrentZone)
+                    end
+                end
+            end
+        end
+    end)
 end
 
 local function farmNearbyBreakables()
@@ -506,11 +734,10 @@ local function farmNearbyBreakables()
         if bPos then
             local dist = (bPos - myPos).Magnitude
             local low = string.lower(b.Name)
-            if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "yeti") or string.find(low, "boss") or string.find(low, "gate") or string.find(low, "chest") then
-                if dist <= 160 then
-                    wallTarget = b
-                    break
-                end
+            local isWall = string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "gate") or string.find(low, "rock") or string.find(low, "door") or string.find(low, "yeti") or string.find(low, "boss")
+            if isWall and dist <= 180 then
+                wallTarget = b
+                break
             elseif dist <= 95 then
                 table.insert(normalTargets, { obj = b, dist = dist })
             end
@@ -518,8 +745,27 @@ local function farmNearbyBreakables()
     end
 
     if wallTarget then
-        State.CurrentActionText = "Attacking Rubble Wall / Boss! | by pufyftyk"
+        State.HadWallTarget = true
+        State.CurrentActionText = string.format("ALL PETS BREAKING WALL! | Camp %d | by pufyftyk", State.CurrentZone)
         commandPetsToAttack(wallTarget)
+        commandPetsToAttack(wallTarget)
+        return
+    end
+
+    if Config.AutoStages and State.HadWallTarget and not wallTarget then
+        State.HadWallTarget = false
+        local nextZ = math.min(Config.TargetMaxZone or 6, State.CurrentZone + 1)
+        State.CurrentZone = nextZ
+        if State.CampPoints[nextZ] then
+            hrp.CFrame = State.CampPoints[nextZ]
+            State.FarmCFrame = State.CampPoints[nextZ]
+            State.CurrentActionText = string.format("WALL BROKEN! Teleported to Saved Camp %d! | by pufyftyk", nextZ)
+        else
+            local forwardCF = hrp.CFrame + (hrp.CFrame.LookVector * 45) + Vector3.new(0, 3.5, 0)
+            hrp.CFrame = forwardCF
+            State.FarmCFrame = forwardCF
+            State.CurrentActionText = string.format("WALL BROKEN! Advanced to Camp %d! | by pufyftyk", nextZ)
+        end
         return
     end
 
@@ -532,7 +778,7 @@ local function farmNearbyBreakables()
     if maxAttacks > 0 then
         State.CurrentActionText = string.format("Farming %d Breakables | Camp %d | by pufyftyk", maxAttacks, State.CurrentZone)
     else
-        State.CurrentActionText = string.format("Zone %d: Searching Breakables... | by pufyftyk", State.CurrentZone)
+        State.CurrentActionText = string.format("Camp %d: Searching Targets... | by pufyftyk", State.CurrentZone)
     end
 end
 
@@ -618,16 +864,15 @@ end
 local HatchStepDownList = { 79, 50, 25, 20, 15, 10, 8, 4, 3, 2, 1 }
 
 local function hatchNearestEgg()
+    if not Config.AutoHatch then return false end
     local eggObj, eggId, eggPos, eggPrompt = findNearestEggMachine(120)
     if not eggObj or not eggId then return false end
 
     local hrp = getHRP()
     if not hrp then return false end
 
-    if eggPos and (hrp.Position - eggPos).Magnitude > 14 then
-        local standPos = eggPos + Vector3.new(0, 3, 5)
-        hrp.CFrame = CFrame.lookAt(standPos, eggPos)
-        task.wait(0.08)
+    if eggPos and (hrp.Position - eggPos).Magnitude > 35 then
+        return false
     end
 
     local targetBatch = State.WorkingBatch or Config.HatchBatch or 79
@@ -707,14 +952,18 @@ end
 local function buyMerchantBuffs()
     if not Config.AutoBuyMerchants then return end
     local now = os.clock()
-    if now - State.LastMerchantTime < 10.0 then return end
+    if now - State.LastMerchantTime < 3.0 then return end
     State.LastMerchantTime = now
 
     pcall(function()
-        for slot = 1, 3 do
+        for slot = 1, 6 do
             safeNetworkFire("Merchant: RequestPurchase", "DiamondMountain", slot)
             safeNetworkFire("Merchants: RequestPurchase", "DiamondMountain", slot)
             safeNetworkFire("Merchant_RequestPurchase", "DiamondMountain", slot)
+            safeNetworkFire("Merchant: RequestPurchase", "Mountain", slot)
+            safeNetworkFire("Merchant_RequestPurchase", "Mountain", slot)
+            safeNetworkFire("Merchant: RequestPurchase", slot)
+            safeNetworkFire("Merchant_RequestPurchase", slot)
         end
     end)
 end
@@ -891,7 +1140,7 @@ do
 end
 
 makeLabel(DashTopBar, UDim2.new(1, -90, 0, 22), UDim2.new(0, 14, 0, 4), "[*] DIAMOND MOUNTAIN HUB | by pufyftyk", Colors.IceAccent, Enum.Font.GothamBold, 14)
-local DashSubTitle = makeLabel(DashTopBar, UDim2.new(1, -90, 0, 16), UDim2.new(0, 14, 0, 26), "Winter Event | Zone 1-6 Farm | 100x Egg", Colors.SubText, Enum.Font.Gotham, 11)
+local DashSubTitle = makeLabel(DashTopBar, UDim2.new(1, -90, 0, 16), UDim2.new(0, 14, 0, 26), "Winter Event | Wall Rush | Merchant Buffs", Colors.SubText, Enum.Font.Gotham, 11)
 
 local MinMenuBtn = makeBtn(DashTopBar, UDim2.new(0, 30, 0, 28), UDim2.new(1, -74, 0, 10), Colors.CardBright, "-", 13, 6)
 local CloseScriptBtn = makeBtn(DashTopBar, UDim2.new(0, 30, 0, 28), UDim2.new(1, -38, 0, 10), Colors.Red, "X", 12, 6)
@@ -919,7 +1168,7 @@ local StatTimeVal = createStatBox(DashCard, "Time", "00:00:00", 0, 54, 0.333, 44
 local StatAcornsVal = createStatBox(DashCard, "Acorns", "0 (+0)", 0.333, 54, 0.333, 44, Colors.Gold)
 local StatGemsVal = createStatBox(DashCard, "Diamonds", "0 (+0)", 0.666, 54, 0.334, 44, Colors.IceAccent)
 
-local StatZoneVal = createStatBox(DashCard, "Zone", "Zone 1/6", 0, 104, 0.25, 44, Colors.IceAccent)
+local StatZoneVal = createStatBox(DashCard, "Zone", "Camp 1/6", 0, 104, 0.25, 44, Colors.IceAccent)
 local StatEggsVal = createStatBox(DashCard, "Eggs", "0", 0.25, 104, 0.25, 44, Colors.Gold)
 local StatPetsVal = createStatBox(DashCard, "Huge/Titan", "0 / 0", 0.50, 104, 0.25, 44, Colors.Green)
 local StatRelicsVal = createStatBox(DashCard, "Relics", "0/6", 0.75, 104, 0.25, 44, Colors.SnowWhite)
@@ -936,7 +1185,7 @@ addCornerAndStroke(StatusBanner, 6, Colors.Stroke, 1)
 local StatStatusVal = makeLabel(StatusBanner, UDim2.new(1, -16, 1, 0), UDim2.new(0, 8, 0, 0), "Status: Initializing... | by pufyftyk", Colors.SnowWhite, Enum.Font.Gotham, 11)
 StatStatusVal.TextWrapped = true
 
-local BtnStages = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 192), Config.AutoStages and Colors.Green or Colors.CardBright, "Stages (1-6): " .. (Config.AutoStages and "ON" or "OFF"), 11, 6)
+local BtnStages = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 192), Config.AutoStages and Colors.Green or Colors.CardBright, "Wall Rush / Stages: " .. (Config.AutoStages and "ON" or "OFF"), 11, 6)
 local BtnHatch = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4, 0, 192), Config.AutoHatch and Colors.Green or Colors.CardBright, "Auto Hatch: " .. (Config.AutoHatch and "ON" or "OFF"), 11, 6)
 
 local BtnMerchants = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 228), Config.AutoBuyMerchants and Colors.Green or Colors.CardBright, "Merchant Buffs: " .. (Config.AutoBuyMerchants and "ON" or "OFF"), 11, 6)
@@ -948,9 +1197,9 @@ local BtnRelics = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4
 local BtnPotato = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 300), Config.PotatoGraphics and Colors.Green or Colors.CardBright, "Potato FPS: " .. (Config.PotatoGraphics and "ON" or "OFF"), 11, 6)
 local BtnBlackScreen = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4, 0, 300), Config.BlackScreen and Colors.Green or Colors.CardBright, "Black Screen: " .. (Config.BlackScreen and "ON" or "OFF"), 11, 6)
 
-local BtnAdvanceCamp = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0, 8, 0, 334), Colors.Header, "[+] Next Camp", 10, 5)
-local BtnSetFarmPos = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0.33, 4, 0, 334), Colors.Header, "[*] Set Anchor", 10, 5)
-local BtnHatchBatchCycle = makeBtn(DashCard, UDim2.new(0.34, -10, 0, 24), UDim2.new(0.66, 2, 0, 334), Colors.Header, "Hatch: " .. tostring(Config.HatchBatch) .. "x", 10, 5)
+local BtnSaveCamp = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0, 8, 0, 334), Colors.Header, "[*] Save Point", 10, 5)
+local BtnAdvanceCamp = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0.33, 4, 0, 334), Colors.Header, "[+] Next Camp", 10, 5)
+local BtnPrevCamp = makeBtn(DashCard, UDim2.new(0.34, -10, 0, 24), UDim2.new(0.66, 2, 0, 334), Colors.Header, "[-] Prev Camp", 10, 5)
 
 trackConn(MinMenuBtn.MouseButton1Click:Connect(function()
     DashCard.Visible = false
@@ -964,7 +1213,7 @@ end))
 
 trackConn(BtnStages.MouseButton1Click:Connect(function()
     Config.AutoStages = not Config.AutoStages
-    BtnStages.Text = "Stages (1-6): " .. (Config.AutoStages and "ON" or "OFF")
+    BtnStages.Text = "Wall Rush / Stages: " .. (Config.AutoStages and "ON" or "OFF")
     BtnStages.BackgroundColor3 = Config.AutoStages and Colors.Green or Colors.CardBright
 end))
 
@@ -1022,32 +1271,46 @@ trackConn(BlackExitBtn.MouseButton1Click:Connect(function()
     BlackOverlayFrame.Visible = false
 end))
 
+trackConn(BtnSaveCamp.MouseButton1Click:Connect(function()
+    local hrp = getHRP()
+    if hrp then
+        State.CampPoints[State.CurrentZone] = hrp.CFrame
+        State.FarmCFrame = hrp.CFrame
+        State.CurrentActionText = string.format("Camp %d Point Saved! | by pufyftyk", State.CurrentZone)
+    end
+end))
+
 trackConn(BtnAdvanceCamp.MouseButton1Click:Connect(function()
     local hrp = getHRP()
     if hrp then
-        State.CurrentZone = math.min(Config.TargetMaxZone or 6, State.CurrentZone + 1)
-        local forwardCF = hrp.CFrame + (hrp.CFrame.LookVector * 45) + Vector3.new(0, 3.5, 0)
-        hrp.CFrame = forwardCF
-        State.FarmCFrame = forwardCF
+        local nextZ = math.min(Config.TargetMaxZone or 6, State.CurrentZone + 1)
+        State.CurrentZone = nextZ
+        if State.CampPoints[nextZ] then
+            hrp.CFrame = State.CampPoints[nextZ]
+            State.FarmCFrame = State.CampPoints[nextZ]
+            State.CurrentActionText = string.format("Teleported to Saved Camp %d! | by pufyftyk", nextZ)
+        else
+            local forwardCF = hrp.CFrame + (hrp.CFrame.LookVector * 45) + Vector3.new(0, 3.5, 0)
+            hrp.CFrame = forwardCF
+            State.FarmCFrame = forwardCF
+            State.CurrentActionText = string.format("Stepped forward to Camp %d! | by pufyftyk", nextZ)
+        end
         StatZoneVal.Text = string.format("Camp %d/6", State.CurrentZone)
-        State.CurrentActionText = string.format("Climbing up: Camp %d! Farm Anchor updated | by pufyftyk", State.CurrentZone)
     end
 end))
 
-trackConn(BtnSetFarmPos.MouseButton1Click:Connect(function()
+trackConn(BtnPrevCamp.MouseButton1Click:Connect(function()
     local hrp = getHRP()
     if hrp then
-        State.FarmCFrame = hrp.CFrame
-        State.CurrentActionText = "Farm Anchor Saved to Current Position! | by pufyftyk"
+        local prevZ = math.max(1, State.CurrentZone - 1)
+        State.CurrentZone = prevZ
+        if State.CampPoints[prevZ] then
+            hrp.CFrame = State.CampPoints[prevZ]
+            State.FarmCFrame = State.CampPoints[prevZ]
+            State.CurrentActionText = string.format("Returned to Camp %d! | by pufyftyk", prevZ)
+        end
+        StatZoneVal.Text = string.format("Camp %d/6", State.CurrentZone)
     end
-end))
-
-local BatchSteps = { 1, 4, 8, 20, 50, 79 }
-local batchIdx = 6
-trackConn(BtnHatchBatchCycle.MouseButton1Click:Connect(function()
-    batchIdx = (batchIdx % #BatchSteps) + 1
-    Config.HatchBatch = BatchSteps[batchIdx]
-    BtnHatchBatchCycle.Text = "Hatch Batch: " .. tostring(Config.HatchBatch) .. "x"
 end))
 
 local function antiFallCheck()
@@ -1086,17 +1349,19 @@ end)
 task.spawn(function()
     while State.Running do
         pcall(updateCurrencies)
+        pcall(detectCurrentZone)
         task.wait(0.5)
     end
 end)
 
 task.spawn(function()
     while State.Running do
-        if Config.AutoFarmBreakables then
+        if Config.AutoFarmBreakables or Config.AutoStages then
+            pcall(handleRubbleWallInteraction)
             pcall(farmNearbyBreakables)
             pcall(collectOrbsAndLootbags)
         end
-        task.wait(0.15)
+        task.wait(0.2)
     end
 end)
 
@@ -1105,18 +1370,20 @@ task.spawn(function()
         if Config.AutoHatch then
             pcall(hatchNearestEgg)
         end
-        task.wait(1.2)
+        task.wait(1.5)
     end
 end)
 
 task.spawn(function()
     while State.Running do
         pcall(autoEquipBestPets)
-        pcall(buyZone1Upgrades)
         pcall(buyMerchantBuffs)
         pcall(collectSecretRelics)
         pcall(handleExpeditions)
-        task.wait(5.0)
+        if Config.AutoUpgrades then
+            pcall(buyZone1Upgrades)
+        end
+        task.wait(3.0)
     end
 end)
 
