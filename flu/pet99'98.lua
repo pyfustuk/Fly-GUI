@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Diamond Mountain - Winter AFK Hub"
-local _VERSION = "2.6.0"
+local _VERSION = "2.7.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -608,60 +608,87 @@ local function commandPetsToAttack(b)
     end
 end
 
-local function handleRubbleWallInteraction()
+local function findNearestRubbleWallPrompt(maxRange)
+    local hrp = getHRP()
+    if not hrp then return nil, nil end
+    local myPos = hrp.Position
+    local limit = maxRange or 220
+
+    local bestPrompt = nil
+    local bestDist = 999999
+    local bestPos = nil
+
+    local function checkObj(obj)
+        if not obj then return end
+        local p = getObjectPosition(obj)
+        if not p then return end
+        local d = (p - myPos).Magnitude
+        if d > limit then return end
+
+        local prompts = {}
+        if obj:IsA("ProximityPrompt") then
+            table.insert(prompts, obj)
+        else
+            for _, desc in ipairs(obj:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") then
+                    table.insert(prompts, desc)
+                end
+            end
+        end
+
+        for _, pr in ipairs(prompts) do
+            local act = string.lower(pr.ActionText or "")
+            local objTxt = string.lower(pr.ObjectText or "")
+            local pName = string.lower(pr.Parent and pr.Parent.Name or "")
+            local oName = string.lower(obj.Name or "")
+            if string.find(act, "wall") or string.find(act, "rubble") or string.find(act, "break") or string.find(act, "mine") or string.find(act, "deposit") or string.find(act, "pet") or
+               string.find(objTxt, "wall") or string.find(objTxt, "rubble") or string.find(objTxt, "break") or
+               string.find(pName, "wall") or string.find(pName, "rubble") or string.find(pName, "gate") or
+               string.find(oName, "wall") or string.find(oName, "rubble") or string.find(oName, "gate") then
+                if d < bestDist then
+                    bestDist = d
+                    bestPrompt = pr
+                    bestPos = p
+                end
+            end
+        end
+    end
+
+    local map = Workspace:FindFirstChild("Map")
+    if map then
+        for _, c in ipairs(map:GetChildren()) do checkObj(c) end
+    end
+    local things = getThingsFolder()
+    if things and things:FindFirstChild("Breakables") then
+        for _, b in ipairs(things.Breakables:GetChildren()) do checkObj(b) end
+    end
+    for _, c in ipairs(Workspace:GetChildren()) do
+        local low = string.lower(c.Name)
+        if string.find(low, "wall") or string.find(low, "rubble") or string.find(low, "gate") or string.find(low, "camp") then
+            checkObj(c)
+        end
+    end
+
+    return bestPrompt, bestPos, bestDist
+end
+
+local function depositPetsIntoWall()
     local hrp = getHRP()
     if not hrp then return end
-    local myPos = hrp.Position
-    local now = os.clock()
-    if now - State.LastWallInteraction < 1.5 then return end
-    State.LastWallInteraction = now
 
-    local foundPrompt = nil
-    pcall(function()
-        local map = Workspace:FindFirstChild("Map")
-        if map then
-            for _, desc in ipairs(map:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") then
-                    local act = string.lower(desc.ActionText or "")
-                    local objTxt = string.lower(desc.ObjectText or "")
-                    local pName = string.lower(desc.Parent and desc.Parent.Name or "")
-                    if string.find(act, "wall") or string.find(act, "rubble") or string.find(act, "break") or string.find(act, "mine") or
-                       string.find(objTxt, "wall") or string.find(objTxt, "rubble") or
-                       string.find(pName, "wall") or string.find(pName, "rubble") or string.find(pName, "gate") then
-                        local p = desc.Parent
-                        local pos = getObjectPosition(p)
-                        if pos and (pos - myPos).Magnitude <= 50 then
-                            foundPrompt = desc
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
+    local prompt, wallPos, dist = findNearestRubbleWallPrompt(220)
+    if not prompt or not wallPos then return end
 
-    if not foundPrompt then
-        local things = getThingsFolder()
-        if things and things:FindFirstChild("Breakables") then
-            for _, b in ipairs(things.Breakables:GetChildren()) do
-                local low = string.lower(b.Name)
-                if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "gate") then
-                    local p = b:FindFirstChildWhichIsA("ProximityPrompt", true)
-                    if p then
-                        local pos = getObjectPosition(b)
-                        if pos and (pos - myPos).Magnitude <= 50 then
-                            foundPrompt = p
-                            break
-                        end
-                    end
-                end
-            end
-        end
+    if dist > 8 then
+        local approachPos = wallPos + Vector3.new(0, 3, 4)
+        hrp.CFrame = CFrame.lookAt(approachPos, wallPos)
+        task.wait(0.12)
     end
 
-    if foundPrompt and fireproximityprompt then
-        pcall(function() fireproximityprompt(foundPrompt) end)
+    if fireproximityprompt then
+        pcall(function() fireproximityprompt(prompt) end)
     end
+    task.wait(0.2)
 
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -678,24 +705,24 @@ local function handleRubbleWallInteraction()
                         local tLow = (desc:IsA("TextButton") and string.lower(desc.Text)) or ""
                         local nLow = string.lower(desc.Name)
 
-                        if string.find(tLow, "select all") or string.find(tLow, "auto select") or string.find(nLow, "autoselect") or string.find(nLow, "selectall") or string.find(tLow, "best") then
+                        if string.find(tLow, "select all") or string.find(tLow, "auto select") or string.find(nLow, "autoselect") or string.find(nLow, "selectall") or string.find(tLow, "best") or string.find(tLow, "max") or string.find(tLow, "all") then
                             selectBtn = desc
-                        elseif string.find(tLow, "break") or string.find(tLow, "send") or string.find(tLow, "start") or string.find(tLow, "deploy") or string.find(tLow, "attack") or string.find(tLow, "confirm") or string.find(tLow, "smash") then
+                        elseif string.find(tLow, "break") or string.find(tLow, "send") or string.find(tLow, "start") or string.find(tLow, "deploy") or string.find(tLow, "attack") or string.find(tLow, "confirm") or string.find(tLow, "smash") or string.find(tLow, "deposit") or string.find(tLow, "put") then
                             confirmBtn = desc
-                        elseif string.find(nLow, "pet") or string.find(nLow, "slot") or string.find(nLow, "icon") then
+                        elseif string.find(nLow, "pet") or string.find(nLow, "slot") or string.find(nLow, "icon") or string.find(nLow, "item") then
                             table.insert(petButtons, desc)
                         end
                     end
                 end
 
-                if selectBtn or confirmBtn then
+                if selectBtn or confirmBtn or #petButtons > 0 then
                     if selectBtn then
                         if firesignal then
                             firesignal(selectBtn.MouseButton1Click)
                             firesignal(selectBtn.Activated)
                         end
                     else
-                        for i = 1, math.min(#petButtons, 12) do
+                        for i = 1, math.min(#petButtons, 20) do
                             local pb = petButtons[i]
                             if firesignal then
                                 firesignal(pb.MouseButton1Click)
@@ -704,19 +731,24 @@ local function handleRubbleWallInteraction()
                         end
                     end
 
-                    task.wait(0.08)
+                    task.wait(0.12)
 
                     if confirmBtn then
                         if firesignal then
                             firesignal(confirmBtn.MouseButton1Click)
                             firesignal(confirmBtn.Activated)
                         end
-                        State.CurrentActionText = string.format("Pets Selected & Sent to Wall! | Camp %d | by pufyftyk", State.CurrentZone)
+                        State.CurrentActionText = string.format("PETS DEPOSITED INTO WALL! | Camp %d | by pufyftyk", State.CurrentZone)
                     end
                 end
             end
         end
     end)
+
+    if State.FarmCFrame and (hrp.Position - State.FarmCFrame.Position).Magnitude > 15 then
+        task.wait(0.15)
+        hrp.CFrame = State.FarmCFrame
+    end
 end
 
 local function farmNearbyBreakables()
@@ -1086,6 +1118,18 @@ local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign,
     return l
 end
 
+local function bindBtn(btn, callback)
+    local lastClick = 0
+    local function execute()
+        local now = os.clock()
+        if now - lastClick < 0.2 then return end
+        lastClick = now
+        pcall(callback)
+    end
+    trackConn(btn.Activated:Connect(execute))
+    trackConn(btn.MouseButton1Click:Connect(execute))
+end
+
 local BlackOverlayFrame = Instance.new("Frame")
 BlackOverlayFrame.Name = "BlackScreenOverlay"
 BlackOverlayFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -1140,7 +1184,7 @@ do
 end
 
 makeLabel(DashTopBar, UDim2.new(1, -90, 0, 22), UDim2.new(0, 14, 0, 4), "[*] DIAMOND MOUNTAIN HUB | by pufyftyk", Colors.IceAccent, Enum.Font.GothamBold, 14)
-local DashSubTitle = makeLabel(DashTopBar, UDim2.new(1, -90, 0, 16), UDim2.new(0, 14, 0, 26), "Winter Event | Wall Rush | Merchant Buffs", Colors.SubText, Enum.Font.Gotham, 11)
+local DashSubTitle = makeLabel(DashTopBar, UDim2.new(1, -90, 0, 16), UDim2.new(0, 14, 0, 26), "Winter Event | Wall Deposit | Merchant Buffs", Colors.SubText, Enum.Font.Gotham, 11)
 
 local MinMenuBtn = makeBtn(DashTopBar, UDim2.new(0, 30, 0, 28), UDim2.new(1, -74, 0, 10), Colors.CardBright, "-", 13, 6)
 local CloseScriptBtn = makeBtn(DashTopBar, UDim2.new(0, 30, 0, 28), UDim2.new(1, -38, 0, 10), Colors.Red, "X", 12, 6)
@@ -1185,7 +1229,7 @@ addCornerAndStroke(StatusBanner, 6, Colors.Stroke, 1)
 local StatStatusVal = makeLabel(StatusBanner, UDim2.new(1, -16, 1, 0), UDim2.new(0, 8, 0, 0), "Status: Initializing... | by pufyftyk", Colors.SnowWhite, Enum.Font.Gotham, 11)
 StatStatusVal.TextWrapped = true
 
-local BtnStages = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 192), Config.AutoStages and Colors.Green or Colors.CardBright, "Wall Rush / Stages: " .. (Config.AutoStages and "ON" or "OFF"), 11, 6)
+local BtnStages = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 192), Config.AutoStages and Colors.Green or Colors.CardBright, "Wall Deposit: " .. (Config.AutoStages and "ON" or "OFF"), 11, 6)
 local BtnHatch = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4, 0, 192), Config.AutoHatch and Colors.Green or Colors.CardBright, "Auto Hatch: " .. (Config.AutoHatch and "ON" or "OFF"), 11, 6)
 
 local BtnMerchants = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 228), Config.AutoBuyMerchants and Colors.Green or Colors.CardBright, "Merchant Buffs: " .. (Config.AutoBuyMerchants and "ON" or "OFF"), 11, 6)
@@ -1197,90 +1241,107 @@ local BtnRelics = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4
 local BtnPotato = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0, 10, 0, 300), Config.PotatoGraphics and Colors.Green or Colors.CardBright, "Potato FPS: " .. (Config.PotatoGraphics and "ON" or "OFF"), 11, 6)
 local BtnBlackScreen = makeBtn(DashCard, UDim2.new(0.5, -14, 0, 32), UDim2.new(0.5, 4, 0, 300), Config.BlackScreen and Colors.Green or Colors.CardBright, "Black Screen: " .. (Config.BlackScreen and "ON" or "OFF"), 11, 6)
 
-local BtnSaveCamp = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0, 8, 0, 334), Colors.Header, "[*] Save Point", 10, 5)
-local BtnAdvanceCamp = makeBtn(DashCard, UDim2.new(0.33, -10, 0, 24), UDim2.new(0.33, 4, 0, 334), Colors.Header, "[+] Next Camp", 10, 5)
-local BtnPrevCamp = makeBtn(DashCard, UDim2.new(0.34, -10, 0, 24), UDim2.new(0.66, 2, 0, 334), Colors.Header, "[-] Prev Camp", 10, 5)
+local BtnSaveCamp = makeBtn(DashCard, UDim2.new(0.25, -8, 0, 24), UDim2.new(0, 6, 0, 334), Colors.Header, "[*] Save Pt", 10, 5)
+local BtnDepositWall = makeBtn(DashCard, UDim2.new(0.25, -8, 0, 24), UDim2.new(0.25, 4, 0, 334), Colors.Green, "[!] Wall Pets", 10, 5)
+local BtnAdvanceCamp = makeBtn(DashCard, UDim2.new(0.25, -8, 0, 24), UDim2.new(0.50, 2, 0, 334), Colors.Header, "[+] Next", 10, 5)
+local BtnPrevCamp = makeBtn(DashCard, UDim2.new(0.25, -8, 0, 24), UDim2.new(0.75, 0, 0, 334), Colors.Header, "[-] Prev", 10, 5)
 
-trackConn(MinMenuBtn.MouseButton1Click:Connect(function()
+bindBtn(MinMenuBtn, function()
     DashCard.Visible = false
     ReturnBtn.Visible = true
-end))
+end)
 
-trackConn(ReturnBtn.MouseButton1Click:Connect(function()
+bindBtn(ReturnBtn, function()
     DashCard.Visible = true
     ReturnBtn.Visible = false
-end))
+end)
 
-trackConn(BtnStages.MouseButton1Click:Connect(function()
+bindBtn(CloseScriptBtn, function()
+    pcall(env.DiamondMountainHubCleanup)
+end)
+
+bindBtn(BtnStages, function()
     Config.AutoStages = not Config.AutoStages
-    BtnStages.Text = "Wall Rush / Stages: " .. (Config.AutoStages and "ON" or "OFF")
+    BtnStages.Text = "Wall Deposit: " .. (Config.AutoStages and "ON" or "OFF")
     BtnStages.BackgroundColor3 = Config.AutoStages and Colors.Green or Colors.CardBright
-end))
+    StatStatusVal.Text = "Toggled Wall Deposit: " .. (Config.AutoStages and "ON" or "OFF") .. " | by pufyftyk"
+end)
 
-trackConn(BtnHatch.MouseButton1Click:Connect(function()
+bindBtn(BtnHatch, function()
     Config.AutoHatch = not Config.AutoHatch
     BtnHatch.Text = "Auto Hatch: " .. (Config.AutoHatch and "ON" or "OFF")
     BtnHatch.BackgroundColor3 = Config.AutoHatch and Colors.Green or Colors.CardBright
-end))
+    StatStatusVal.Text = "Toggled Auto Hatch: " .. (Config.AutoHatch and "ON" or "OFF") .. " | by pufyftyk"
+end)
 
-trackConn(BtnMerchants.MouseButton1Click:Connect(function()
+bindBtn(BtnMerchants, function()
     Config.AutoBuyMerchants = not Config.AutoBuyMerchants
     BtnMerchants.Text = "Merchant Buffs: " .. (Config.AutoBuyMerchants and "ON" or "OFF")
     BtnMerchants.BackgroundColor3 = Config.AutoBuyMerchants and Colors.Green or Colors.CardBright
-end))
+    StatStatusVal.Text = "Toggled Merchant Buffs: " .. (Config.AutoBuyMerchants and "ON" or "OFF") .. " | by pufyftyk"
+end)
 
-trackConn(BtnTunnel6.MouseButton1Click:Connect(function()
+bindBtn(BtnTunnel6, function()
     Config.FocusTunnel6 = not Config.FocusTunnel6
     BtnTunnel6.Text = "Focus Tunnel 6: " .. (Config.FocusTunnel6 and "ON" or "OFF")
     BtnTunnel6.BackgroundColor3 = Config.FocusTunnel6 and Colors.Green or Colors.CardBright
-end))
+    StatStatusVal.Text = "Toggled Tunnel 6: " .. (Config.FocusTunnel6 and "ON" or "OFF") .. " | by pufyftyk"
+end)
 
-trackConn(BtnUpgrades.MouseButton1Click:Connect(function()
+bindBtn(BtnUpgrades, function()
     Config.AutoUpgrades = not Config.AutoUpgrades
     BtnUpgrades.Text = "Zone Upgrades: " .. (Config.AutoUpgrades and "ON" or "OFF")
     BtnUpgrades.BackgroundColor3 = Config.AutoUpgrades and Colors.Green or Colors.CardBright
-end))
+    StatStatusVal.Text = "Toggled Upgrades: " .. (Config.AutoUpgrades and "ON" or "OFF") .. " | by pufyftyk"
+end)
 
-trackConn(BtnRelics.MouseButton1Click:Connect(function()
+bindBtn(BtnRelics, function()
     Config.AutoCollectRelics = not Config.AutoCollectRelics
     BtnRelics.Text = "Collect Relics: " .. (Config.AutoCollectRelics and "ON" or "OFF")
     BtnRelics.BackgroundColor3 = Config.AutoCollectRelics and Colors.Green or Colors.CardBright
+    StatStatusVal.Text = "Toggled Relics: " .. (Config.AutoCollectRelics and "ON" or "OFF") .. " | by pufyftyk"
     if Config.AutoCollectRelics then
         collectSecretRelics()
     end
-end))
+end)
 
-trackConn(BtnPotato.MouseButton1Click:Connect(function()
+bindBtn(BtnPotato, function()
     Config.PotatoGraphics = not Config.PotatoGraphics
     BtnPotato.Text = "Potato FPS: " .. (Config.PotatoGraphics and "ON" or "OFF")
     BtnPotato.BackgroundColor3 = Config.PotatoGraphics and Colors.Green or Colors.CardBright
+    StatStatusVal.Text = "Toggled Potato FPS: " .. (Config.PotatoGraphics and "ON" or "OFF") .. " | by pufyftyk"
     applyPotatoGraphics(Config.PotatoGraphics)
-end))
+end)
 
-trackConn(BtnBlackScreen.MouseButton1Click:Connect(function()
+bindBtn(BtnBlackScreen, function()
     Config.BlackScreen = not Config.BlackScreen
     BtnBlackScreen.Text = "Black Screen: " .. (Config.BlackScreen and "ON" or "OFF")
     BtnBlackScreen.BackgroundColor3 = Config.BlackScreen and Colors.Green or Colors.CardBright
     BlackOverlayFrame.Visible = Config.BlackScreen
-end))
+end)
 
-trackConn(BlackExitBtn.MouseButton1Click:Connect(function()
+bindBtn(BlackExitBtn, function()
     Config.BlackScreen = false
     BtnBlackScreen.Text = "Black Screen: OFF"
     BtnBlackScreen.BackgroundColor3 = Colors.CardBright
     BlackOverlayFrame.Visible = false
-end))
+end)
 
-trackConn(BtnSaveCamp.MouseButton1Click:Connect(function()
+bindBtn(BtnSaveCamp, function()
     local hrp = getHRP()
     if hrp then
         State.CampPoints[State.CurrentZone] = hrp.CFrame
         State.FarmCFrame = hrp.CFrame
-        State.CurrentActionText = string.format("Camp %d Point Saved! | by pufyftyk", State.CurrentZone)
+        StatStatusVal.Text = string.format("Camp %d Point Saved! | by pufyftyk", State.CurrentZone)
     end
-end))
+end)
 
-trackConn(BtnAdvanceCamp.MouseButton1Click:Connect(function()
+bindBtn(BtnDepositWall, function()
+    StatStatusVal.Text = "Running Wall Deposit Routine... | by pufyftyk"
+    task.spawn(depositPetsIntoWall)
+end)
+
+bindBtn(BtnAdvanceCamp, function()
     local hrp = getHRP()
     if hrp then
         local nextZ = math.min(Config.TargetMaxZone or 6, State.CurrentZone + 1)
@@ -1288,18 +1349,18 @@ trackConn(BtnAdvanceCamp.MouseButton1Click:Connect(function()
         if State.CampPoints[nextZ] then
             hrp.CFrame = State.CampPoints[nextZ]
             State.FarmCFrame = State.CampPoints[nextZ]
-            State.CurrentActionText = string.format("Teleported to Saved Camp %d! | by pufyftyk", nextZ)
+            StatStatusVal.Text = string.format("Teleported to Saved Camp %d! | by pufyftyk", nextZ)
         else
             local forwardCF = hrp.CFrame + (hrp.CFrame.LookVector * 45) + Vector3.new(0, 3.5, 0)
             hrp.CFrame = forwardCF
             State.FarmCFrame = forwardCF
-            State.CurrentActionText = string.format("Stepped forward to Camp %d! | by pufyftyk", nextZ)
+            StatStatusVal.Text = string.format("Stepped forward to Camp %d! | by pufyftyk", nextZ)
         end
         StatZoneVal.Text = string.format("Camp %d/6", State.CurrentZone)
     end
-end))
+end)
 
-trackConn(BtnPrevCamp.MouseButton1Click:Connect(function()
+bindBtn(BtnPrevCamp, function()
     local hrp = getHRP()
     if hrp then
         local prevZ = math.max(1, State.CurrentZone - 1)
@@ -1307,11 +1368,11 @@ trackConn(BtnPrevCamp.MouseButton1Click:Connect(function()
         if State.CampPoints[prevZ] then
             hrp.CFrame = State.CampPoints[prevZ]
             State.FarmCFrame = State.CampPoints[prevZ]
-            State.CurrentActionText = string.format("Returned to Camp %d! | by pufyftyk", prevZ)
+            StatStatusVal.Text = string.format("Returned to Camp %d! | by pufyftyk", prevZ)
         end
         StatZoneVal.Text = string.format("Camp %d/6", State.CurrentZone)
     end
-end))
+end)
 
 local function antiFallCheck()
     pcall(function()
@@ -1355,13 +1416,19 @@ task.spawn(function()
 end)
 
 task.spawn(function()
+    local lastAutoDeposit = 0
     while State.Running do
         if Config.AutoFarmBreakables or Config.AutoStages then
-            pcall(handleRubbleWallInteraction)
             pcall(farmNearbyBreakables)
             pcall(collectOrbsAndLootbags)
+
+            local now = os.clock()
+            if Config.AutoStages and (now - lastAutoDeposit >= 8.0) then
+                lastAutoDeposit = now
+                pcall(depositPetsIntoWall)
+            end
         end
-        task.wait(0.2)
+        task.wait(0.18)
     end
 end)
 
@@ -1405,4 +1472,3 @@ local function cleanupAll()
 end
 
 env.DiamondMountainHubCleanup = cleanupAll
-trackConn(CloseScriptBtn.MouseButton1Click:Connect(cleanupAll))
