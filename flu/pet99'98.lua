@@ -572,7 +572,7 @@ local function addCornerAndStroke(inst, radius, strokeColor, thickness)
     return nil
 end
 
-local function makeBtn(parent, size, pos, bg, text, textSize, radius)
+local function makeBtn(parent, size, pos, bg, text, textSize, radius, zIndex)
     local b = Instance.new("TextButton")
     b.Size = size
     if pos then b.Position = pos end
@@ -583,13 +583,13 @@ local function makeBtn(parent, size, pos, bg, text, textSize, radius)
     b.TextSize = textSize or 12
     b.TextStrokeTransparency = 0.5
     b.TextStrokeColor3 = Color3.new(0, 0, 0)
-    b.ZIndex = (parent.ZIndex or 1) + 2
+    b.ZIndex = zIndex or 25
     b.Parent = parent
     addCornerAndStroke(b, radius or 6, Colors.Stroke, 1.2)
     return b
 end
 
-local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign)
+local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign, zIndex)
     local l = Instance.new("TextLabel")
     l.Size = size
     if pos then l.Position = pos end
@@ -601,7 +601,7 @@ local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign)
     l.TextStrokeTransparency = 0.5
     l.TextStrokeColor3 = Color3.new(0, 0, 0)
     l.TextXAlignment = xAlign or Enum.TextXAlignment.Left
-    l.ZIndex = (parent.ZIndex or 1) + 2
+    l.ZIndex = zIndex or 25
     l.Parent = parent
     return l
 end
