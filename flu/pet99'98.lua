@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Diamond Mountain - Winter AFK Hub"
-local _VERSION = "2.2.0"
+local _VERSION = "2.3.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -106,7 +106,8 @@ local State = {
     MenuMinimized = false,
     Tunnel6Open = false,
     Tunnel6CF = nil,
-    ZoneEggPositions = {},
+    WorkingBatch = nil,
+    StartEggsOpened = nil,
     CurrentAcorns = 0,
     StartAcorns = nil,
     AcornsGained = 0,
@@ -135,6 +136,15 @@ end)
 
 local RemoteCache = {}
 local NetworkFolder = ReplicatedStorage:FindFirstChild("Network")
+
+local GameNetwork = nil
+pcall(function()
+    local lib = ReplicatedStorage:FindFirstChild("Library")
+    local client = lib and lib:FindFirstChild("Client")
+    if client and client:FindFirstChild("Network") then
+        GameNetwork = require(client.Network)
+    end
+end)
 
 local function cleanRemoteName(s)
     return string.lower(string.gsub(tostring(s or ""), "[%s%_%:%-]", ""))
@@ -183,6 +193,54 @@ local function invokeRemote(name, ...)
         return ok, res
     end
     return false
+end
+
+local function safeNetworkInvoke(name, ...)
+    local args = { ... }
+    if GameNetwork then
+        local ok, res = pcall(function()
+            if GameNetwork.Invoke then
+                return GameNetwork.Invoke(GameNetwork, name, unpack(args))
+            end
+        end)
+        if ok and res ~= nil then return ok, res end
+        local ok2, res2 = pcall(function()
+            if GameNetwork.Invoke then
+                return GameNetwork.Invoke(name, unpack(args))
+            end
+        end)
+        if ok2 and res2 ~= nil then return ok2, res2 end
+    end
+    return invokeRemote(name, unpack(args))
+end
+
+local function safeNetworkFire(name, ...)
+    local args = { ... }
+    if GameNetwork then
+        local done = false
+        pcall(function()
+            if GameNetwork.UnreliableFire then
+                GameNetwork.UnreliableFire(GameNetwork, name, unpack(args))
+                done = true
+            elseif GameNetwork.Fire then
+                GameNetwork.Fire(GameNetwork, name, unpack(args))
+                done = true
+            end
+        end)
+        if not done then
+            pcall(function()
+                if GameNetwork.UnreliableFire then
+                    GameNetwork.UnreliableFire(name, unpack(args))
+                    done = true
+                elseif GameNetwork.Fire then
+                    GameNetwork.Fire(name, unpack(args))
+                    done = true
+                end
+            end)
+        end
+        if done then return true end
+    end
+    return invokeRemote(name, unpack(args))
 end
 
 local ThingsFolder = nil
@@ -250,6 +308,32 @@ local function applyPotatoGraphics(enable)
 end
 
 local function updateCurrencies()
+    pcall(function()
+        local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
+        local saveMod = client and client:FindFirstChild("Save")
+        if saveMod then
+            local save = require(saveMod).Get()
+            if save then
+                local realEggs = save.EggsOpened or save.EggsHatched
+                if realEggs and type(realEggs) == "number" then
+                    if not State.StartEggsOpened then
+                        State.StartEggsOpened = realEggs
+                    else
+                        local diff = realEggs - State.StartEggsOpened
+                        if diff >= 0 then
+                            State.EggsHatched = diff
+                        end
+                    end
+                end
+                if save.Diamonds and type(save.Diamonds) == "number" then
+                    if not State.StartDiamonds then State.StartDiamonds = save.Diamonds end
+                    State.CurrentDiamonds = save.Diamonds
+                    State.DiamondsGained = math.max(0, save.Diamonds - State.StartDiamonds)
+                end
+            end
+        end
+    end)
+
     pcall(function()
         local ls = LocalPlayer:FindFirstChild("leaderstats")
         if ls then
@@ -326,8 +410,8 @@ local function collectOrbsAndLootbags()
                 if #orbIds >= 35 then break end
             end
             if #orbIds > 0 then
-                invokeRemote("Orbs: Collect", orbIds)
-                invokeRemote("Orbs_Collect", orbIds)
+                safeNetworkFire("Orbs: Collect", orbIds)
+                safeNetworkFire("Orbs_Collect", orbIds)
             end
         end
 
@@ -339,8 +423,8 @@ local function collectOrbsAndLootbags()
                 elseif bag:IsA("Model") then
                     bag:PivotTo(hrp.CFrame)
                 end
-                invokeRemote("Lootbags_Claim", { bag.Name })
-                invokeRemote("Lootbags: Claim", { bag.Name })
+                safeNetworkFire("Lootbags_Claim", { bag.Name })
+                safeNetworkFire("Lootbags: Claim", { bag.Name })
             end
         end
 
@@ -357,6 +441,39 @@ local function collectOrbsAndLootbags()
     end)
 end
 
+local function commandPetsToAttack(b)
+    if not b then return end
+    local uid = b:GetAttribute("UID") or b:GetAttribute("id") or b.Name
+    pcall(function()
+        local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
+        if client then
+            local petCmds = client:FindFirstChild("PetCmds")
+            if petCmds then
+                local m = require(petCmds)
+                if m then
+                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(b) end) end
+                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(uid) end) end
+                end
+            end
+            local playerPet = client:FindFirstChild("PlayerPet")
+            if playerPet then
+                local m = require(playerPet)
+                if m then
+                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(b) end) end
+                    if type(m.SetTarget) == "function" then pcall(function() m.SetTarget(uid) end) end
+                end
+            end
+        end
+    end)
+    safeNetworkFire("Breakables_PlayerDealDamage", uid)
+    safeNetworkFire("Breakables: PlayerDealDamage", uid)
+    safeNetworkFire("Breakables_RequestTarget", uid)
+    safeNetworkFire("Breakables: RequestTarget", uid)
+    safeNetworkFire("Breakables_JoinPet", uid)
+    safeNetworkFire("Breakables: JoinPet", uid)
+    safeNetworkFire("Breakables_JoinPet", uid, {})
+end
+
 local function farmNearbyBreakables()
     pcall(function()
         local char = LocalPlayer.Character
@@ -367,29 +484,32 @@ local function farmNearbyBreakables()
         if not breakables then return end
 
         local myPos = hrp.Position
-        local count = 0
-
-        for _, b in ipairs(breakables:GetChildren()) do
-            local bPos = getObjectPosition(b)
-            if bPos and (bPos - myPos).Magnitude <= 95 then
-                local uid = b.Name
-                invokeRemote("Breakables_PlayerDealDamage", uid)
-                invokeRemote("Breakables: PlayerDealDamage", uid)
-                count = count + 1
-                if count >= 6 then break end
-            end
-        end
+        local wallTarget = nil
 
         for _, b in ipairs(breakables:GetChildren()) do
             local low = string.lower(b.Name)
             if string.find(low, "rubble") or string.find(low, "wall") or string.find(low, "yeti") or string.find(low, "boss") or string.find(low, "chest") or string.find(low, "gate") then
                 local bPos = getObjectPosition(b)
                 if bPos and (bPos - myPos).Magnitude <= 140 then
-                    local wUid = b.Name
-                    invokeRemote("Breakables_PlayerDealDamage", wUid)
-                    invokeRemote("Breakables: PlayerDealDamage", wUid)
+                    wallTarget = b
                     break
                 end
+            end
+        end
+
+        if wallTarget then
+            State.CurrentActionText = "Attacking Rubble Wall / Boss! | by pufyftyk"
+            commandPetsToAttack(wallTarget)
+            return
+        end
+
+        local count = 0
+        for _, b in ipairs(breakables:GetChildren()) do
+            local bPos = getObjectPosition(b)
+            if bPos and (bPos - myPos).Magnitude <= 85 then
+                commandPetsToAttack(b)
+                count = count + 1
+                if count >= 4 then break end
             end
         end
     end)
@@ -398,79 +518,206 @@ end
 local function findNearestEggMachine(maxDist)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil, nil, nil end
+    if not hrp then return nil, nil, nil, nil end
     local myPos = hrp.Position
     local things = getThingsFolder()
-    local limit = maxDist or 100
+    local limit = maxDist or 120
 
     local eggCandidates = {}
-    local function checkContainer(cont)
-        if not cont then return end
-        for _, egg in ipairs(cont:GetChildren()) do
-            local p = getObjectPosition(egg)
-            if p then
-                local d = (p - myPos).Magnitude
-                if d <= limit then
-                    local eggId = egg:GetAttribute("id") or egg:GetAttribute("EggName") or egg:GetAttribute("ID") or egg.Name
-                    table.insert(eggCandidates, { obj = egg, pos = p, dist = d, id = eggId })
-                end
+    local function checkCandidate(obj, customId, prompt)
+        if not obj then return end
+        local p = getObjectPosition(obj)
+        if p then
+            local d = (p - myPos).Magnitude
+            if d <= limit then
+                local eggId = customId or obj:GetAttribute("id") or obj:GetAttribute("EggName") or obj:GetAttribute("ID") or obj:GetAttribute("EggId") or obj.Name
+                table.insert(eggCandidates, { obj = obj, pos = p, dist = d, id = eggId, prompt = prompt })
             end
         end
     end
 
     if things then
-        checkContainer(things:FindFirstChild("CustomEggs"))
-        checkContainer(things:FindFirstChild("Eggs"))
-        checkContainer(things:FindFirstChild("EggCapsules"))
+        for _, fName in ipairs({ "CustomEggs", "Eggs", "EggCapsules", "EggMachines" }) do
+            local f = things:FindFirstChild(fName)
+            if f then
+                for _, egg in ipairs(f:GetChildren()) do
+                    checkCandidate(egg)
+                end
+            end
+        end
     end
+
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                local act = string.lower(desc.ActionText or "")
+                local objTxt = string.lower(desc.ObjectText or "")
+                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                if string.find(act, "egg") or string.find(act, "hatch") or string.find(act, "open") or
+                   string.find(objTxt, "egg") or string.find(pName, "egg") then
+                    checkCandidate(desc.Parent, nil, desc)
+                end
+            end
+        end
+    end)
 
     table.sort(eggCandidates, function(a, b) return a.dist < b.dist end)
     if #eggCandidates > 0 then
-        return eggCandidates[1].obj, eggCandidates[1].id, eggCandidates[1].pos
+        return eggCandidates[1].obj, eggCandidates[1].id, eggCandidates[1].pos, eggCandidates[1].prompt
     end
-    return nil, nil, nil
+    return nil, nil, nil, nil
 end
 
 local function autoEquipBestPets()
     if not Config.AutoEquipBest then return end
     pcall(function()
-        invokeRemote("Pets: EquipBest")
-        invokeRemote("EquipBest")
-        invokeRemote("Pets_EquipBest")
+        safeNetworkFire("Pets_EquipBest")
+        safeNetworkFire("EquipBest")
+        safeNetworkFire("Pets: EquipBest")
+        safeNetworkInvoke("Pets_EquipBest")
+        safeNetworkInvoke("EquipBest")
+        safeNetworkInvoke("Pets: EquipBest")
+    end)
+    pcall(function()
+        local client = ReplicatedStorage:FindFirstChild("Library") and ReplicatedStorage.Library:FindFirstChild("Client")
+        if client then
+            for _, modName in ipairs({ "PetCmds", "PlayerPet", "EquipCmds", "PetEquip", "Equip" }) do
+                local mod = client:FindFirstChild(modName)
+                if mod then
+                    local m = require(mod)
+                    if m then
+                        if type(m.EquipBest) == "function" then m.EquipBest() end
+                        if type(m.AllEquipBest) == "function" then m.AllEquipBest() end
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            for _, b in ipairs(pgui:GetDescendants()) do
+                if (b:IsA("TextButton") or b:IsA("ImageButton")) and b.Visible then
+                    local nameLow = string.lower(b.Name)
+                    local textLow = (b:IsA("TextButton") and string.lower(b.Text)) or ""
+                    if string.find(nameLow, "equipbest") or string.find(textLow, "equip best") then
+                        if firesignal then firesignal(b.MouseButton1Click) end
+                        if firesignal then firesignal(b.Activated) end
+                    end
+                end
+            end
+        end
     end)
 end
 
-local function hatchNearestEgg(batchCount)
-    local eggObj, eggId = findNearestEggMachine(95)
-    if not eggId then return false end
-    local batch = batchCount or Config.HatchBatch or 79
-    local ok1 = invokeRemote("CustomEggs_Hatch", eggId, batch)
-    local ok2 = invokeRemote("Eggs: RequestPurchase", eggId, batch)
-    local ok3 = invokeRemote("Eggs_RequestPurchase", eggId, batch)
-    if ok1 or ok2 or ok3 then
-        State.EggsHatched = State.EggsHatched + batch
+local HatchStepDownList = { 79, 50, 25, 20, 15, 10, 8, 4, 3, 2, 1 }
+
+local function hatchNearestEgg()
+    local eggObj, eggId, eggPos, eggPrompt = findNearestEggMachine(120)
+    if not eggObj or not eggId then return false end
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    if eggPos and (hrp.Position - eggPos).Magnitude > 14 then
+        local standPos = eggPos + Vector3.new(0, 3, 5)
+        hrp.CFrame = CFrame.lookAt(standPos, eggPos)
+        task.wait(0.08)
+    end
+
+    local targetBatch = State.WorkingBatch or Config.HatchBatch or 79
+    local remotesToTry = { "CustomEggs_Hatch", "CustomEggs: Hatch", "Eggs_RequestPurchase", "Eggs: RequestPurchase", "Eggs_Roll" }
+    local idsToTry = { eggId, eggObj.Name }
+    local attr = eggObj:GetAttribute("EggName") or eggObj:GetAttribute("id") or eggObj:GetAttribute("ID")
+    if attr then table.insert(idsToTry, attr) end
+
+    local didHatch = false
+    local actualCount = 0
+
+    local function tryBatch(amt)
+        for _, rName in ipairs(remotesToTry) do
+            for _, idVal in ipairs(idsToTry) do
+                local ok, res = safeNetworkInvoke(rName, idVal, amt)
+                if ok and res ~= nil and res ~= false then
+                    if type(res) == "table" and res.Success == false then
+                    else
+                        State.WorkingBatch = amt
+                        return true, amt
+                    end
+                end
+            end
+        end
+        return false, 0
+    end
+
+    local ok, count = tryBatch(targetBatch)
+    if ok then
+        didHatch = true
+        actualCount = count
+    else
+        for _, stepAmt in ipairs(HatchStepDownList) do
+            if stepAmt < targetBatch then
+                local stepOk, stepCount = tryBatch(stepAmt)
+                if stepOk then
+                    didHatch = true
+                    actualCount = stepCount
+                    break
+                end
+            end
+        end
+    end
+
+    if not didHatch and eggPrompt and fireproximityprompt then
+        pcall(function() fireproximityprompt(eggPrompt) end)
+    end
+
+    if didHatch and actualCount > 0 then
+        if not State.StartEggsOpened then
+            State.EggsHatched = State.EggsHatched + actualCount
+        end
         State.LastHatchTime = os.clock()
-        task.spawn(function()
-            task.wait(0.5)
-            autoEquipBestPets()
-        end)
+        pcall(autoEquipBestPets)
         return true
     end
+
     return false
 end
 
 local function buyZone1Upgrades()
     if not Config.AutoUpgrades then return end
     local now = os.clock()
-    if now - State.LastUpgradeTime < 8.0 then return end
+    if now - State.LastUpgradeTime < 6.0 then return end
     State.LastUpgradeTime = now
 
     pcall(function()
-        local targetUpgrades = { "Wall Power", "Expedition Speed", "Acorn Drops", "Offline Power", "Speed" }
+        local targetUpgrades = { "Wall Power", "Expedition Speed", "Acorn Drops", "Offline Power", "Speed", "More Diamonds", "Luck", "Damage" }
         for _, upg in ipairs(targetUpgrades) do
-            invokeRemote("Upgrades: Purchase", upg)
-            invokeRemote("Upgrades_Purchase", upg)
-            invokeRemote("EventUpgrades_Purchase", upg)
+            safeNetworkInvoke("Upgrades_Purchase", upg)
+            safeNetworkFire("Upgrades_Purchase", upg)
+            safeNetworkInvoke("EventUpgrades_Purchase", upg)
+            safeNetworkFire("EventUpgrades_Purchase", upg)
+            safeNetworkInvoke("Upgrades: Purchase", upg)
+            safeNetworkFire("Upgrades: Purchase", upg)
+        end
+    end)
+
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                local act = string.lower(desc.ActionText or "")
+                local objTxt = string.lower(desc.ObjectText or "")
+                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                if string.find(act, "upgrade") or string.find(objTxt, "upgrade") or string.find(pName, "upgrade") then
+                    local p = desc.Parent
+                    local pos = getObjectPosition(p)
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if pos and hrp and (pos - hrp.Position).Magnitude <= 25 then
+                        if fireproximityprompt then fireproximityprompt(desc) end
+                    end
+                end
+            end
         end
     end)
 end
@@ -483,9 +730,9 @@ local function buyMerchantBuffs()
 
     pcall(function()
         for slot = 1, 3 do
-            invokeRemote("Merchant: RequestPurchase", "DiamondMountain", slot)
-            invokeRemote("Merchants: RequestPurchase", "DiamondMountain", slot)
-            invokeRemote("Merchant_RequestPurchase", "DiamondMountain", slot)
+            safeNetworkInvoke("Merchant: RequestPurchase", "DiamondMountain", slot)
+            safeNetworkInvoke("Merchants: RequestPurchase", "DiamondMountain", slot)
+            safeNetworkInvoke("Merchant_RequestPurchase", "DiamondMountain", slot)
         end
     end)
 end
@@ -498,9 +745,9 @@ local function collectSecretRelics()
 
     pcall(function()
         for id = 1, 6 do
-            invokeRemote("Relics: Claim", id)
-            invokeRemote("Relics_Claim", id)
-            invokeRemote("SecretRelic_Claim", id)
+            safeNetworkFire("Relics: Claim", id)
+            safeNetworkFire("Relics_Claim", id)
+            safeNetworkFire("SecretRelic_Claim", id)
         end
         State.RelicsCollected = 6
     end)
@@ -508,14 +755,22 @@ end
 
 local function handleExpeditions()
     local now = os.clock()
-    if now - State.LastExpeditionCheck < 20.0 then return end
+    if now - State.LastExpeditionCheck < 15.0 then return end
     State.LastExpeditionCheck = now
     pcall(function()
-        invokeRemote("Expeditions_ClaimAll")
-        invokeRemote("Expeditions: ClaimAll")
+        safeNetworkInvoke("Expeditions_ClaimAll")
+        safeNetworkFire("Expeditions_ClaimAll")
+        safeNetworkInvoke("Expeditions: ClaimAll")
+        safeNetworkFire("Expeditions: ClaimAll")
         for id = 1, 4 do
-            invokeRemote("Expeditions: Claim", id)
-            invokeRemote("Expeditions_Claim", id)
+            safeNetworkInvoke("Expeditions: Claim", id)
+            safeNetworkFire("Expeditions: Claim", id)
+            safeNetworkInvoke("Expeditions_Claim", id)
+            safeNetworkFire("Expeditions_Claim", id)
+            safeNetworkInvoke("Expeditions_UnlockPedestal", id)
+            safeNetworkFire("Expeditions_UnlockPedestal", id)
+            safeNetworkInvoke("Expeditions_Send", id)
+            safeNetworkFire("Expeditions_Send", id)
         end
     end)
 end
@@ -813,8 +1068,8 @@ trackConn(BtnSetFarmPos.MouseButton1Click:Connect(function()
     end
 end))
 
-local BatchSteps = { 1, 8, 20, 50, 79 }
-local batchIdx = 5
+local BatchSteps = { 1, 4, 8, 20, 50, 79 }
+local batchIdx = 6
 trackConn(BtnHatchBatchCycle.MouseButton1Click:Connect(function()
     batchIdx = (batchIdx % #BatchSteps) + 1
     Config.HatchBatch = BatchSteps[batchIdx]
@@ -854,10 +1109,7 @@ local function runZoneFarmCycle()
     if Config.AutoHatch then
         local now = os.clock()
         if now - State.LastHatchTime >= 1.2 then
-            local eggObj, eggId = findNearestEggMachine(95)
-            if eggObj and eggId then
-                hatchNearestEgg(Config.HatchBatch)
-            end
+            hatchNearestEgg()
         end
     end
 
