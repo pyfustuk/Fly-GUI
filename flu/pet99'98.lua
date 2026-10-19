@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.8.0"
+local _VERSION = "9.9.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -178,17 +178,26 @@ local function fireNetwork(name, ...)
             end
         end)
     end
-    if ClientModules["Network"] then
+    if ClientModules["Network"] and ClientModules["Network"].Fire then
         pcall(function()
-            if ClientModules["Network"].Invoke then
-                ClientModules["Network"].Invoke(name, unpack(args))
-            end
+            ClientModules["Network"].Fire(name, unpack(args))
         end)
-        pcall(function()
-            if ClientModules["Network"].Fire then
-                ClientModules["Network"].Fire(name, unpack(args))
-            end
-        end)
+    end
+    return nil
+end
+
+local function invokeNetwork(name, ...)
+    local args = {...}
+    local remote = NetworkRemotes[name]
+    if remote and remote:IsA("RemoteFunction") then
+        local res = nil
+        pcall(function() res = remote:InvokeServer(unpack(args)) end)
+        return res
+    end
+    if ClientModules["Network"] and ClientModules["Network"].Invoke then
+        local res = nil
+        pcall(function() res = ClientModules["Network"].Invoke(name, unpack(args)) end)
+        return res
     end
     return nil
 end
@@ -397,29 +406,6 @@ local function findYetiBoss()
     local bestUid = nil
     local bestDist = 350
     pcall(function()
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("Model") then
-                local lName = string.lower(desc.Name)
-                if string.find(lName, "yeti") or string.find(lName, "abominable") then
-                    local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart") or desc:FindFirstChild("HumanoidRootPart")
-                    local pPos = p and p.Position or (desc:IsA("Model") and desc:GetPivot().Position)
-                    if pPos then
-                        local d = (pPos - targetPos).Magnitude
-                        if d < bestDist then
-                            bestDist = d
-                            bestObj = desc
-                            bestUid = desc.Name
-                        end
-                    else
-                        bestObj = desc
-                        bestUid = desc.Name
-                    end
-                end
-            end
-        end
-    end)
-    if bestObj then return bestObj, bestUid or "Yeti", bestDist end
-    pcall(function()
         local things = Workspace:FindFirstChild("__THINGS")
         if things then
             for _, folderName in ipairs({"Bosses", "Boss", "Breakables", "CustomBreakables", "EventBreakables", "Event"}) do
@@ -457,6 +443,29 @@ local function findYetiBoss()
         end
     end)
     if bestObj then return bestObj, bestUid or "Yeti", bestDist end
+    pcall(function()
+        for _, child in ipairs(Workspace:GetChildren()) do
+            if child:IsA("Model") then
+                local lName = string.lower(child.Name)
+                if string.find(lName, "yeti") or string.find(lName, "abominable") then
+                    local p = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                    local pPos = p and p.Position or child:GetPivot().Position
+                    if pPos then
+                        local d = (pPos - targetPos).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestObj = child
+                            bestUid = child.Name
+                        end
+                    else
+                        bestObj = child
+                        bestUid = child.Name
+                    end
+                end
+            end
+        end
+    end)
+    if bestObj then return bestObj, bestUid or "Yeti", bestDist end
     if ClientModules["BreakableCmds"] then
         pcall(function()
             local all = ClientModules["BreakableCmds"].All()
@@ -483,22 +492,27 @@ local function findBreakableNear(cframeTarget, maxRadius)
     local bestObj = nil
     local bestDist = maxRadius or 45
     local bestUid = nil
-
-    local bFolder = getBreakablesFolder()
-    if bFolder then
-        for _, child in ipairs(bFolder:GetChildren()) do
-            local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")) or (child:IsA("BasePart") and child)
-            if p then
-                local d = (p.Position - targetPos).Magnitude
-                if d <= bestDist then
-                    bestDist = d
-                    bestObj = child
-                    bestUid = child.Name
+    pcall(function()
+        local things = Workspace:FindFirstChild("__THINGS")
+        if things then
+            for _, fName in ipairs({"Breakables", "Chests", "CustomBreakables", "Bosses"}) do
+                local bFolder = things:FindFirstChild(fName)
+                if bFolder then
+                    for _, child in ipairs(bFolder:GetChildren()) do
+                        local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")) or (child:IsA("BasePart") and child)
+                        if p then
+                            local d = (p.Position - targetPos).Magnitude
+                            if d <= bestDist then
+                                bestDist = d
+                                bestObj = child
+                                bestUid = child.Name
+                            end
+                        end
+                    end
                 end
             end
         end
-    end
-
+    end)
     if not bestObj and ClientModules["BreakableCmds"] then
         pcall(function()
             local all = ClientModules["BreakableCmds"].All()
@@ -516,61 +530,41 @@ local function findBreakableNear(cframeTarget, maxRadius)
             end
         end)
     end
-
     if not bestObj then
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("Model") then
-                local lName = string.lower(desc.Name)
-                if string.find(lName, "yeti") or string.find(lName, "boss") or string.find(lName, "wall") or string.find(lName, "chest") then
-                    local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")
-                    if p then
-                        local d = (p.Position - targetPos).Magnitude
-                        if d <= bestDist then
-                            bestDist = d
-                            bestObj = desc
-                            bestUid = desc.Name
+        pcall(function()
+            for _, desc in ipairs(Workspace:GetChildren()) do
+                if desc:IsA("Model") then
+                    local lName = string.lower(desc.Name)
+                    if string.find(lName, "yeti") or string.find(lName, "boss") or string.find(lName, "wall") or string.find(lName, "chest") then
+                        local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")
+                        if p then
+                            local d = (p.Position - targetPos).Magnitude
+                            if d <= bestDist then
+                                bestDist = d
+                                bestObj = desc
+                                bestUid = desc.Name
+                            end
                         end
                     end
                 end
             end
-        end
+        end)
     end
-
     return bestObj, bestUid, bestDist
 end
 
 local function attackBreakableUID(uid, obj)
     if not uid then return end
     pcall(function()
-        for _ = 1, 6 do
-            fireNetwork("Breakables_PlayerDealDamage", uid)
-            fireNetwork("Breakables_Damage", uid)
-            fireNetwork("Breakables_Tap", uid)
-            fireNetwork("Breakables_Click", uid)
-        end
+        fireNetwork("Breakables_PlayerDealDamage", uid)
         fireNetwork("Breakables_JoinPet", uid)
         fireNetwork("Breakables_JoinPetAll", uid)
-        fireNetwork("Pets: Attack", uid)
-        fireNetwork("Pets_Attack", uid)
     end)
-    if ClientModules["BreakableCmds"] then
-        pcall(function()
-            if ClientModules["BreakableCmds"].Damage then
-                ClientModules["BreakableCmds"].Damage(uid)
-            end
-            if ClientModules["BreakableCmds"].Tap then
-                ClientModules["BreakableCmds"].Tap(uid)
-            end
-        end)
+    if ClientModules["BreakableCmds"] and ClientModules["BreakableCmds"].Damage then
+        pcall(function() ClientModules["BreakableCmds"].Damage(uid) end)
     end
-    if ClientModules["PetCmds"] then
-        pcall(function()
-            if ClientModules["PetCmds"].Attack then
-                ClientModules["PetCmds"].Attack(uid)
-            elseif ClientModules["PetCmds"].SetTarget then
-                ClientModules["PetCmds"].SetTarget(uid)
-            end
-        end)
+    if ClientModules["PetCmds"] and ClientModules["PetCmds"].Attack then
+        pcall(function() ClientModules["PetCmds"].Attack(uid) end)
     end
 end
 
@@ -595,79 +589,17 @@ local function farmAmbientBreakables(centerCFrame, radius)
 end
 
 local function tapBossVirtual(bossObj, uid)
-    local targetUids = {}
-    if uid then table.insert(targetUids, tostring(uid)) end
-    if bossObj and bossObj:IsA("Instance") then
-        local attrId = bossObj:GetAttribute("id") or bossObj:GetAttribute("uid") or bossObj:GetAttribute("BreakableId")
-        if attrId and tostring(attrId) ~= tostring(uid) then
-            table.insert(targetUids, tostring(attrId))
-        end
-        if bossObj.Name and bossObj.Name ~= tostring(uid) then
-            table.insert(targetUids, bossObj.Name)
-        end
-    end
-    table.insert(targetUids, "Yeti")
-    table.insert(targetUids, "Boss")
+    if not uid then return end
+    local id = tostring(uid)
     pcall(function()
-        for _, id in ipairs(targetUids) do
-            for _ = 1, 15 do
-                fireNetwork("Breakables_PlayerDealDamage", id)
-                fireNetwork("Breakables_Damage", id)
-                fireNetwork("Breakables_Tap", id)
-                fireNetwork("Breakables_Click", id)
-                fireNetwork("Breakable_Damage", id)
-                fireNetwork("TapBoss_Damage", id)
-                fireNetwork("Yeti_Tap", id)
-                fireNetwork("Boss_Tap", id)
-                fireNetwork("ClickDamage", id)
-            end
+        for _ = 1, 3 do
+            fireNetwork("Breakables_PlayerDealDamage", id)
         end
+        fireNetwork("Breakables_JoinPet", id)
+        fireNetwork("Breakables_JoinPetAll", id)
     end)
-    if ClientModules["BreakableCmds"] then
-        pcall(function()
-            for _, id in ipairs(targetUids) do
-                if ClientModules["BreakableCmds"].Damage then
-                    ClientModules["BreakableCmds"].Damage(id)
-                end
-                if ClientModules["BreakableCmds"].Tap then
-                    ClientModules["BreakableCmds"].Tap(id)
-                end
-                if ClientModules["BreakableCmds"].Hit then
-                    ClientModules["BreakableCmds"].Hit(id)
-                end
-            end
-        end)
-    end
-    if ClientModules["PlayerCmds"] then
-        pcall(function()
-            for _, id in ipairs(targetUids) do
-                if ClientModules["PlayerCmds"].Click then
-                    ClientModules["PlayerCmds"].Click(id)
-                end
-                if ClientModules["PlayerCmds"].Tap then
-                    ClientModules["PlayerCmds"].Tap(id)
-                end
-            end
-        end)
-    end
-    pcall(function()
-        for _, id in ipairs(targetUids) do
-            fireNetwork("Breakables_JoinPet", id)
-            fireNetwork("Breakables_JoinPetAll", id)
-            fireNetwork("Pets: Attack", id)
-            fireNetwork("Pets_Attack", id)
-        end
-    end)
-    if ClientModules["PetCmds"] then
-        pcall(function()
-            for _, id in ipairs(targetUids) do
-                if ClientModules["PetCmds"].Attack then
-                    ClientModules["PetCmds"].Attack(id)
-                elseif ClientModules["PetCmds"].SetTarget then
-                    ClientModules["PetCmds"].SetTarget(id)
-                end
-            end
-        end)
+    if ClientModules["BreakableCmds"] and ClientModules["BreakableCmds"].Damage then
+        pcall(function() ClientModules["BreakableCmds"].Damage(id) end)
     end
 end
 local sendAllPetsToBoss = tapBossVirtual
@@ -770,18 +702,24 @@ end
 
 local function hatchNearestEgg(eggCFrame, batchCount)
     local now = os.clock()
-    if now - State.LastHatchTime < 0.8 then return end
+    if now - State.LastHatchTime < 0.5 then return end
     State.LastHatchTime = now
     local hrp = getHRP()
     if not hrp then return end
     local safeBatch = batchCount or getSafeHatchCount()
     local targetPos = eggCFrame and eggCFrame.Position or hrp.Position
     local eggName, prompt = findNearestEgg(targetPos, 45)
-
     if prompt and fireproximityprompt then
         pcall(function() fireproximityprompt(prompt) end)
     end
-
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.04)
+            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end
+    end)
     pcall(function()
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
         if pg then
@@ -795,34 +733,23 @@ local function hatchNearestEgg(eggCFrame, batchCount)
             end
         end
     end)
-
-    local candidates = {}
-    if eggName and eggName ~= "" then table.insert(candidates, eggName) end
-    for _, cand in ipairs({"Tunnel Egg", "300x Egg", "300x Luck Egg", "Winter Cave Egg", "Cave Egg", "Snow Egg", "Winter Egg", "Winter Mountain Egg", "1", "100"}) do
-        if not table.find(candidates, cand) then table.insert(candidates, cand) end
-    end
-
-    for _, name in ipairs(candidates) do
+    local targetEgg = eggName or "Tunnel Egg"
+    pcall(function()
+        fireNetwork("Eggs_RequestPurchase", targetEgg, safeBatch)
+        fireNetwork("Eggs: RequestPurchase", targetEgg, safeBatch)
+        fireNetwork("Eggs_RequestHatch", targetEgg, safeBatch)
+        fireNetwork("Eggs: RequestHatch", targetEgg, safeBatch)
+        fireNetwork("Eggs: Hatch", targetEgg, safeBatch)
+        fireNetwork("Eggs_Hatch", targetEgg, safeBatch)
+    end)
+    if ClientModules["EggCmds"] then
         pcall(function()
-            fireNetwork("Eggs: RequestHatch", name, safeBatch)
-            fireNetwork("Eggs: Hatch", name, safeBatch)
-            fireNetwork("Eggs: Roll", name, safeBatch)
-            fireNetwork("Eggs: Open", name, safeBatch)
-            fireNetwork("Eggs_RequestHatch", name, safeBatch)
-            fireNetwork("Eggs_Hatch", name, safeBatch)
-            fireNetwork("Eggs_Roll", name, safeBatch)
-            fireNetwork("HatchEgg", name, safeBatch)
+            if ClientModules["EggCmds"].RequestPurchase then
+                ClientModules["EggCmds"].RequestPurchase(targetEgg, safeBatch)
+            elseif ClientModules["EggCmds"].Purchase then
+                ClientModules["EggCmds"].Purchase(targetEgg, safeBatch)
+            end
         end)
-        if ClientModules["EggCmds"] then
-            pcall(function()
-                if ClientModules["EggCmds"].RequestHatch then
-                    ClientModules["EggCmds"].RequestHatch(name, safeBatch)
-                elseif ClientModules["EggCmds"].Hatch then
-                    ClientModules["EggCmds"].Hatch(name, safeBatch)
-                end
-            end)
-        end
-        if eggName and name == eggName then break end
     end
 end
 
@@ -1722,31 +1649,23 @@ task.spawn(function()
 end)
 
 local function breakChestAtPoint(cframePt, chestIndex)
-    State.CurrentActionText = string.format("TUNNEL: CHECKING CHEST #%d...", chestIndex)
+    State.CurrentActionText = string.format("TUNNEL: TELEPORTING TO CHEST #%d...", chestIndex)
     pushLog(string.format("Teleporting to Chest #%d...", chestIndex))
     teleportSafely(cframePt, Vector3.new(0, 3, 0))
-    task.wait(0.35)
+    task.wait(0.3)
 
-    local acquireStart = os.clock()
-    local obj, uid, dist = nil, nil, nil
-    while State.Running and (os.clock() - acquireStart < 2.5) do
-        obj, uid, dist = findBreakableNear(cframePt, 45)
-        if obj and dist <= 45 then break end
-        task.wait(0.15)
-    end
-
-    if not obj or dist > 45 then
-        pushLog(string.format("Chest #%d already destroyed. Continuing...", chestIndex))
+    local targetObj, targetUid = findBreakableNear(cframePt, 35)
+    if not targetObj then
+        pushLog(string.format("Chest #%d already cleared. Moving on...", chestIndex))
         return
     end
 
-    State.CurrentActionText = string.format("TUNNEL: SMASHING CHEST #%d...", chestIndex)
-    pushLog(string.format("Smashing Chest #%d with pets & ult!", chestIndex))
+    State.CurrentActionText = string.format("TUNNEL: DESTROYING CHEST #%d...", chestIndex)
+    pushLog(string.format("Destroying Chest #%d with pets & taps!", chestIndex))
     local attackStart = os.clock()
     while State.Running do
-        if os.clock() - attackStart > 25 then break end
-        local currObj, currUid, currDist = findBreakableNear(cframePt, 45)
-        if not currObj or currDist > 45 then
+        if os.clock() - attackStart > 8 then break end
+        if not targetObj.Parent then
             pushLog(string.format("Chest #%d destroyed!", chestIndex))
             break
         end
@@ -1756,12 +1675,13 @@ local function breakChestAtPoint(cframePt, chestIndex)
             teleportSafely(cframePt, Vector3.new(0, 2, 0))
         end
 
-        attackBreakableUID(currUid, currObj)
-        tapBossVirtual(currObj, currUid)
+        attackBreakableUID(targetUid, targetObj)
         useUltimateAbility()
         collectGroundDrops()
-        task.wait(0.06)
+        task.wait(0.08)
     end
+    collectGroundDrops()
+    task.wait(0.15)
 end
 
 local function runTunnelSequence()
@@ -1773,22 +1693,21 @@ local function runTunnelSequence()
 
     breakChestAtPoint(Points.Chest1, 1)
     if not State.Running then return end
-    task.wait(0.2)
+    task.wait(0.15)
 
     breakChestAtPoint(Points.Chest2, 2)
     if not State.Running then return end
-    task.wait(0.2)
+    task.wait(0.15)
 
     breakChestAtPoint(Points.Chest3, 3)
     if not State.Running then return end
-    task.wait(0.2)
+    task.wait(0.15)
 
-    State.CurrentActionText = "TUNNEL EGG: 300X LUCK EGG (TRYING LUCK)..."
-    pushLog("Chests cleared! Hatching 300x egg with available acorns!")
+    State.CurrentActionText = "TUNNEL EGG: 300X LUCK EGG (HATCHING)..."
+    pushLog("Chests cleared! Teleporting to 300x egg!")
     teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
-    task.wait(0.4)
+    task.wait(0.35)
 
-    local hatchAttempts = 0
     while State.Running do
         local elapsed = os.clock() - tunnelStart
         local remaining = tunnelDuration - elapsed
@@ -1804,33 +1723,15 @@ local function runTunnelSequence()
             teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
         end
 
-        updateCurrencies()
-        hatchAttempts = hatchAttempts + 1
-
         hatchNearestEgg(Points.TunnelEgg, getSafeHatchCount())
         useUltimateAbility()
         collectGroundDrops()
-        task.wait(0.8)
-
-        if hatchAttempts >= 30 and State.CurrentAcorns <= 0 then
-            pushLog("Tunnel hatch attempts completed or acorns spent. Exiting to farm...")
-            break
-        end
+        task.wait(0.4)
     end
 
     State.TunnelOpen = false
-    local now = os.clock()
-    if State.FarmYetiEnabled and (now >= State.YetiCooldownEnd) then
-        local yObj = findBreakableNear(Points.Yeti, 85)
-        if yObj then
-            pushLog("Tunnel finished. Transitioning to Yeti boss!")
-            runYetiSequence()
-            return
-        end
-    end
-
-    teleportSafely(Points.FarmEgg, Vector3.new(0, 3, 0))
-    pushLog("Returned to Farm Zone.")
+    teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
+    pushLog("Tunnel sequence complete. Returned to farm.")
 end
 
 local function runYetiSequence()
