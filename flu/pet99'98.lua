@@ -1,26 +1,30 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub"
-local _VERSION = "4.0.0"
+local _VERSION = "4.1.0"
 
 pcall(function()
     local _players = game:GetService("Players")
     local _lp = _players.LocalPlayer
     local _vu = game:GetService("VirtualUser")
 
-    if getconnections then
+    if type(getconnections) == "function" then
         pcall(function()
             for _, conn in ipairs(getconnections(_lp.Idled)) do
-                if conn and conn.Disable then conn:Disable() end
+                pcall(function()
+                    if conn and conn.Disable then conn:Disable() end
+                end)
             end
         end)
     end
 
-    _lp.Idled:Connect(function()
-        pcall(function()
-            if _vu then
-                _vu:CaptureController()
-                _vu:ClickButton2(Vector2.new(0, 0))
-            end
+    pcall(function()
+        _lp.Idled:Connect(function()
+            pcall(function()
+                if _vu then
+                    _vu:CaptureController()
+                    _vu:ClickButton2(Vector2.new(0, 0))
+                end
+            end)
         end)
     end)
 
@@ -107,8 +111,7 @@ local State = {
     YetiCooldownEnd = 0,
     TunnelOpen = false,
     TunnelTimeRemaining = 0,
-    TunnelCooldownRemaining = 0,
-    NextTunnelEstimated = os.clock() + 900,
+    NextTunnelCheck = 0,
     NextMerchantRestock = os.clock() + 3600,
     LastFlagTime = 0,
     LastCampDeposit = 0,
@@ -116,9 +119,9 @@ local State = {
     LastUltimateTime = 0,
     LastHatchTime = 0,
     CurrentActionText = "Starting pufyftyk Autonomous Engine...",
+    CurrentPhase = "INIT",
     ProgressFraction = 0,
-    IsOled = false,
-    IsMinimized = false
+    IsOled = false
 }
 
 local function getHRP()
@@ -341,19 +344,22 @@ local function hatchNearestEgg(eggCFrame, batchCount)
 end
 
 local function checkTunnelStatus()
-    local obj, uid, dist = findBreakableNear(Points.Chest1, 15)
-    if obj and dist <= 15 then
+    local obj, uid, dist = findBreakableNear(Points.Chest1, 20)
+    if obj and dist <= 20 then
         return true
     end
     local isOpenByPart = false
     pcall(function()
         local things = Workspace:FindFirstChild("__THINGS")
         if things then
-            local gates = things:FindFirstChild("Gates") or things:FindFirstChild("Barriers")
+            local gates = things:FindFirstChild("Gates") or things:FindFirstChild("Barriers") or things:FindFirstChild("Doors")
             if gates then
-                local gate = gates:FindFirstChild("Tunnel") or gates:FindFirstChild("WinterTunnel")
-                if gate and (gate.Transparency >= 0.5 or not gate.CanCollide) then
-                    isOpenByPart = true
+                for _, g in ipairs(gates:GetChildren()) do
+                    if string.find(string.lower(g.Name), "tunnel") then
+                        if g.Transparency >= 0.5 or not g.CanCollide then
+                            isOpenByPart = true
+                        end
+                    end
                 end
             end
         end
@@ -380,6 +386,7 @@ local function depositCampPets()
     local now = os.clock()
     if now - State.LastCampDeposit < 90 then return end
     State.LastCampDeposit = now
+    State.CurrentPhase = "DEPOSIT"
     teleportTo(Points.Camp, Vector3.new(0, 3, 0))
     task.wait(0.4)
 
@@ -387,7 +394,7 @@ local function depositCampPets()
         local hrp = getHRP()
         if hrp then
             for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and (desc.Position - hrp.Position).Magnitude <= 20 then
+                if desc:IsA("ProximityPrompt") and (desc.Position - hrp.Position).Magnitude <= 25 then
                     if fireproximityprompt then
                         fireproximityprompt(desc)
                     end
@@ -420,25 +427,26 @@ end
 
 local Colors = {
     Bg = Color3.fromRGB(11, 15, 23),
+    InnerCard = Color3.fromRGB(15, 21, 33),
     Header = Color3.fromRGB(14, 19, 30),
     Card = Color3.fromRGB(16, 22, 34),
-    CardBright = Color3.fromRGB(21, 28, 44),
+    CardBright = Color3.fromRGB(22, 30, 48),
     Cyan = Color3.fromRGB(0, 215, 255),
     CyanBright = Color3.fromRGB(90, 235, 255),
     CyanDim = Color3.fromRGB(25, 95, 130),
     Amber = Color3.fromRGB(235, 125, 45),
     AmberBright = Color3.fromRGB(255, 165, 60),
-    SnowWhite = Color3.fromRGB(235, 248, 255),
-    Frost = Color3.fromRGB(150, 215, 245),
-    SubText = Color3.fromRGB(140, 175, 205),
+    SnowWhite = Color3.fromRGB(240, 250, 255),
+    Frost = Color3.fromRGB(160, 220, 250),
+    SubText = Color3.fromRGB(135, 175, 205),
     Green = Color3.fromRGB(46, 213, 115),
     Red = Color3.fromRGB(255, 75, 85),
     Gold = Color3.fromRGB(255, 210, 60),
     InputBg = Color3.fromRGB(7, 10, 16),
     OledBg = Color3.fromRGB(5, 3, 10),
     Purple = Color3.fromRGB(180, 80, 255),
-    PurpleBright = Color3.fromRGB(215, 130, 255),
-    PurpleDim = Color3.fromRGB(90, 35, 140)
+    PurpleBright = Color3.fromRGB(220, 135, 255),
+    PurpleDim = Color3.fromRGB(95, 35, 145)
 }
 
 local ParentGui = nil
@@ -463,12 +471,14 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "PS99AutonomousWinterHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 190
+ScreenGui.DisplayOrder = 200
 pcall(function() ScreenGui.IgnoreGuiInset = true end)
 ScreenGui.Parent = ParentGui
 
 local function addCorner(inst, r)
-    Instance.new("UICorner", inst).CornerRadius = UDim.new(0, r or 6)
+    local c = Instance.new("UICorner", inst)
+    c.CornerRadius = UDim.new(0, r or 6)
+    return c
 end
 
 local function addStroke(inst, col, th)
@@ -523,9 +533,8 @@ local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign,
     return l
 end
 
-local function bindSafeClick(btn, cb)
-    btn.Active = true
-    btn.Selectable = true
+local function bindSafeClick(inst, cb)
+    if not inst then return end
     local isLocked = false
     local function execute()
         if isLocked then return end
@@ -536,50 +545,93 @@ local function bindSafeClick(btn, cb)
             isLocked = false
         end)
     end
-    trackConn(btn.Activated:Connect(execute))
-    trackConn(btn.MouseButton1Click:Connect(execute))
+
+    if inst:IsA("GuiButton") then
+        pcall(function() trackConn(inst.Activated:Connect(execute)) end)
+        pcall(function() trackConn(inst.MouseButton1Click:Connect(execute)) end)
+    else
+        pcall(function()
+            trackConn(inst.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    execute()
+                end
+            end))
+        end)
+    end
 end
 
 local DayCard = Instance.new("Frame")
 DayCard.Name = "DayCardCyberIce"
-DayCard.Size = UDim2.new(0, 370, 0, 290)
-DayCard.Position = UDim2.new(0.5, -185, 0.5, -145)
+DayCard.Size = UDim2.new(0, 380, 0, 295)
+DayCard.Position = UDim2.new(0.5, -190, 0.5, -147)
 DayCard.BackgroundColor3 = Colors.Bg
 DayCard.BorderSizePixel = 0
 DayCard.ZIndex = 10
 DayCard.Parent = ScreenGui
-addCorner(DayCard, 8)
-local DayCardStroke = addStroke(DayCard, Colors.Cyan, 1.5)
-addGradient(DayCard, Colors.Bg, Color3.fromRGB(15, 21, 33), 45)
+addCorner(DayCard, 10)
+local DayCardStroke = addStroke(DayCard, Colors.Cyan, 1.8)
+addGradient(DayCard, Colors.Bg, Colors.InnerCard, 45)
 
 local DaySnowTop = Instance.new("Frame")
-DaySnowTop.Size = UDim2.new(1, 4, 0, 4)
-DaySnowTop.Position = UDim2.new(0, -2, 0, -2)
+DaySnowTop.Size = UDim2.new(1, 8, 0, 6)
+DaySnowTop.Position = UDim2.new(0, -4, 0, -4)
 DaySnowTop.BackgroundColor3 = Colors.SnowWhite
 DaySnowTop.BorderSizePixel = 0
-DaySnowTop.ZIndex = 20
+DaySnowTop.ZIndex = 25
 DaySnowTop.Parent = DayCard
 addCorner(DaySnowTop, 4)
 addGradient(DaySnowTop, Color3.fromRGB(255, 255, 255), Colors.Frost, 0)
 
-local DayCableDeco = Instance.new("Frame")
-DayCableDeco.Size = UDim2.new(0.6, 0, 0, 3)
-DayCableDeco.Position = UDim2.new(0.2, 0, 1, 0)
-DayCableDeco.BackgroundColor3 = Colors.Amber
-DayCableDeco.BorderSizePixel = 0
-DayCableDeco.ZIndex = 11
-DayCableDeco.Parent = DayCard
-addCorner(DayCableDeco, 2)
-addGradient(DayCableDeco, Colors.Amber, Colors.AmberBright, 0)
+for i = 1, 7 do
+    local icicle = Instance.new("Frame")
+    local w = math.random(6, 12)
+    local h = math.random(5, 10)
+    local xPos = (i - 1) * 52 + math.random(10, 25)
+    icicle.Size = UDim2.new(0, w, 0, h)
+    icicle.Position = UDim2.new(0, xPos, 0, 4)
+    icicle.BackgroundColor3 = Colors.SnowWhite
+    icicle.BorderSizePixel = 0
+    icicle.ZIndex = 26
+    icicle.Parent = DayCard
+    addCorner(icicle, 3)
+    addGradient(icicle, Colors.SnowWhite, Colors.Frost, 90)
+end
+
+local CableHolder = Instance.new("Frame")
+CableHolder.Size = UDim2.new(0.8, 0, 0, 10)
+CableHolder.Position = UDim2.new(0.1, 0, 1, 0)
+CableHolder.BackgroundTransparency = 1
+CableHolder.ZIndex = 8
+CableHolder.Parent = DayCard
+
+local DayCable1 = Instance.new("Frame")
+DayCable1.Size = UDim2.new(0.5, 0, 0, 4)
+DayCable1.Position = UDim2.new(0.05, 0, 0, 2)
+DayCable1.BackgroundColor3 = Colors.Amber
+DayCable1.BorderSizePixel = 0
+DayCable1.ZIndex = 8
+DayCable1.Parent = CableHolder
+addCorner(DayCable1, 2)
+addGradient(DayCable1, Colors.Amber, Colors.AmberBright, 0)
+
+local DayCable2 = Instance.new("Frame")
+DayCable2.Size = UDim2.new(0.5, 0, 0, 4)
+DayCable2.Position = UDim2.new(0.45, 0, 0, 4)
+DayCable2.BackgroundColor3 = Colors.AmberBright
+DayCable2.BorderSizePixel = 0
+DayCable2.ZIndex = 8
+DayCable2.Parent = CableHolder
+addCorner(DayCable2, 2)
+addGradient(DayCable2, Colors.AmberBright, Colors.Amber, 0)
 
 local DayTopHeader = Instance.new("Frame")
-DayTopHeader.Size = UDim2.new(1, 0, 0, 44)
+DayTopHeader.Size = UDim2.new(1, 0, 0, 46)
 DayTopHeader.BackgroundColor3 = Colors.Header
 DayTopHeader.BorderSizePixel = 0
 DayTopHeader.ZIndex = 11
 DayTopHeader.Active = true
 DayTopHeader.Parent = DayCard
-addCorner(DayTopHeader, 8)
+addCorner(DayTopHeader, 10)
 addGradient(DayTopHeader, Color3.fromRGB(20, 28, 44), Colors.Header, 90)
 
 local isDragging = false
@@ -607,14 +659,24 @@ do
     end)
 end
 
-makeLabel(DayTopHeader, UDim2.new(1, -120, 0, 22), UDim2.new(0, 12, 0, 3), "pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 15)
-makeLabel(DayTopHeader, UDim2.new(1, -120, 0, 16), UDim2.new(0, 12, 0, 24), "SYSTEM STATUS: OK // WINTER AFK HUB", Colors.SubText, Enum.Font.Gotham, 9)
+makeLabel(DayTopHeader, UDim2.new(0, 100, 0, 24), UDim2.new(0, 12, 0, 3), "pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 16)
+local SysStatusBadge = Instance.new("Frame")
+SysStatusBadge.Size = UDim2.new(0, 140, 0, 16)
+SysStatusBadge.Position = UDim2.new(0, 12, 0, 26)
+SysStatusBadge.BackgroundColor3 = Color3.fromRGB(8, 12, 20)
+SysStatusBadge.BorderSizePixel = 0
+SysStatusBadge.ZIndex = 12
+SysStatusBadge.Parent = DayTopHeader
+addCorner(SysStatusBadge, 3)
+addStroke(SysStatusBadge, Colors.Amber, 1)
 
-local BtnOledSwitch = makeBtn(DayTopHeader, UDim2.new(0, 52, 0, 24), UDim2.new(1, -114, 0, 10), Colors.PurpleDim, "OLED", 10, 5)
-local BtnDayMin = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -58, 0, 10), Colors.CardBright, "-", 13, 5)
-local BtnDayClose = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -30, 0, 10), Colors.Red, "X", 11, 5)
+makeLabel(SysStatusBadge, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "SYSTEM STATUS: OK // WINTER", Colors.AmberBright, Enum.Font.GothamBold, 8, Enum.TextXAlignment.Center, 13)
 
-local MiniBadge = makeBtn(ScreenGui, UDim2.new(0, 140, 0, 34), UDim2.new(0, 10, 0, 10), Colors.Header, "[*] pufyftyk Hub", 11, 8)
+local BtnOledSwitch = makeBtn(DayTopHeader, UDim2.new(0, 50, 0, 24), UDim2.new(1, -114, 0, 11), Colors.PurpleDim, "OLED", 10, 5)
+local BtnDayMin = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -58, 0, 11), Colors.CardBright, "-", 13, 5)
+local BtnDayClose = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -30, 0, 11), Colors.Red, "X", 11, 5)
+
+local MiniBadge = makeBtn(ScreenGui, UDim2.new(0, 145, 0, 36), UDim2.new(0, 10, 0, 10), Colors.Header, "[*] pufyftyk Hub", 11, 8)
 MiniBadge.TextColor3 = Colors.CyanBright
 MiniBadge.Visible = false
 addStroke(MiniBadge, Colors.Cyan, 1.5)
@@ -629,7 +691,7 @@ bindSafeClick(MiniBadge, function()
     MiniBadge.Visible = false
 end)
 
-local function createDayStatBox(parent, title, initVal, posX, posY, w, h, col)
+local function createDayStatBox(parent, iconTxt, title, initVal, posX, posY, w, h, col, strokeCol)
     local box = Instance.new("Frame")
     box.Size = UDim2.new(0, w, 0, h)
     box.Position = UDim2.new(0, posX, 0, posY)
@@ -637,24 +699,25 @@ local function createDayStatBox(parent, title, initVal, posX, posY, w, h, col)
     box.BorderSizePixel = 0
     box.ZIndex = 12
     box.Parent = parent
-    addCorner(box, 5)
-    addStroke(box, Colors.CyanDim, 1)
-    makeLabel(box, UDim2.new(1, -6, 0, 12), UDim2.new(0, 4, 0, 2), title, Colors.SubText, Enum.Font.Gotham, 8)
-    local lbl = makeLabel(box, UDim2.new(1, -6, 0, h - 14), UDim2.new(0, 4, 0, 12), initVal, col or Colors.SnowWhite, Enum.Font.GothamBold, 10)
+    addCorner(box, 6)
+    addStroke(box, strokeCol or Colors.CyanDim, 1.2)
+
+    makeLabel(box, UDim2.new(1, -6, 0, 12), UDim2.new(0, 6, 0, 2), string.format("%s %s", iconTxt, title), Colors.SubText, Enum.Font.Gotham, 8)
+    local lbl = makeLabel(box, UDim2.new(1, -6, 0, h - 14), UDim2.new(0, 6, 0, 13), initVal, col or Colors.SnowWhite, Enum.Font.GothamBold, 10)
     return lbl
 end
 
-local DayLblYeti = createDayStatBox(DayCard, "YETI KILLS", "0", 8, 50, 84, 32, Colors.SnowWhite)
-local DayLblTunnel = createDayStatBox(DayCard, "TUNNEL", "Checking...", 96, 50, 88, 32, Colors.CyanBright)
-local DayLblYetiState = createDayStatBox(DayCard, "YETI STATUS", "READY", 188, 50, 88, 32, Colors.AmberBright)
-local DayLblAcorns = createDayStatBox(DayCard, "ACORNS", "0 / 2.6T", 280, 50, 82, 32, Colors.Gold)
+local DayLblYeti = createDayStatBox(DayCard, "[+]", "YETI KILLS", "0", 8, 52, 86, 34, Colors.SnowWhite)
+local DayLblTunnel = createDayStatBox(DayCard, "[O]", "TUNNEL", "CHECKING", 98, 52, 90, 34, Colors.CyanBright)
+local DayLblYetiState = createDayStatBox(DayCard, "[*]", "YETI", "READY", 192, 52, 90, 34, Colors.AmberBright, Colors.Amber)
+local DayLblAcorns = createDayStatBox(DayCard, "[$]", "ACORNS", "0 / 2.6T", 286, 52, 86, 34, Colors.Gold)
 
-local DayLblGems = createDayStatBox(DayCard, "GEMS GAINED", "+0", 8, 86, 176, 32, Colors.CyanBright)
-local DayLblMerchant = createDayStatBox(DayCard, "MERCHANT RESTOCK", "00:00", 188, 86, 174, 32, Colors.SnowWhite)
+local DayLblGems = createDayStatBox(DayCard, "[#]", "GEMS GAINED", "+0", 8, 90, 180, 32, Colors.CyanBright)
+local DayLblMerchant = createDayStatBox(DayCard, "[@]", "MERCHANT RESTOCK", "00:00", 192, 90, 180, 32, Colors.SnowWhite)
 
 local ActionFrame = Instance.new("Frame")
-ActionFrame.Size = UDim2.new(1, -16, 0, 56)
-ActionFrame.Position = UDim2.new(0, 8, 0, 124)
+ActionFrame.Size = UDim2.new(1, -16, 0, 58)
+ActionFrame.Position = UDim2.new(0, 8, 0, 128)
 ActionFrame.BackgroundColor3 = Colors.InputBg
 ActionFrame.BorderSizePixel = 0
 ActionFrame.ZIndex = 12
@@ -662,43 +725,97 @@ ActionFrame.Parent = DayCard
 addCorner(ActionFrame, 6)
 addStroke(ActionFrame, Colors.CyanDim, 1)
 
-makeLabel(ActionFrame, UDim2.new(1, -12, 0, 14), UDim2.new(0, 6, 0, 4), "CURRENT ACTION / STATE", Colors.SubText, Enum.Font.Gotham, 8)
-local DayLblAction = makeLabel(ActionFrame, UDim2.new(1, -12, 0, 18), UDim2.new(0, 6, 0, 16), "Autonomous Auto-Pilot Starting...", Colors.SnowWhite, Enum.Font.GothamBold, 11)
+makeLabel(ActionFrame, UDim2.new(1, -12, 0, 14), UDim2.new(0, 8, 0, 4), "CURRENT ACTION:", Colors.SubText, Enum.Font.Gotham, 8)
+local DayLblAction = makeLabel(ActionFrame, UDim2.new(1, -12, 0, 18), UDim2.new(0, 8, 0, 16), "INITIALIZING ENGINE...", Colors.SnowWhite, Enum.Font.GothamBold, 11)
 
-local ProgressBarBg = Instance.new("Frame")
-ProgressBarBg.Size = UDim2.new(1, -12, 0, 10)
-ProgressBarBg.Position = UDim2.new(0, 6, 0, 38)
-ProgressBarBg.BackgroundColor3 = Colors.Card
-ProgressBarBg.BorderSizePixel = 0
-ProgressBarBg.ZIndex = 13
-ProgressBarBg.Parent = ActionFrame
-addCorner(ProgressBarBg, 4)
+local SegMeterFrame = Instance.new("Frame")
+SegMeterFrame.Size = UDim2.new(1, -16, 0, 12)
+SegMeterFrame.Position = UDim2.new(0, 8, 0, 38)
+SegMeterFrame.BackgroundColor3 = Colors.Card
+SegMeterFrame.BorderSizePixel = 0
+SegMeterFrame.ZIndex = 13
+SegMeterFrame.Parent = ActionFrame
+addCorner(SegMeterFrame, 3)
 
-local ProgressBarFill = Instance.new("Frame")
-ProgressBarFill.Size = UDim2.new(0.5, 0, 1, 0)
-ProgressBarFill.BackgroundColor3 = Colors.Cyan
-ProgressBarFill.BorderSizePixel = 0
-ProgressBarFill.ZIndex = 14
-ProgressBarFill.Parent = ProgressBarBg
-addCorner(ProgressBarFill, 4)
-addGradient(ProgressBarFill, Colors.CyanBright, Colors.Cyan, 0)
+local SegBlocks = {}
+local TotalSegments = 20
+for s = 1, TotalSegments do
+    local b = Instance.new("Frame")
+    b.Size = UDim2.new(1 / TotalSegments, -2, 1, 0)
+    b.Position = UDim2.new((s - 1) / TotalSegments, 1, 0, 0)
+    b.BackgroundColor3 = Colors.CyanDim
+    b.BorderSizePixel = 0
+    b.ZIndex = 14
+    b.Parent = SegMeterFrame
+    addCorner(b, 2)
+    table.insert(SegBlocks, b)
+end
 
-local InfoBanner = Instance.new("Frame")
-InfoBanner.Size = UDim2.new(1, -16, 0, 42)
-InfoBanner.Position = UDim2.new(0, 8, 0, 186)
-InfoBanner.BackgroundColor3 = Colors.Card
-InfoBanner.BorderSizePixel = 0
-InfoBanner.ZIndex = 12
-InfoBanner.Parent = DayCard
-addCorner(InfoBanner, 6)
-addStroke(InfoBanner, Colors.CyanDim, 1)
+local function setMeterPercent(pct)
+    pct = math.clamp(pct or 0, 0, 1)
+    local activeCount = math.floor(pct * TotalSegments)
+    for idx, blk in ipairs(SegBlocks) do
+        if idx <= activeCount then
+            blk.BackgroundColor3 = Colors.CyanBright
+        else
+            blk.BackgroundColor3 = Colors.CardBright
+        end
+    end
+end
 
-local DayLblSubLog = makeLabel(InfoBanner, UDim2.new(1, -12, 1, -4), UDim2.new(0, 6, 0, 2), "Engine: Auto Tunnel (3 Chests + 300x Egg) | Auto Yeti (Rainbow Shiny) | Magnet Flag | Auto Buy Merchant", Colors.SubText, Enum.Font.Gotham, 9)
-DayLblSubLog.TextWrapped = true
+local BadgesRow = Instance.new("Frame")
+BadgesRow.Size = UDim2.new(1, -16, 0, 32)
+BadgesRow.Position = UDim2.new(0, 8, 0, 192)
+BadgesRow.BackgroundTransparency = 1
+BadgesRow.ZIndex = 12
+BadgesRow.Parent = DayCard
+
+local PillList = {
+    { Name = "TUNNEL", Label = "[AUTO TUNNEL]", Col = Colors.Cyan },
+    { Name = "YETI", Label = "[FARM YETI]", Col = Colors.AmberBright },
+    { Name = "DEPOSIT", Label = "[DEPOSIT PETS]", Col = Colors.PurpleBright },
+    { Name = "FLAG", Label = "[MAGNET FLAG]", Col = Colors.Green },
+    { Name = "OLED", Label = "[OLED SLEEP]", Col = Colors.Purple }
+}
+
+local PillFrames = {}
+for i, item in ipairs(PillList) do
+    local pill = makeBtn(BadgesRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.2 * (i - 1), 2, 0, 0), Colors.Card, item.Label, 8, 5)
+    pill.TextColor3 = Colors.SubText
+    PillFrames[item.Name] = pill
+
+    if item.Name == "OLED" then
+        bindSafeClick(pill, function()
+            State.IsOled = true
+        end)
+    end
+end
+
+local function updateActivePills()
+    for name, pBtn in pairs(PillFrames) do
+        local isAct = false
+        if name == "TUNNEL" and State.CurrentPhase == "TUNNEL" then isAct = true end
+        if name == "YETI" and State.CurrentPhase == "YETI" then isAct = true end
+        if name == "DEPOSIT" and State.CurrentPhase == "DEPOSIT" then isAct = true end
+        if name == "FLAG" and State.CurrentPhase == "FLAG" then isAct = true end
+
+        if isAct then
+            pBtn.BackgroundColor3 = Colors.CardBright
+            pBtn.TextColor3 = Colors.CyanBright
+            local s = pBtn:FindFirstChildOfClass("UIStroke")
+            if s then s.Color = Colors.CyanBright s.Thickness = 1.4 end
+        else
+            pBtn.BackgroundColor3 = Colors.Card
+            pBtn.TextColor3 = Colors.SubText
+            local s = pBtn:FindFirstChildOfClass("UIStroke")
+            if s then s.Color = Colors.CyanDim s.Thickness = 1 end
+        end
+    end
+end
 
 local DayBottomBar = Instance.new("Frame")
 DayBottomBar.Size = UDim2.new(1, -16, 0, 48)
-DayBottomBar.Position = UDim2.new(0, 8, 0, 234)
+DayBottomBar.Position = UDim2.new(0, 8, 0, 230)
 DayBottomBar.BackgroundTransparency = 1
 DayBottomBar.ZIndex = 12
 DayBottomBar.Parent = DayCard
@@ -722,7 +839,7 @@ DayPulseDot.ZIndex = 14
 DayPulseDot.Parent = DayStatusPill
 addCorner(DayPulseDot, 4)
 
-local DayLblLiveInfo = makeLabel(DayStatusPill, UDim2.new(1, -24, 1, 0), UDim2.new(0, 22, 0, 0), "AUTONOMOUS MODE: FULLY ACTIVE // by pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 9)
+makeLabel(DayStatusPill, UDim2.new(1, -24, 1, 0), UDim2.new(0, 22, 0, 0), "AUTONOMOUS AUTOPILOT ACTIVE // by pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 9)
 
 local OledOverlay = Instance.new("Frame")
 OledOverlay.Name = "OledScreenOverlay"
@@ -743,11 +860,11 @@ OledCard.BorderSizePixel = 0
 OledCard.ZIndex = 61
 OledCard.Parent = OledOverlay
 addCorner(OledCard, 10)
-local OledStroke = addStroke(OledCard, Colors.Purple, 1.6)
+local OledStroke = addStroke(OledCard, Colors.Purple, 1.8)
 
 local OledSnowTop = Instance.new("Frame")
-OledSnowTop.Size = UDim2.new(1, 4, 0, 4)
-OledSnowTop.Position = UDim2.new(0, -2, 0, -2)
+OledSnowTop.Size = UDim2.new(1, 6, 0, 5)
+OledSnowTop.Position = UDim2.new(0, -3, 0, -3)
 OledSnowTop.BackgroundColor3 = Colors.SnowWhite
 OledSnowTop.BorderSizePixel = 0
 OledSnowTop.ZIndex = 65
@@ -755,18 +872,32 @@ OledSnowTop.Parent = OledCard
 addCorner(OledSnowTop, 4)
 addGradient(OledSnowTop, Color3.fromRGB(255, 255, 255), Colors.Frost, 0)
 
-local OledCableDeco = Instance.new("Frame")
-OledCableDeco.Size = UDim2.new(0.6, 0, 0, 3)
-OledCableDeco.Position = UDim2.new(0.2, 0, 1, 0)
-OledCableDeco.BackgroundColor3 = Colors.PurpleBright
-OledCableDeco.BorderSizePixel = 0
-OledCableDeco.ZIndex = 62
-OledCableDeco.Parent = OledCard
-addCorner(OledCableDeco, 2)
-addGradient(OledCableDeco, Colors.PurpleBright, Colors.PurpleDim, 0)
+for j = 1, 6 do
+    local oicicle = Instance.new("Frame")
+    local w = math.random(5, 10)
+    local h = math.random(4, 8)
+    local xPos = (j - 1) * 58 + math.random(10, 20)
+    oicicle.Size = UDim2.new(0, w, 0, h)
+    oicicle.Position = UDim2.new(0, xPos, 0, 3)
+    oicicle.BackgroundColor3 = Colors.SnowWhite
+    oicicle.BorderSizePixel = 0
+    oicicle.ZIndex = 66
+    oicicle.Parent = OledCard
+    addCorner(oicicle, 2)
+end
 
-local OledLogo = makeLabel(OledCard, UDim2.new(1, 0, 0, 28), UDim2.new(0, 0, 0, 8), "<< by pufyftyk >>", Colors.PurpleBright, Enum.Font.GothamBold, 18, Enum.TextXAlignment.Center, 63)
-local OledSubLogo = makeLabel(OledCard, UDim2.new(1, 0, 0, 16), UDim2.new(0, 0, 0, 34), "(retrained text) // OLED STATS MONITOR", Colors.SubText, Enum.Font.Gotham, 9, Enum.TextXAlignment.Center, 63)
+local OledCable = Instance.new("Frame")
+OledCable.Size = UDim2.new(0.6, 0, 0, 4)
+OledCable.Position = UDim2.new(0.2, 0, 1, 0)
+OledCable.BackgroundColor3 = Colors.PurpleBright
+OledCable.BorderSizePixel = 0
+OledCable.ZIndex = 62
+OledCable.Parent = OledCard
+addCorner(OledCable, 2)
+addGradient(OledCable, Colors.PurpleBright, Colors.PurpleDim, 0)
+
+makeLabel(OledCard, UDim2.new(1, 0, 0, 26), UDim2.new(0, 0, 0, 8), "<< by pufyftyk >>", Colors.PurpleBright, Enum.Font.GothamBold, 18, Enum.TextXAlignment.Center, 63)
+makeLabel(OledCard, UDim2.new(1, 0, 0, 16), UDim2.new(0, 0, 0, 32), "(retrained text) // OLED STATS MONITOR", Colors.SubText, Enum.Font.Gotham, 9, Enum.TextXAlignment.Center, 63)
 
 local function createOledStatRow(parent, labelText, valText, posY, valColor)
     local row = Instance.new("Frame")
@@ -784,14 +915,14 @@ local function createOledStatRow(parent, labelText, valText, posY, valColor)
     return vLbl
 end
 
-local OledLblGems = createOledStatRow(OledCard, "GEMS GAINED:", "+0", 56, Colors.PurpleBright)
-local OledLblYeti = createOledStatRow(OledCard, "YETI KILLS:", "0", 84, Colors.SnowWhite)
-local OledLblAcorns = createOledStatRow(OledCard, "ACORNS:", "0 / 2.60T", 112, Colors.Gold)
-local OledLblTunnel = createOledStatRow(OledCard, "TUNNEL STATUS:", "CHECKING", 140, Colors.CyanBright)
+local OledLblGems = createOledStatRow(OledCard, "GEMS GAINED:", "+0", 54, Colors.PurpleBright)
+local OledLblYeti = createOledStatRow(OledCard, "YETI KILLS:", "0", 82, Colors.SnowWhite)
+local OledLblAcorns = createOledStatRow(OledCard, "ACORNS:", "0 / 2.60T", 110, Colors.Gold)
+local OledLblTunnel = createOledStatRow(OledCard, "TUNNEL STATUS:", "CHECKING", 138, Colors.CyanBright)
 local OledLblMerchant = createOledStatRow(OledCard, "MERCHANT RESTOCK:", "00:00", 168, Colors.SnowWhite)
 local OledLblAction = createOledStatRow(OledCard, "CURRENT ACTION:", "Starting...", 196, Colors.Green)
 
-local BtnWakeScreen = makeBtn(OledCard, UDim2.new(0, 160, 0, 32), UDim2.new(0.5, -80, 0, 232), Colors.PurpleDim, "[+] WAKE SCREEN", 11, 6, 64)
+local BtnWakeScreen = makeBtn(OledCard, UDim2.new(0, 160, 0, 32), UDim2.new(0.5, -80, 0, 234), Colors.PurpleDim, "[+] WAKE SCREEN", 11, 6, 64)
 BtnWakeScreen.TextColor3 = Colors.PurpleBright
 addStroke(BtnWakeScreen, Colors.Purple, 1.2)
 
@@ -837,13 +968,14 @@ task.spawn(function()
 
         if DayCard.Visible then
             DayCardStroke.Color = Color3.fromRGB(math.floor(0 + glowCycle * 60), math.floor(180 + glowCycle * 60), 255)
-            DayCableDeco.BackgroundColor3 = Color3.fromRGB(math.floor(220 + glowCycle * 35), math.floor(110 + glowCycle * 40), 30)
+            DayCable1.BackgroundColor3 = Color3.fromRGB(math.floor(220 + glowCycle * 35), math.floor(110 + glowCycle * 40), 30)
+            DayCable2.BackgroundColor3 = Color3.fromRGB(math.floor(255 - glowCycle * 30), math.floor(140 + glowCycle * 40), 50)
             DayPulseDot.BackgroundTransparency = (pulseCount % 2 == 0) and 0.1 or 0.7
         end
 
         if OledOverlay.Visible then
             OledStroke.Color = Color3.fromRGB(math.floor(160 + glowCycle * 55), math.floor(60 + glowCycle * 50), 255)
-            OledCableDeco.BackgroundColor3 = Color3.fromRGB(math.floor(180 + glowCycle * 60), math.floor(80 + glowCycle * 40), 255)
+            OledCable.BackgroundColor3 = Color3.fromRGB(math.floor(180 + glowCycle * 60), math.floor(80 + glowCycle * 40), 255)
         end
 
         task.wait(0.2)
@@ -871,8 +1003,7 @@ task.spawn(function()
             if State.TunnelOpen then
                 tunnelText = string.format("OPEN (%s)", formatDuration(State.TunnelTimeRemaining))
             else
-                local untilNext = math.max(0, math.floor(State.NextTunnelEstimated - now))
-                tunnelText = string.format("CD (%s)", formatDuration(untilNext))
+                tunnelText = "STANDBY"
             end
 
             local yetiStatusText = "READY"
@@ -889,8 +1020,8 @@ task.spawn(function()
             DayLblMerchant.Text = merchantText
             DayLblAction.Text = State.CurrentActionText
 
-            local frac = math.clamp(State.ProgressFraction or 0, 0, 1)
-            ProgressBarFill.Size = UDim2.new(frac, 0, 1, 0)
+            setMeterPercent(State.ProgressFraction)
+            updateActivePills()
 
             OledLblGems.Text = gemsText
             OledLblYeti.Text = yetiKillsText
@@ -898,18 +1029,23 @@ task.spawn(function()
             OledLblTunnel.Text = tunnelText
             OledLblMerchant.Text = merchantText
             OledLblAction.Text = State.CurrentActionText
+
+            if State.IsOled ~= OledOverlay.Visible then
+                setOledMode(State.IsOled)
+            end
         end)
         task.wait(0.25)
     end
 end)
 
 local function breakChestAtPoint(cframePt, chestIndex)
+    State.CurrentPhase = "TUNNEL"
     State.CurrentActionText = string.format("Tunnel: Smashing Chest #%d...", chestIndex)
     teleportTo(cframePt, Vector3.new(0, 3, 0))
 
     local startTime = os.clock()
     while State.Running do
-        if os.clock() - startTime > 30 then break end
+        if os.clock() - startTime > 25 then break end
         local obj, uid, dist = findBreakableNear(cframePt, 18)
         if not obj or dist > 18 then
             break
@@ -917,12 +1053,13 @@ local function breakChestAtPoint(cframePt, chestIndex)
         teleportTo(cframePt, Vector3.new(0, 2, 0))
         attackBreakableUID(uid, obj)
         useUltimateAbility()
-        task.wait(0.15)
+        task.wait(0.12)
     end
 end
 
 local function runTunnelSequence()
     State.TunnelOpen = true
+    State.CurrentPhase = "TUNNEL"
     local tunnelStart = os.clock()
     local tunnelDuration = 300
 
@@ -952,16 +1089,16 @@ local function runTunnelSequence()
             task.wait(1.0)
         end
     else
-        State.CurrentActionText = "Tunnel Egg Skipped (Acorns < 2.6T). Exiting to Farm..."
+        State.CurrentActionText = "Tunnel Egg Skipped (< 2.6T Acorns). Teleporting to Farm..."
         task.wait(1.0)
     end
 
     teleportTo(Points.FarmEgg, Vector3.new(0, 3, 0))
     State.TunnelOpen = false
-    State.NextTunnelEstimated = os.clock() + 900
 end
 
 local function runYetiSequence()
+    State.CurrentPhase = "YETI"
     State.CurrentActionText = "Yeti: Engaging Boss Wall..."
     teleportTo(Points.Yeti, Vector3.new(0, 2, 0))
 
@@ -998,10 +1135,10 @@ local function runFreeTimeSequence()
     local now = os.clock()
 
     if now - State.LastCampDeposit > 180 then
-        State.CurrentActionText = "Camp: Depositing Pets for Rainbow Shiny..."
         depositCampPets()
     end
 
+    State.CurrentPhase = "FLAG"
     State.CurrentActionText = "Farm Zone: Farming Acorns & Base Eggs..."
     teleportTo(Points.FarmEgg, Vector3.new(0, 2, 0))
 
