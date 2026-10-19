@@ -1,5 +1,5 @@
 local _CREATOR = "by pufyftyk"
-local _PROJECT = "PS99 Diamond Mountain - Map Points Scanner"
+local _PROJECT = "PS99 Point Recorder"
 local _VERSION = "1.0.0"
 
 pcall(function()
@@ -10,7 +10,6 @@ end)
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
@@ -34,18 +33,6 @@ local function copyText(str)
         end
         print(str)
     end)
-end
-
-local function getObjectPos(obj)
-    if not obj then return nil end
-    if obj:IsA("BasePart") then return obj.Position end
-    if obj:IsA("Model") then
-        if obj.PrimaryPart then return obj.PrimaryPart.Position end
-        local p = obj:FindFirstChildWhichIsA("BasePart")
-        if p then return p.Position end
-    end
-    if obj:IsA("Attachment") then return obj.WorldPosition end
-    return nil
 end
 
 local Colors = {
@@ -74,16 +61,16 @@ end
 if not ParentGui then ParentGui = Workspace end
 
 pcall(function()
-    if ParentGui:FindFirstChild("PS99MapScanner") then
-        ParentGui:FindFirstChild("PS99MapScanner"):Destroy()
+    if ParentGui:FindFirstChild("PS99PointRecorder") then
+        ParentGui:FindFirstChild("PS99PointRecorder"):Destroy()
     end
 end)
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PS99MapScanner"
+ScreenGui.Name = "PS99PointRecorder"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 110
+ScreenGui.DisplayOrder = 120
 pcall(function() ScreenGui.IgnoreGuiInset = true end)
 ScreenGui.Parent = ParentGui
 
@@ -158,9 +145,9 @@ local function bindClick(btn, cb)
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "ScannerCard"
-MainFrame.Size = UDim2.new(0, 360, 0, 320)
-MainFrame.Position = UDim2.new(0.5, -180, 0.5, -160)
+MainFrame.Name = "RecorderCard"
+MainFrame.Size = UDim2.new(0, 340, 0, 310)
+MainFrame.Position = UDim2.new(0.5, -170, 0.5, -155)
 MainFrame.BackgroundColor3 = Colors.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.ZIndex = 10
@@ -169,7 +156,7 @@ addCorner(MainFrame, 10)
 addStroke(MainFrame, Colors.Stroke, 1.5)
 
 local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.Size = UDim2.new(1, 0, 0, 38)
 TopBar.BackgroundColor3 = Colors.Header
 TopBar.BorderSizePixel = 0
 TopBar.ZIndex = 11
@@ -201,15 +188,15 @@ do
     end)
 end
 
-makeLabel(TopBar, UDim2.new(1, -70, 0, 20), UDim2.new(0, 10, 0, 3), "[*] MAP POINTS SCANNER | by pufyftyk", Colors.IceAccent, Enum.Font.GothamBold, 12)
-makeLabel(TopBar, UDim2.new(1, -70, 0, 14), UDim2.new(0, 10, 0, 22), "Eggs | Farm Zones | Tunnels Scanner", Colors.SubText, Enum.Font.Gotham, 10)
+makeLabel(TopBar, UDim2.new(1, -60, 0, 20), UDim2.new(0, 10, 0, 3), "[*] POINT RECORDER | by pufyftyk", Colors.IceAccent, Enum.Font.GothamBold, 12)
+makeLabel(TopBar, UDim2.new(1, -60, 0, 14), UDim2.new(0, 10, 0, 20), "Stand & Record Points for Chat", Colors.SubText, Enum.Font.Gotham, 10)
 
-local CloseBtn = makeBtn(TopBar, UDim2.new(0, 26, 0, 24), UDim2.new(1, -32, 0, 8), Colors.Red, "X", 12)
+local CloseBtn = makeBtn(TopBar, UDim2.new(0, 24, 0, 22), UDim2.new(1, -28, 0, 8), Colors.Red, "X", 12)
 bindClick(CloseBtn, function() ScreenGui:Destroy() end)
 
 local PosBox = Instance.new("Frame")
-PosBox.Size = UDim2.new(1, -16, 0, 32)
-PosBox.Position = UDim2.new(0, 8, 0, 46)
+PosBox.Size = UDim2.new(1, -16, 0, 26)
+PosBox.Position = UDim2.new(0, 8, 0, 44)
 PosBox.BackgroundColor3 = Colors.Card
 PosBox.BorderSizePixel = 0
 PosBox.ZIndex = 12
@@ -217,22 +204,42 @@ PosBox.Parent = MainFrame
 addCorner(PosBox, 6)
 addStroke(PosBox, Colors.Stroke, 1)
 
-local PosLabel = makeLabel(PosBox, UDim2.new(1, -90, 1, 0), UDim2.new(0, 8, 0, 0), "Pos: (0, 0, 0)", Colors.SnowWhite, Enum.Font.Gotham, 10)
-local CopyPosBtn = makeBtn(PosBox, UDim2.new(0, 76, 0, 22), UDim2.new(1, -82, 0, 5), Colors.Green, "Copy Pos", 10)
+local PosLabel = makeLabel(PosBox, UDim2.new(1, -10, 1, 0), UDim2.new(0, 8, 0, 0), "Current Pos: (0, 0, 0)", Colors.SnowWhite, Enum.Font.Gotham, 10)
 
-bindClick(CopyPosBtn, function()
-    local hrp = getHRP()
-    if hrp then
-        local s = string.format("CFrame.new(%.1f, %.1f, %.1f)", hrp.Position.X, hrp.Position.Y, hrp.Position.Z)
-        copyText(s)
-        PosLabel.Text = "COPIED: " .. s
-    end
-end)
+local TagRow = Instance.new("Frame")
+TagRow.Size = UDim2.new(1, -16, 0, 24)
+TagRow.Position = UDim2.new(0, 8, 0, 74)
+TagRow.BackgroundTransparency = 1
+TagRow.ZIndex = 12
+TagRow.Parent = MainFrame
+
+local SelectedTag = "Spot"
+local TagEggBtn = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0, 0, 0, 0), Colors.Card, "Egg", 9)
+local TagTunnelBtn = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.2, 2, 0, 0), Colors.Card, "Tunnel", 9)
+local TagChestBtn = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.4, 4, 0, 0), Colors.Card, "Chest", 9)
+local TagCampBtn = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.6, 6, 0, 0), Colors.Card, "Camp", 9)
+local TagWallBtn = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.8, 8, 0, 0), Colors.Card, "Wall", 9)
+
+local function updateTagButtons()
+    TagEggBtn.BackgroundColor3 = (SelectedTag == "Egg") and Colors.Green or Colors.Card
+    TagTunnelBtn.BackgroundColor3 = (SelectedTag == "Tunnel") and Colors.Green or Colors.Card
+    TagChestBtn.BackgroundColor3 = (SelectedTag == "Chest") and Colors.Green or Colors.Card
+    TagCampBtn.BackgroundColor3 = (SelectedTag == "Camp") and Colors.Green or Colors.Card
+    TagWallBtn.BackgroundColor3 = (SelectedTag == "Wall") and Colors.Green or Colors.Card
+end
+
+bindClick(TagEggBtn, function() SelectedTag = "Egg" updateTagButtons() end)
+bindClick(TagTunnelBtn, function() SelectedTag = "Tunnel" updateTagButtons() end)
+bindClick(TagChestBtn, function() SelectedTag = "Chest" updateTagButtons() end)
+bindClick(TagCampBtn, function() SelectedTag = "Camp" updateTagButtons() end)
+bindClick(TagWallBtn, function() SelectedTag = "Wall" updateTagButtons() end)
+
+local AddPointBtn = makeBtn(MainFrame, UDim2.new(1, -16, 0, 28), UDim2.new(0, 8, 0, 102), Colors.Green, "[+] RECORD THIS SPOT", 11)
 
 local ScrollFrame = Instance.new("ScrollingFrame")
-ScrollFrame.Size = UDim2.new(1, -16, 0, 195)
-ScrollFrame.Position = UDim2.new(0, 8, 0, 84)
-ScrollFrame.BackgroundColor3 = Color3.fromRGB(10, 14, 24)
+ScrollFrame.Size = UDim2.new(1, -16, 0, 115)
+ScrollFrame.Position = UDim2.new(0, 8, 0, 134)
+ScrollFrame.BackgroundColor3 = Color3.fromRGB(8, 12, 20)
 ScrollFrame.BorderSizePixel = 0
 ScrollFrame.ScrollBarThickness = 4
 ScrollFrame.ScrollBarImageColor3 = Colors.IceAccent
@@ -246,147 +253,94 @@ UIList.Padding = UDim.new(0, 4)
 UIList.SortOrder = Enum.SortOrder.LayoutOrder
 UIList.Parent = ScrollFrame
 
-local StatusLabel = makeLabel(MainFrame, UDim2.new(1, -16, 0, 16), UDim2.new(0, 8, 0, 283), "Status: Ready to scan | by pufyftyk", Colors.SubText, Enum.Font.Gotham, 9)
+local StatusLabel = makeLabel(MainFrame, UDim2.new(1, -16, 0, 16), UDim2.new(0, 8, 0, 252), "Stand at a spot and tap RECORD! | by pufyftyk", Colors.SubText, Enum.Font.Gotham, 9)
 
 local BottomBar = Instance.new("Frame")
-BottomBar.Size = UDim2.new(1, -16, 0, 24)
-BottomBar.Position = UDim2.new(0, 8, 0, 292)
+BottomBar.Size = UDim2.new(1, -16, 0, 28)
+BottomBar.Position = UDim2.new(0, 8, 0, 272)
 BottomBar.BackgroundTransparency = 1
 BottomBar.ZIndex = 12
 BottomBar.Parent = MainFrame
 
-local ScanBtn = makeBtn(BottomBar, UDim2.new(0.5, -4, 1, 0), UDim2.new(0, 0, 0, 0), Colors.Header, "[?] Re-Scan Map", 10)
-local DumpBtn = makeBtn(BottomBar, UDim2.new(0.5, -4, 1, 0), UDim2.new(0.5, 4, 0, 0), Colors.Green, "[#] Dump All To Clip", 10)
+local CopyAllBtn = makeBtn(BottomBar, UDim2.new(0.65, -4, 1, 0), UDim2.new(0, 0, 0, 0), Colors.IceAccent, "[#] COPY ALL FOR CHAT", 10)
+CopyAllBtn.TextColor3 = Color3.fromRGB(10, 16, 28)
+local ClearBtn = makeBtn(BottomBar, UDim2.new(0.35, -4, 1, 0), UDim2.new(0.65, 4, 0, 0), Colors.Red, "Clear", 10)
 
-local FoundPoints = {
-    Eggs = {},
-    Camps = {},
-    Tunnels = {}
-}
+local SavedPoints = {}
 
-local function clearList()
+local function renderList()
     for _, ch in ipairs(ScrollFrame:GetChildren()) do
         if ch:IsA("Frame") then ch:Destroy() end
     end
+
+    for i, pt in ipairs(SavedPoints) do
+        local item = Instance.new("Frame")
+        item.Size = UDim2.new(1, -6, 0, 24)
+        item.BackgroundColor3 = Colors.Card
+        item.BorderSizePixel = 0
+        item.ZIndex = 13
+        item.Parent = ScrollFrame
+        addCorner(item, 4)
+
+        local txt = string.format("%d. [%s] %.0f, %.0f, %.0f", i, pt.Tag, pt.X, pt.Y, pt.Z)
+        makeLabel(item, UDim2.new(1, -70, 1, 0), UDim2.new(0, 6, 0, 0), txt, Colors.SnowWhite, Enum.Font.Gotham, 9)
+
+        local tpBtn = makeBtn(item, UDim2.new(0, 30, 0, 18), UDim2.new(1, -66, 0, 3), Colors.Header, "TP", 8)
+        bindClick(tpBtn, function()
+            local hrp = getHRP()
+            if hrp then
+                hrp.CFrame = CFrame.new(pt.X, pt.Y + 3, pt.Z)
+                StatusLabel.Text = "Teleported to Point " .. i
+            end
+        end)
+
+        local delBtn = makeBtn(item, UDim2.new(0, 30, 0, 18), UDim2.new(1, -33, 0, 3), Colors.Red, "X", 8)
+        bindClick(delBtn, function()
+            table.remove(SavedPoints, i)
+            renderList()
+            StatusLabel.Text = "Removed Point " .. i
+        end)
+    end
+
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 15)
 end
 
-local function addEntry(category, name, cf, color)
-    local item = Instance.new("Frame")
-    item.Size = UDim2.new(1, -6, 0, 28)
-    item.BackgroundColor3 = Colors.Card
-    item.BorderSizePixel = 0
-    item.ZIndex = 13
-    item.Parent = ScrollFrame
-    addCorner(item, 4)
+bindClick(AddPointBtn, function()
+    local hrp = getHRP()
+    if not hrp then return end
+    local p = hrp.Position
+    local pt = {
+        Tag = SelectedTag,
+        X = math.floor(p.X * 10) / 10,
+        Y = math.floor(p.Y * 10) / 10,
+        Z = math.floor(p.Z * 10) / 10
+    }
+    table.insert(SavedPoints, pt)
+    renderList()
+    StatusLabel.Text = string.format("Recorded Point %d [%s]!", #SavedPoints, SelectedTag)
+end)
 
-    local txt = string.format("[%s] %s (%.0f, %.0f, %.0f)", category, name, cf.Position.X, cf.Position.Y, cf.Position.Z)
-    local lbl = makeLabel(item, UDim2.new(1, -85, 1, 0), UDim2.new(0, 6, 0, 0), txt, color or Colors.SnowWhite, Enum.Font.Gotham, 9)
-
-    local tpBtn = makeBtn(item, UDim2.new(0, 36, 0, 20), UDim2.new(1, -80, 0, 4), Colors.Header, "TP", 9)
-    bindClick(tpBtn, function()
-        local hrp = getHRP()
-        if hrp then
-            hrp.CFrame = cf + Vector3.new(0, 3, 0)
-            StatusLabel.Text = "Teleported to: " .. name
-        end
-    end)
-
-    local cpBtn = makeBtn(item, UDim2.new(0, 40, 0, 20), UDim2.new(1, -42, 0, 4), Colors.IceAccent, "Copy", 9)
-    cpBtn.TextColor3 = Color3.fromRGB(10, 16, 28)
-    bindClick(cpBtn, function()
-        local s = string.format("CFrame.new(%.1f, %.1f, %.1f)", cf.Position.X, cf.Position.Y, cf.Position.Z)
-        copyText(s)
-        StatusLabel.Text = "Copied: " .. s
-    end)
-end
-
-local function runScan()
-    clearList()
-    FoundPoints = { Eggs = {}, Camps = {}, Tunnels = {} }
-
-    local things = Workspace:FindFirstChild("__THINGS") or Workspace:FindFirstChild("Things")
-    if things then
-        for _, fName in ipairs({ "CustomEggs", "Eggs", "EggCapsules", "EggMachines" }) do
-            local f = things:FindFirstChild(fName)
-            if f then
-                for _, egg in ipairs(f:GetChildren()) do
-                    local p = getObjectPos(egg)
-                    if p then
-                        table.insert(FoundPoints.Eggs, { Name = egg.Name, CF = CFrame.new(p) })
-                    end
-                end
-            end
-        end
+bindClick(CopyAllBtn, function()
+    if #SavedPoints == 0 then
+        StatusLabel.Text = "No points recorded yet!"
+        return
     end
 
-    local map = Workspace:FindFirstChild("Map") or Workspace
-    for _, desc in ipairs(map:GetDescendants()) do
-        local low = string.lower(desc.Name)
-        if desc:IsA("BasePart") or desc:IsA("Model") then
-            local p = getObjectPos(desc)
-            if p then
-                if string.find(low, "tunnel") or string.find(low, "passage") or string.find(low, "cave") or string.find(low, "gate") then
-                    table.insert(FoundPoints.Tunnels, { Name = desc.Name, CF = CFrame.new(p) })
-                elseif string.find(low, "camp") or string.find(low, "zone") then
-                    table.insert(FoundPoints.Camps, { Name = desc.Name, CF = CFrame.new(p) })
-                end
-            end
-        end
-    end
-
-    for _, desc in ipairs(Workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            local act = string.lower(desc.ActionText or "")
-            local obj = string.lower(desc.ObjectText or "")
-            local p = getObjectPos(desc)
-            if p then
-                if string.find(act, "egg") or string.find(obj, "egg") or string.find(act, "hatch") then
-                    local name = desc.Parent and desc.Parent.Name or "EggPrompt"
-                    table.insert(FoundPoints.Eggs, { Name = name, CF = CFrame.new(p) })
-                elseif string.find(act, "tunnel") or string.find(obj, "tunnel") or string.find(act, "enter") then
-                    local name = desc.Parent and desc.Parent.Name or "TunnelPrompt"
-                    table.insert(FoundPoints.Tunnels, { Name = name, CF = CFrame.new(p) })
-                end
-            end
-        end
-    end
-
-    for _, egg in ipairs(FoundPoints.Eggs) do
-        addEntry("EGG", egg.Name, egg.CF, Colors.Gold)
-    end
-    for _, camp in ipairs(FoundPoints.Camps) do
-        addEntry("CAMP", camp.Name, camp.CF, Colors.IceAccent)
-    end
-    for _, tun in ipairs(FoundPoints.Tunnels) do
-        addEntry("TUNNEL", tun.Name, tun.CF, Colors.Green)
-    end
-
-    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
-    StatusLabel.Text = string.format("Scan: %d Eggs, %d Camps, %d Tunnels found!", #FoundPoints.Eggs, #FoundPoints.Camps, #FoundPoints.Tunnels)
-end
-
-bindClick(ScanBtn, runScan)
-
-bindClick(DumpBtn, function()
     local lines = {}
-    table.insert(lines, "/* PS99 DIAMOND MOUNTAIN MAP CONFIG DUMP */")
-    table.insert(lines, "getgenv().Config = getgenv().Config or {}")
-    table.insert(lines, "getgenv().Config.CampPoints = {")
-    for i, camp in ipairs(FoundPoints.Camps) do
-        if i <= 6 then
-            table.insert(lines, string.format("    [%d] = CFrame.new(%.1f, %.1f, %.1f), /* %s */", i, camp.CF.Position.X, camp.CF.Position.Y, camp.CF.Position.Z, camp.Name))
-        end
+    table.insert(lines, "=== MY RECORDED PS99 POINTS ===")
+    for i, pt in ipairs(SavedPoints) do
+        table.insert(lines, string.format("Point %d (%s): CFrame.new(%.1f, %.1f, %.1f)", i, pt.Tag, pt.X, pt.Y, pt.Z))
     end
-    table.insert(lines, "}")
-    if #FoundPoints.Tunnels > 0 then
-        table.insert(lines, string.format("getgenv().Config.Tunnel6CF = CFrame.new(%.1f, %.1f, %.1f) /* %s */", FoundPoints.Tunnels[1].CF.Position.X, FoundPoints.Tunnels[1].CF.Position.Y, FoundPoints.Tunnels[1].CF.Position.Z, FoundPoints.Tunnels[1].Name))
-    end
-    if #FoundPoints.Eggs > 0 then
-        table.insert(lines, string.format("getgenv().Config.EggCF = CFrame.new(%.1f, %.1f, %.1f) /* %s */", FoundPoints.Eggs[1].CF.Position.X, FoundPoints.Eggs[1].CF.Position.Y, FoundPoints.Eggs[1].CF.Position.Z, FoundPoints.Eggs[1].Name))
-    end
-    local fullDump = table.concat(lines, "\n")
-    copyText(fullDump)
-    StatusLabel.Text = "COPIED FULL CONFIG TO CLIPBOARD & CONSOLE!"
+    table.insert(lines, "==============================")
+    local fullText = table.concat(lines, "\n")
+    copyText(fullText)
+    StatusLabel.Text = string.format("COPIED %d POINTS! Paste into chat!", #SavedPoints)
+end)
+
+bindClick(ClearBtn, function()
+    SavedPoints = {}
+    renderList()
+    StatusLabel.Text = "All points cleared!"
 end)
 
 task.spawn(function()
@@ -394,10 +348,8 @@ task.spawn(function()
         local hrp = getHRP()
         if hrp then
             local p = hrp.Position
-            PosLabel.Text = string.format("My Pos: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
+            PosLabel.Text = string.format("Current Pos: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
         end
         task.wait(0.2)
     end
 end)
-
-task.spawn(runScan)
