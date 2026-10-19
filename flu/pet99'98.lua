@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
-local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Flawless Masterpiece"
-local _VERSION = "8.5.0"
+local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
+local _VERSION = "9.0.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -213,11 +213,8 @@ end
 
 local function collectGroundDrops()
     local now = os.clock()
-    if now - State.LastOrbCollectTime < 0.3 then return end
+    if now - State.LastOrbCollectTime < 0.25 then return end
     State.LastOrbCollectTime = now
-
-    local hrp = getHRP()
-    local charPos = hrp and hrp.Position or nil
 
     pcall(function()
         local things = Workspace:FindFirstChild("__THINGS")
@@ -228,7 +225,7 @@ local function collectGroundDrops()
             local collected = {}
             for _, orb in ipairs(orbsFolder:GetChildren()) do
                 table.insert(collected, orb.Name)
-                if #collected >= 25 then break end
+                if #collected >= 30 then break end
             end
             if #collected > 0 then
                 fireNetwork("Orbs: Collect", collected)
@@ -242,7 +239,7 @@ local function collectGroundDrops()
             local bags = {}
             for _, bag in ipairs(lootbagsFolder:GetChildren()) do
                 table.insert(bags, bag.Name)
-                if #bags >= 15 then break end
+                if #bags >= 20 then break end
             end
             if #bags > 0 then
                 fireNetwork("Lootbags_Claim", bags)
@@ -546,21 +543,41 @@ local function useUltimateAbility()
     end
 end
 
+local function getSafeHatchCount()
+    local count = 1
+    pcall(function()
+        if ClientModules["EggCmds"] and ClientModules["EggCmds"].GetMaxHatch then
+            count = ClientModules["EggCmds"].GetMaxHatch()
+        elseif ClientModules["Save"] then
+            local data = ClientModules["Save"].Get()
+            if data and data.EggHatchCount then
+                count = tonumber(data.EggHatchCount) or 1
+            elseif data and data.MaxHatch then
+                count = tonumber(data.MaxHatch) or 1
+            end
+        end
+    end)
+    if not count or count < 1 then count = 1 end
+    if count > 8 and not ClientModules["EggCmds"] then count = 1 end
+    return count
+end
+
 local function hatchNearestEgg(eggCFrame, batchCount)
     local now = os.clock()
     if now - State.LastHatchTime < 1.0 then return end
     State.LastHatchTime = now
     local hrp = getHRP()
     if not hrp then return end
+    local safeBatch = batchCount or getSafeHatchCount()
     pcall(function()
-        fireNetwork("Eggs_Roll", "Winter Mountain Egg", batchCount or 79)
-        fireNetwork("Eggs_Open", "Winter Mountain Egg", batchCount or 79)
-        fireNetwork("Eggs_Hatch", "Winter Mountain Egg", batchCount or 79)
-        fireNetwork("HatchEgg", "Winter Mountain Egg", batchCount or 79)
+        fireNetwork("Eggs_Roll", "Winter Mountain Egg", safeBatch)
+        fireNetwork("Eggs_Open", "Winter Mountain Egg", safeBatch)
+        fireNetwork("Eggs_Hatch", "Winter Mountain Egg", safeBatch)
+        fireNetwork("HatchEgg", "Winter Mountain Egg", safeBatch)
     end)
     if ClientModules["EggCmds"] then
         pcall(function()
-            ClientModules["EggCmds"].Hatch("Winter Mountain Egg", batchCount or 79)
+            ClientModules["EggCmds"].Hatch("Winter Mountain Egg", safeBatch)
         end)
     end
 end
@@ -717,25 +734,39 @@ local function executeCampPetDepositFlow()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return end
 
-    pushLog("Camp UI opened. Clicking Auto-Add...")
-    findAndClickButton(pg, {"auto", "select all", "auto-add", "auto add"})
-    task.wait(0.5)
+    pushLog("Yeti Power machine active. Engaging Auto-Feed & Feed...")
+    findAndClickButton(pg, {"auto-feed", "auto feed", "autofeed", "auto-add", "auto add", "auto", "select all"})
+    task.wait(0.4)
 
-    pushLog("Confirming pet deposit...")
-    findAndClickButton(pg, {"confirm", "deposit", "add"})
-    task.wait(0.5)
+    findAndClickButton(pg, {"feed", "feed pets", "confirm", "deposit", "add", "upgrade", "power"})
+    task.wait(0.4)
 
-    pushLog("Confirming secondary modal popup...")
     for _, topG in ipairs(pg:GetChildren()) do
         if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
             findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
         end
     end
-    task.wait(0.5)
+    task.wait(0.4)
 
-    pushLog("Closing Camp window...")
-    findAndClickButton(pg, {"close", "exit", "x", "back"})
-    pushLog("Camp deposit finished! Shiny level increased.")
+    pcall(function()
+        if VirtualInputManager then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+            task.wait(0.04)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+        end
+    end)
+    task.wait(0.2)
+
+    for _, g in ipairs(pg:GetChildren()) do
+        if g:IsA("ScreenGui") and g ~= ScreenGui then
+            local gName = string.lower(g.Name)
+            if string.find(gName, "yeti") or string.find(gName, "power") or string.find(gName, "camp") or string.find(gName, "feed") then
+                g.Enabled = false
+            end
+        end
+    end
+
+    pushLog("Yeti Power processed successfully!")
 end
 
 local function depositCampPets()
@@ -743,8 +774,8 @@ local function depositCampPets()
     if now - State.LastCampDeposit < 90 then return end
     State.LastCampDeposit = now
     State.CurrentPhase = "DEPOSIT"
-    State.CurrentActionText = "CAMP: DEPOSITING PETS FOR RAINBOW SHINY...",
-    pushLog("Entering Camp to charge Rainbow Shiny...")
+    State.CurrentActionText = "CAMP: YETI POWER FEEDING...",
+    pushLog("Interacting with Yeti Power machine...")
 
     teleportSafely(Points.Camp, Vector3.new(0, 3, 0))
     task.wait(0.5)
@@ -771,8 +802,13 @@ local function depositCampPets()
         fireNetwork("WinterCamp_Deposit")
         fireNetwork("ShinyMachine_Deposit")
         fireNetwork("Altar_Deposit")
+        fireNetwork("YetiPower_Feed")
+        fireNetwork("Yeti_Feed")
     end)
-    task.wait(0.5)
+    task.wait(0.3)
+
+    teleportSafely(Points.Camp, Vector3.new(0, 25, 0))
+    task.wait(0.3)
 end
 
 local function buyMerchantItems()
@@ -791,15 +827,47 @@ local function buyMerchantItems()
             fireNetwork("WinterMerchant_Buy", slot)
             fireNetwork("WinterShop_Buy", slot)
             fireNetwork("EventShop_Buy", slot)
+            fireNetwork("Buffs: Buy", slot)
+            fireNetwork("Buffs_Buy", slot)
+            fireNetwork("Buff_Buy", slot)
+            fireNetwork("WinterBuffs: Buy", slot)
+            fireNetwork("WinterBuffs_Buy", slot)
+            fireNetwork("EventBuffs: Buy", slot)
+            fireNetwork("EventBuffs_Buy", slot)
+            fireNetwork("Merchant: Buy", "BuffMerchant", slot)
+            fireNetwork("Merchant: Buy", "WinterMerchant", slot)
+            fireNetwork("Merchant: Buy", "Buffs", slot)
+            fireNetwork("Merchant_Buy", "Buffs", slot)
+            fireNetwork("BuyBuff", slot)
+            fireNetwork("Boosts_Buy", slot)
         end
     end)
     if ClientModules["MerchantCmds"] then
         pcall(function()
             for slot = 1, 8 do
                 ClientModules["MerchantCmds"].Buy("TravelingMerchant", slot)
+                ClientModules["MerchantCmds"].Buy("BuffMerchant", slot)
+                ClientModules["MerchantCmds"].Buy("WinterMerchant", slot)
             end
         end)
     end
+
+    pcall(function()
+        local hrp = getHRP()
+        if hrp then
+            for _, desc in ipairs(Workspace:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") then
+                    local pParent = desc.Parent
+                    local pName = string.lower(pParent and pParent.Name or "")
+                    if string.find(pName, "buff") or string.find(pName, "merchant") or string.find(pName, "shop") or string.find(pName, "boost") then
+                        if (desc.Position - hrp.Position).Magnitude <= 35 then
+                            if fireproximityprompt then fireproximityprompt(desc) end
+                        end
+                    end
+                end
+            end
+        end
+    end)
 
     pcall(function()
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
@@ -807,8 +875,8 @@ local function buyMerchantItems()
             for _, g in ipairs(pg:GetChildren()) do
                 if g:IsA("ScreenGui") and g ~= ScreenGui then
                     local gName = string.lower(g.Name)
-                    if string.find(gName, "merchant") or string.find(gName, "shop") then
-                        findAndClickButton(g, {"buy", "purchase", "free"})
+                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") then
+                        findAndClickButton(g, {"buy", "purchase", "free", "get", "claim"})
                     end
                 end
             end
@@ -1049,7 +1117,7 @@ do
 end
 
 local TitleText = makeLabel(TopBar, UDim2.new(0, 180, 0, 22), UDim2.new(0, 14, 0, 6), "<< PUFYFTYK >>", Colors.CyanBright, Enum.Font.GothamBold, 16, Enum.TextXAlignment.Left, 15)
-local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v8.5", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
+local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v9.0", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
 
 local MinBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -68, 0, 10), Colors.Card, "-", 15, 6, 20)
 local CloseBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 10), Colors.Ruby, "X", 12, 6, 20)
@@ -1404,7 +1472,7 @@ local function runTunnelSequence()
                 teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
             end
 
-            hatchNearestEgg(Points.TunnelEgg, 79)
+            hatchNearestEgg(Points.TunnelEgg, getSafeHatchCount())
             useUltimateAbility()
             collectGroundDrops()
             task.wait(0.8)
@@ -1495,7 +1563,7 @@ local function runFreeTimeSequence()
 
     farmAmbientBreakables(Points.FarmEgg, 45)
 
-    hatchNearestEgg(Points.FarmEgg, 79)
+    hatchNearestEgg(Points.FarmEgg, getSafeHatchCount())
     useUltimateAbility()
     buyMerchantItems()
     collectGroundDrops()
