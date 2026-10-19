@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.0.0"
+local _VERSION = "9.4.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -122,7 +122,6 @@ local State = {
     LastTunnelCheck = 0,
     CurrentPhase = "INIT",
     CurrentActionText = "SYSTEM INITIALIZING...",
-    ProgressFraction = 0,
     LastFlagTime = 0,
     LastCampDeposit = 0,
     LastHatchTime = 0,
@@ -495,12 +494,13 @@ local function farmAmbientBreakables(centerCFrame, radius)
 end
 
 local function tapBossVirtual(bossObj, uid)
-    if not bossObj then return end
+    if not uid then return end
     pcall(function()
-        for _ = 1, 8 do
-            fireNetwork("Breakables_Tap", uid)
+        for _ = 1, 12 do
             fireNetwork("Breakables_PlayerDealDamage", uid)
+            fireNetwork("Breakables_Tap", uid)
             fireNetwork("Breakables_Click", uid)
+            fireNetwork("Breakable_Damage", uid)
             fireNetwork("TapBoss_Damage", uid)
             fireNetwork("Yeti_Tap", uid)
             fireNetwork("Boss_Tap", uid)
@@ -508,23 +508,25 @@ local function tapBossVirtual(bossObj, uid)
         end
     end)
     if ClientModules["BreakableCmds"] then
-        pcall(function() ClientModules["BreakableCmds"].Damage(uid) end)
-    end
-    pcall(function()
-        local part = bossObj:IsA("Model") and (bossObj.PrimaryPart or bossObj:FindFirstChildWhichIsA("BasePart")) or (bossObj:IsA("BasePart") and bossObj)
-        if part and Camera then
-            local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-            if onScreen then
-                if VirtualInputManager then
-                    VirtualInputManager:SendMouseButtonEvent(screenPos.X, screenPos.Y, 0, true, game, 0)
-                    task.wait(0.01)
-                    VirtualInputManager:SendMouseButtonEvent(screenPos.X, screenPos.Y, 0, false, game, 0)
-                elseif VirtualUser then
-                    VirtualUser:ClickButton1(Vector2.new(screenPos.X, screenPos.Y))
-                end
+        pcall(function()
+            if ClientModules["BreakableCmds"].Damage then
+                ClientModules["BreakableCmds"].Damage(uid)
             end
-        end
-    end)
+            if ClientModules["BreakableCmds"].Tap then
+                ClientModules["BreakableCmds"].Tap(uid)
+            end
+        end)
+    end
+    if ClientModules["PlayerCmds"] then
+        pcall(function()
+            if ClientModules["PlayerCmds"].Click then
+                ClientModules["PlayerCmds"].Click(uid)
+            end
+            if ClientModules["PlayerCmds"].Tap then
+                ClientModules["PlayerCmds"].Tap(uid)
+            end
+        end)
+    end
 end
 
 local function useUltimateAbility()
@@ -562,23 +564,122 @@ local function getSafeHatchCount()
     return count
 end
 
+local function findNearestEgg(pos, maxDist)
+    local targetPos = pos or (getHRP() and getHRP().Position)
+    if not targetPos then return nil, nil end
+    local maxD = maxDist or 45
+    local bestName = nil
+    local bestPrompt = nil
+    local bestDist = maxD
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
+                local pPos = pPart and pPart.Position or (desc.Parent:IsA("Model") and desc.Parent:GetPivot().Position)
+                if pPos then
+                    local d = (pPos - targetPos).Magnitude
+                    if d <= maxD then
+                        local act = string.lower(desc.ActionText or "")
+                        local obj = string.lower(desc.ObjectText or "")
+                        if string.find(act, "egg") or string.find(act, "hatch") or string.find(act, "open") or string.find(obj, "egg") then
+                            if d < bestDist then
+                                bestDist = d
+                                bestPrompt = desc
+                                if desc.ObjectText and desc.ObjectText ~= "" then bestName = desc.ObjectText end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local things = Workspace:FindFirstChild("__THINGS")
+        if things then
+            for _, fName in ipairs({"CustomEggs", "Eggs", "EggMachines", "Podiums"}) do
+                local f = things:FindFirstChild(fName)
+                if f then
+                    for _, eggObj in ipairs(f:GetChildren()) do
+                        local p = eggObj:IsA("Model") and (eggObj.PrimaryPart or eggObj:FindFirstChildWhichIsA("BasePart")) or (eggObj:IsA("BasePart") and eggObj)
+                        if p then
+                            local d = (p.Position - targetPos).Magnitude
+                            if d < bestDist then
+                                bestDist = d
+                                bestName = eggObj.Name
+                                local pr = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if pr then bestPrompt = pr end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        if ClientModules["EggCmds"] and ClientModules["EggCmds"].GetNearestEgg then
+            local eg = ClientModules["EggCmds"].GetNearestEgg()
+            if type(eg) == "string" and eg ~= "" then bestName = eg end
+            if type(eg) == "table" and eg.Name then bestName = eg.Name end
+        end
+    end)
+    return bestName, bestPrompt
+end
+
 local function hatchNearestEgg(eggCFrame, batchCount)
     local now = os.clock()
-    if now - State.LastHatchTime < 1.0 then return end
+    if now - State.LastHatchTime < 0.8 then return end
     State.LastHatchTime = now
     local hrp = getHRP()
     if not hrp then return end
     local safeBatch = batchCount or getSafeHatchCount()
+    local targetPos = eggCFrame and eggCFrame.Position or hrp.Position
+    local eggName, prompt = findNearestEgg(targetPos, 45)
+
+    if prompt and fireproximityprompt then
+        pcall(function() fireproximityprompt(prompt) end)
+    end
+
     pcall(function()
-        fireNetwork("Eggs_Roll", "Winter Mountain Egg", safeBatch)
-        fireNetwork("Eggs_Open", "Winter Mountain Egg", safeBatch)
-        fireNetwork("Eggs_Hatch", "Winter Mountain Egg", safeBatch)
-        fireNetwork("HatchEgg", "Winter Mountain Egg", safeBatch)
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
+                    local gName = string.lower(g.Name)
+                    if string.find(gName, "egg") or string.find(gName, "hatch") then
+                        findAndClickButton(g, {"hatch", "open", "max", "auto", "buy", "yes", "e"})
+                    end
+                end
+            end
+        end
     end)
-    if ClientModules["EggCmds"] then
+
+    local candidates = {}
+    if eggName and eggName ~= "" then table.insert(candidates, eggName) end
+    for _, cand in ipairs({"Tunnel Egg", "300x Egg", "300x Luck Egg", "Winter Cave Egg", "Cave Egg", "Snow Egg", "Winter Egg", "Winter Mountain Egg", "1", "100"}) do
+        if not table.find(candidates, cand) then table.insert(candidates, cand) end
+    end
+
+    for _, name in ipairs(candidates) do
         pcall(function()
-            ClientModules["EggCmds"].Hatch("Winter Mountain Egg", safeBatch)
+            fireNetwork("Eggs: RequestHatch", name, safeBatch)
+            fireNetwork("Eggs: Hatch", name, safeBatch)
+            fireNetwork("Eggs: Roll", name, safeBatch)
+            fireNetwork("Eggs: Open", name, safeBatch)
+            fireNetwork("Eggs_RequestHatch", name, safeBatch)
+            fireNetwork("Eggs_Hatch", name, safeBatch)
+            fireNetwork("Eggs_Roll", name, safeBatch)
+            fireNetwork("HatchEgg", name, safeBatch)
         end)
+        if ClientModules["EggCmds"] then
+            pcall(function()
+                if ClientModules["EggCmds"].RequestHatch then
+                    ClientModules["EggCmds"].RequestHatch(name, safeBatch)
+                elseif ClientModules["EggCmds"].Hatch then
+                    ClientModules["EggCmds"].Hatch(name, safeBatch)
+                end
+            end)
+        end
+        if eggName and name == eggName then break end
     end
 end
 
@@ -610,63 +711,61 @@ local function checkTunnelStatus()
 end
 
 local function findNearestFlagPole(pos, maxDist)
+    local targetPos = pos or (getHRP() and getHRP().Position)
+    if not targetPos then return nil, nil, nil end
     local bestPole = nil
-    local bestD = maxDist or 80
+    local bestPrompt = nil
+    local bestPos = nil
+    local bestD = maxDist or 350
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                local act = string.lower(desc.ActionText or "")
+                local obj = string.lower(desc.ObjectText or "")
+                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                if string.find(act, "flag") or string.find(obj, "flag") or string.find(pName, "flag") then
+                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
+                    local pPos = pPart and pPart.Position or (desc.Parent:IsA("Model") and desc.Parent:GetPivot().Position)
+                    if pPos then
+                        local d = (pPos - targetPos).Magnitude
+                        if d <= bestD then
+                            bestD = d
+                            bestPole = desc.Parent
+                            bestPrompt = desc
+                            bestPos = pPos
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if bestPole then return bestPole, bestPrompt, bestPos end
     pcall(function()
         local things = Workspace:FindFirstChild("__THINGS")
-        if things then
-            local poles = things:FindFirstChild("FlagPoles") or things:FindFirstChild("Flags")
-            if poles then
-                for _, p in ipairs(poles:GetChildren()) do
-                    local pPart = p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart") or p
-                    if pPart and pPart.Position then
-                        local d = (pPart.Position - pos).Magnitude
-                        if d <= bestD then
-                            bestD = d
-                            bestPole = p
-                        end
-                    end
-                end
-            end
-        end
-        if not bestPole then
-            for _, desc in ipairs(Workspace:GetDescendants()) do
-                if string.find(string.lower(desc.Name), "flagpole") then
-                    local pPart = desc:IsA("BasePart") and desc or desc:FindFirstChildWhichIsA("BasePart")
-                    if pPart then
-                        local d = (pPart.Position - pos).Magnitude
-                        if d <= bestD then
-                            bestD = d
-                            bestPole = desc
+        local containers = {things, Workspace}
+        for _, cont in ipairs(containers) do
+            if cont then
+                for _, folderName in ipairs({"FlagPoles", "Flags", "Poles"}) do
+                    local folder = cont:FindFirstChild(folderName)
+                    if folder then
+                        for _, p in ipairs(folder:GetChildren()) do
+                            local pPart = p:IsA("Model") and (p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")) or (p:IsA("BasePart") and p)
+                            if pPart and pPart.Position then
+                                local d = (pPart.Position - targetPos).Magnitude
+                                if d <= bestD then
+                                    bestD = d
+                                    bestPole = p
+                                    bestPrompt = p:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                    bestPos = pPart.Position
+                                end
+                            end
                         end
                     end
                 end
             end
         end
     end)
-    return bestPole
-end
-
-local function placeMagnetFlag()
-    local now = os.clock()
-    if now - State.LastFlagTime < 300 then return end
-    State.LastFlagTime = now
-
-    local pole = findNearestFlagPole(Points.FarmEgg.Position, 80)
-    pcall(function()
-        local flagName = "Magnet Flag"
-        fireNetwork("Flag_Consume", flagName, pole)
-        fireNetwork("Flags_Consume", flagName, pole)
-        fireNetwork("Flag_Place", flagName, pole)
-        fireNetwork("Flags_Place", flagName, pole)
-        fireNetwork("Consume_Flag", flagName, pole)
-    end)
-    if ClientModules["FlagCmds"] and pole then
-        pcall(function()
-            ClientModules["FlagCmds"].Place(pole, "Magnet Flag")
-        end)
-    end
-    pushLog("Magnet Flag placed in Farm Zone.")
+    return bestPole, bestPrompt, bestPos
 end
 
 local function clickSmartButton(btn)
@@ -679,93 +778,168 @@ local function clickSmartButton(btn)
             firesignal(btn.MouseButton1Up)
         end
         if btn.MouseButton1Click then btn.MouseButton1Click:Fire() end
-    end)
-    pcall(function()
-        local absPos = btn.AbsolutePosition
-        local absSize = btn.AbsoluteSize
-        local center = absPos + absSize / 2
-        if VirtualInputManager then
-            VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
-            task.wait(0.04)
-            VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
-        elseif VirtualUser then
-            VirtualUser:ClickButton1(center)
-        end
+        if btn.Activated then btn.Activated:Fire() end
     end)
 end
 
-local function findAndClickButton(container, keywords)
+local function isSafeGuiContainer(container)
     if not container then return false end
+    local c = container
+    while c and c ~= game do
+        local cName = string.lower(c.Name)
+        if string.find(cName, "hud") or string.find(cName, "hotbar") or string.find(cName, "enchant") or string.find(cName, "mastery") or string.find(cName, "coregui") or string.find(cName, "robux") or string.find(cName, "gamepass") or string.find(cName, "topbar") or string.find(cName, "sidemenu") then
+            return false
+        end
+        c = c.Parent
+    end
+    return true
+end
+
+local function findAndClickButton(container, keywords)
+    if not container or not isSafeGuiContainer(container) then return false end
     for _, desc in ipairs(container:GetDescendants()) do
         if desc:IsA("GuiButton") and desc.Visible then
             local btnName = string.lower(desc.Name)
             local btnText = desc:IsA("TextButton") and string.lower(desc.Text or "") or ""
-            local matched = false
-            for _, kw in ipairs(keywords) do
-                if string.find(btnName, kw) or string.find(btnText, kw) then
-                    matched = true
-                    break
+            local combined = btnName .. " " .. btnText
+            if not (string.find(combined, "enchant") or string.find(combined, "robux") or string.find(combined, "r$") or string.find(combined, "gamepass") or string.find(combined, "pass") or string.find(combined, "buy slot") or string.find(combined, "unlock slot") or string.find(combined, "+1")) then
+                local matched = false
+                for _, kw in ipairs(keywords) do
+                    if string.find(btnName, kw) or string.find(btnText, kw) then
+                        matched = true
+                        break
+                    end
                 end
-            end
-            if not matched then
-                for _, child in ipairs(desc:GetChildren()) do
-                    if child:IsA("TextLabel") and child.Visible then
-                        local childText = string.lower(child.Text or "")
-                        for _, kw in ipairs(keywords) do
-                            if string.find(childText, kw) then
-                                matched = true
-                                break
+                if not matched then
+                    for _, child in ipairs(desc:GetChildren()) do
+                        if child:IsA("TextLabel") and child.Visible then
+                            local childText = string.lower(child.Text or "")
+                            if not (string.find(childText, "enchant") or string.find(childText, "robux") or string.find(childText, "r$") or string.find(childText, "gamepass")) then
+                                for _, kw in ipairs(keywords) do
+                                    if string.find(childText, kw) then
+                                        matched = true
+                                        break
+                                    end
+                                end
                             end
                         end
+                        if matched then break end
                     end
-                    if matched then break end
                 end
-            end
-            if matched then
-                clickSmartButton(desc)
-                return true
+                if matched then
+                    clickSmartButton(desc)
+                    return true
+                end
             end
         end
     end
     return false
 end
 
+local function placeMagnetFlag()
+    local now = os.clock()
+    if now - State.LastFlagTime < 240 then return end
+    State.LastFlagTime = now
+    local pole, prompt, polePos = findNearestFlagPole(Points.FarmEgg.Position, 350)
+    if pole and polePos then
+        pushLog("Deploying Magnet Flag at flagpole...")
+        local savedPos = getHRP() and getHRP().CFrame
+        teleportSafely(CFrame.new(polePos) * CFrame.new(0, 2, 3))
+        task.wait(0.3)
+        if prompt and fireproximityprompt then
+            pcall(function() fireproximityprompt(prompt) end)
+            task.wait(0.4)
+        end
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
+                    local gName = string.lower(g.Name)
+                    if string.find(gName, "flag") then
+                        findAndClickButton(g, {"magnet", "magnet flag", "place", "use", "deploy"})
+                        task.wait(0.2)
+                    end
+                end
+            end
+        end
+        local poleRef = pole.Name
+        pcall(function()
+            fireNetwork("Flags: Consume", "Magnet Flag", poleRef)
+            fireNetwork("Flags: Consume", "Magnet Flag", pole)
+            fireNetwork("Flags: Place", "Magnet Flag", poleRef)
+            fireNetwork("Flags: Place", "Magnet Flag", pole)
+            fireNetwork("Flags: Deploy", "Magnet Flag", poleRef)
+            fireNetwork("Flags: Deploy", "Magnet Flag", pole)
+            fireNetwork("Flags: RequestPlace", "Magnet Flag", poleRef)
+            fireNetwork("Flags: RequestPlace", "Magnet Flag", pole)
+            fireNetwork("Flag: Place", "Magnet Flag", poleRef)
+            fireNetwork("Flag_Consume", "Magnet Flag", pole)
+            fireNetwork("Flag_Place", "Magnet Flag", pole)
+        end)
+        if ClientModules["FlagCmds"] then
+            pcall(function() ClientModules["FlagCmds"].Place(pole, "Magnet Flag") end)
+            pcall(function() ClientModules["FlagCmds"].Consume(pole, "Magnet Flag") end)
+            pcall(function() ClientModules["FlagCmds"].Deploy(pole, "Magnet Flag") end)
+            pcall(function() ClientModules["FlagCmds"].RequestPlace(pole, "Magnet Flag") end)
+        end
+        task.wait(0.3)
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g ~= ScreenGui then
+                    local gName = string.lower(g.Name)
+                    if string.find(gName, "flag") then g.Enabled = false end
+                end
+            end
+        end
+        if savedPos then
+            teleportSafely(savedPos)
+        else
+            teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
+        end
+        pushLog("Magnet Flag placed successfully in Farm Zone.")
+    else
+        pcall(function()
+            fireNetwork("Flags: Consume", "Magnet Flag", "Zone")
+            fireNetwork("Flags: Place", "Magnet Flag", "Zone")
+            fireNetwork("Flags_Consume", "Magnet Flag")
+            fireNetwork("Flags_Place", "Magnet Flag")
+        end)
+    end
+end
+
 local function executeCampPetDepositFlow()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return end
-
     pushLog("Yeti Power machine active. Engaging Auto-Feed & Feed...")
-    findAndClickButton(pg, {"auto-feed", "auto feed", "autofeed", "auto-add", "auto add", "auto", "select all"})
-    task.wait(0.4)
-
-    findAndClickButton(pg, {"feed", "feed pets", "confirm", "deposit", "add", "upgrade", "power"})
-    task.wait(0.4)
-
-    for _, topG in ipairs(pg:GetChildren()) do
-        if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
-            findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
+    for _, g in ipairs(pg:GetChildren()) do
+        if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
+            local gName = string.lower(g.Name)
+            if string.find(gName, "yeti") or string.find(gName, "power") or string.find(gName, "camp") or string.find(gName, "feed") or string.find(gName, "altar") then
+                findAndClickButton(g, {"auto-feed", "auto feed", "autofeed", "select all"})
+                task.wait(0.3)
+                findAndClickButton(g, {"feed pets", "feed", "deposit", "confirm", "power"})
+                task.wait(0.3)
+            end
         end
     end
-    task.wait(0.4)
-
-    pcall(function()
-        if VirtualInputManager then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-            task.wait(0.04)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+    for _, topG in ipairs(pg:GetChildren()) do
+        if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
+            local tName = string.lower(topG.Name)
+            if string.find(tName, "confirm") or string.find(tName, "prompt") or string.find(tName, "dialog") or string.find(tName, "modal") then
+                findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
+            end
         end
-    end)
-    task.wait(0.2)
-
+    end
+    task.wait(0.3)
     for _, g in ipairs(pg:GetChildren()) do
         if g:IsA("ScreenGui") and g ~= ScreenGui then
             local gName = string.lower(g.Name)
             if string.find(gName, "yeti") or string.find(gName, "power") or string.find(gName, "camp") or string.find(gName, "feed") then
+                findAndClickButton(g, {"close", "exit", "cancel", "back", "x"})
                 g.Enabled = false
             end
         end
     end
-
     pushLog("Yeti Power processed successfully!")
 end
 
@@ -811,77 +985,157 @@ local function depositCampPets()
     task.wait(0.3)
 end
 
-local function buyMerchantItems()
-    local now = os.clock()
-    if now - State.LastMerchantTime < 25 then return end
-    State.LastMerchantTime = now
-
+local function findMerchantLocation()
+    local hrp = getHRP()
+    local myPos = hrp and hrp.Position or Vector3.zero
+    local bestCF = nil
+    local bestPrompt = nil
+    local bestName = nil
+    local bestDist = 99999
     pcall(function()
-        for slot = 1, 8 do
-            fireNetwork("Merchant: Buy", "TravelingMerchant", slot)
-            fireNetwork("Merchant_Buy", "TravelingMerchant", slot)
-            fireNetwork("TravelingMerchant_Buy", slot)
-            fireNetwork("TravelingMerchant_Purchase", slot)
-            fireNetwork("MysteryMerchant_Buy", slot)
-            fireNetwork("Merchant_Buy", "MysteryMerchant", slot)
-            fireNetwork("WinterMerchant_Buy", slot)
-            fireNetwork("WinterShop_Buy", slot)
-            fireNetwork("EventShop_Buy", slot)
-            fireNetwork("Buffs: Buy", slot)
-            fireNetwork("Buffs_Buy", slot)
-            fireNetwork("Buff_Buy", slot)
-            fireNetwork("WinterBuffs: Buy", slot)
-            fireNetwork("WinterBuffs_Buy", slot)
-            fireNetwork("EventBuffs: Buy", slot)
-            fireNetwork("EventBuffs_Buy", slot)
-            fireNetwork("Merchant: Buy", "BuffMerchant", slot)
-            fireNetwork("Merchant: Buy", "WinterMerchant", slot)
-            fireNetwork("Merchant: Buy", "Buffs", slot)
-            fireNetwork("Merchant_Buy", "Buffs", slot)
-            fireNetwork("BuyBuff", slot)
-            fireNetwork("Boosts_Buy", slot)
-        end
-    end)
-    if ClientModules["MerchantCmds"] then
-        pcall(function()
-            for slot = 1, 8 do
-                ClientModules["MerchantCmds"].Buy("TravelingMerchant", slot)
-                ClientModules["MerchantCmds"].Buy("BuffMerchant", slot)
-                ClientModules["MerchantCmds"].Buy("WinterMerchant", slot)
-            end
-        end)
-    end
-
-    pcall(function()
-        local hrp = getHRP()
-        if hrp then
-            for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") then
-                    local pParent = desc.Parent
-                    local pName = string.lower(pParent and pParent.Name or "")
-                    if string.find(pName, "buff") or string.find(pName, "merchant") or string.find(pName, "shop") or string.find(pName, "boost") then
-                        if (desc.Position - hrp.Position).Magnitude <= 35 then
-                            if fireproximityprompt then fireproximityprompt(desc) end
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                local act = string.lower(desc.ActionText or "")
+                local obj = string.lower(desc.ObjectText or "")
+                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                local textAll = act .. " " .. obj .. " " .. pName
+                if string.find(textAll, "merchant") or string.find(textAll, "buff") or string.find(textAll, "boost") or string.find(textAll, "vendor") or string.find(textAll, "traveling") or string.find(textAll, "shop") then
+                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
+                    local pPos = pPart and pPart.Position or (desc.Parent:IsA("Model") and desc.Parent:GetPivot().Position)
+                    if pPos then
+                        local d = (pPos - myPos).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestCF = CFrame.new(pPos)
+                            bestPrompt = desc
+                            bestName = desc.ObjectText ~= "" and desc.ObjectText or desc.Parent.Name
                         end
                     end
                 end
             end
         end
     end)
-
+    if bestCF then return bestCF, bestPrompt, bestName end
     pcall(function()
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then
-            for _, g in ipairs(pg:GetChildren()) do
-                if g:IsA("ScreenGui") and g ~= ScreenGui then
-                    local gName = string.lower(g.Name)
-                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") then
-                        findAndClickButton(g, {"buy", "purchase", "free", "get", "claim"})
+        local things = Workspace:FindFirstChild("__THINGS")
+        local containers = {things, Workspace}
+        for _, cont in ipairs(containers) do
+            if cont then
+                for _, child in ipairs(cont:GetChildren()) do
+                    local cName = string.lower(child.Name)
+                    if string.find(cName, "merchant") or string.find(cName, "buff") or string.find(cName, "vendor") or string.find(cName, "boost") then
+                        local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")) or (child:IsA("BasePart") and child)
+                        if p then
+                            local d = (p.Position - myPos).Magnitude
+                            if d < bestDist then
+                                bestDist = d
+                                bestCF = CFrame.new(p.Position)
+                                bestPrompt = child:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                bestName = child.Name
+                            end
+                        end
                     end
                 end
             end
         end
     end)
+    return bestCF, bestPrompt, bestName
+end
+
+local function buyMerchantItems()
+    local now = os.clock()
+    if now - State.LastMerchantTime < 60 then return end
+    State.LastMerchantTime = now
+
+    local merchantCF, prompt, merchantName = findMerchantLocation()
+    if merchantCF then
+        pushLog("Visiting Merchant vendor: " .. tostring(merchantName))
+        State.CurrentActionText = "BUYING MERCHANT BUFFS & ITEMS..."
+        teleportSafely(merchantCF, Vector3.new(0, 2, 3))
+        task.wait(0.4)
+
+        if prompt and fireproximityprompt then
+            pcall(function() fireproximityprompt(prompt) end)
+            task.wait(0.5)
+        end
+
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
+                    local gName = string.lower(g.Name)
+                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") then
+                        for _ = 1, 3 do
+                            findAndClickButton(g, {"buy", "purchase", "free", "get", "claim"})
+                            task.wait(0.2)
+                        end
+                        for _, topG in ipairs(pg:GetChildren()) do
+                            if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
+                                findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        pcall(function()
+            local mList = {merchantName or "TravelingMerchant", "TravelingMerchant", "BuffMerchant", "WinterMerchant", "Buffs", "WinterBuffs"}
+            for _, mId in ipairs(mList) do
+                for slot = 1, 8 do
+                    fireNetwork("Merchant: RequestBuy", mId, slot)
+                    fireNetwork("Merchant: Buy", mId, slot)
+                    fireNetwork("Merchant_Buy", mId, slot)
+                    fireNetwork("Buffs: Buy", slot)
+                    fireNetwork("Buffs_Buy", slot)
+                    fireNetwork("WinterBuffs: Buy", slot)
+                    fireNetwork("EventBuffs: Buy", slot)
+                end
+                if ClientModules["MerchantCmds"] and ClientModules["MerchantCmds"].Buy then
+                    for slot = 1, 8 do
+                        pcall(function() ClientModules["MerchantCmds"].Buy(mId, slot) end)
+                    end
+                end
+            end
+        end)
+        task.wait(0.3)
+
+        pcall(function()
+            if pg then
+                for _, g in ipairs(pg:GetChildren()) do
+                    if g:IsA("ScreenGui") and g ~= ScreenGui then
+                        local gName = string.lower(g.Name)
+                        if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") then
+                            findAndClickButton(g, {"close", "exit", "cancel", "back", "x"})
+                        end
+                    end
+                end
+            end
+        end)
+        if pg then
+            for _, g in ipairs(pg:GetChildren()) do
+                if g:IsA("ScreenGui") and g ~= ScreenGui then
+                    local gName = string.lower(g.Name)
+                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") then
+                        g.Enabled = false
+                    end
+                end
+            end
+        end
+
+        teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
+        pushLog("Merchant purchase cycle complete. Returned to farm.")
+    else
+        pcall(function()
+            for slot = 1, 8 do
+                fireNetwork("Merchant: RequestBuy", "TravelingMerchant", slot)
+                fireNetwork("Merchant: Buy", "TravelingMerchant", slot)
+                fireNetwork("Buffs: Buy", slot)
+                fireNetwork("WinterBuffs: Buy", slot)
+                fireNetwork("Merchant: Buy", "BuffMerchant", slot)
+            end
+        end)
+    end
 end
 
 local Colors = {
@@ -1117,7 +1371,7 @@ do
 end
 
 local TitleText = makeLabel(TopBar, UDim2.new(0, 180, 0, 22), UDim2.new(0, 14, 0, 6), "<< PUFYFTYK >>", Colors.CyanBright, Enum.Font.GothamBold, 16, Enum.TextXAlignment.Left, 15)
-local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v9.0", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
+local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v9.4", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
 
 local MinBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -68, 0, 10), Colors.Card, "-", 15, 6, 20)
 local CloseBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 10), Colors.Ruby, "X", 12, 6, 20)
@@ -1174,32 +1428,7 @@ addGradient(ActionBox, Color3.fromRGB(16, 24, 38), Colors.Card, 90)
 local ActionHeader = makeLabel(ActionBox, UDim2.new(1, -20, 0, 14), UDim2.new(0, 10, 0, 6), "CURRENT ACTION:", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Center, 14)
 local ActionBanner = makeLabel(ActionBox, UDim2.new(1, -20, 0, 24), UDim2.new(0, 10, 0, 22), "FARM ZONE: ACCUMULATING ACORNS...", Colors.CyanBright, Enum.Font.GothamBold, 13, Enum.TextXAlignment.Center, 14)
 
-local ProgressBarHolder = Instance.new("Frame")
-ProgressBarHolder.Size = UDim2.new(1, -30, 0, 20)
-ProgressBarHolder.Position = UDim2.new(0, 15, 0, 54)
-ProgressBarHolder.BackgroundColor3 = Color3.fromRGB(6, 9, 15)
-ProgressBarHolder.BorderSizePixel = 0
-ProgressBarHolder.ZIndex = 14
-ProgressBarHolder.Parent = ActionBox
-addCorner(ProgressBarHolder, 5)
-addStroke(ProgressBarHolder, Colors.CyanDim, 1)
-
-local SegmentCells = {}
-local totalSegments = 20
-for cellIdx = 1, totalSegments do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1 / totalSegments, -2, 1, -4)
-    cell.Position = UDim2.new((cellIdx - 1) / totalSegments, 1, 0, 2)
-    cell.BackgroundColor3 = Colors.CyanDim
-    cell.BackgroundTransparency = 0.8
-    cell.BorderSizePixel = 0
-    cell.ZIndex = 15
-    cell.Parent = ProgressBarHolder
-    addCorner(cell, 2)
-    table.insert(SegmentCells, cell)
-end
-
-local BarTextLabel = makeLabel(ProgressBarHolder, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "0%", Colors.Snow, Enum.Font.GothamBold, 9, Enum.TextXAlignment.Center, 20)
+local ActionSubBanner = makeLabel(ActionBox, UDim2.new(1, -20, 0, 20), UDim2.new(0, 10, 0, 52), "PURE VIRTUAL SERVER-SIDE ENGINE ACTIVE", Colors.Emerald, Enum.Font.GothamMedium, 10, Enum.TextXAlignment.Center, 14)
 
 local ButtonRow = Instance.new("Frame")
 ButtonRow.Size = UDim2.new(1, -20, 0, 34)
@@ -1352,18 +1581,16 @@ local function updateUI()
         AcornsVal.Text = string.format("%s / 2.6T", formatCompact(State.CurrentAcorns))
         ActionBanner.Text = State.CurrentActionText
 
-        local frac = math.clamp(State.ProgressFraction, 0, 1)
-        local litCount = math.floor(frac * totalSegments)
-        for cIdx, cFrame in ipairs(SegmentCells) do
-            if cIdx <= litCount then
-                cFrame.BackgroundColor3 = Colors.CyanBright
-                cFrame.BackgroundTransparency = 0.0
-            else
-                cFrame.BackgroundColor3 = Colors.CyanDim
-                cFrame.BackgroundTransparency = 0.8
-            end
+        if State.CurrentPhase == "YETI" then
+            ActionSubBanner.Text = "ATTACKING YETI (100% VIRTUAL PACKETS)"
+            ActionSubBanner.TextColor3 = Colors.Ruby
+        elseif State.CurrentPhase == "TUNNEL" then
+            ActionSubBanner.Text = string.format("TUNNEL OPEN (%s REMAINING)", formatTimer(State.TunnelTimeRemaining))
+            ActionSubBanner.TextColor3 = Colors.Gold
+        else
+            ActionSubBanner.Text = "PURE VIRTUAL ENGINE (NO SCREEN CLICKS)"
+            ActionSubBanner.TextColor3 = Colors.Emerald
         end
-        BarTextLabel.Text = string.format("%d%%", math.floor(frac * 100))
 
         GemsLabel.Text = string.format("GEMS GAINED: +%s", formatCompact(State.GemsGained))
         local uptime = os.clock() - State.StartTime
@@ -1449,42 +1676,53 @@ local function runTunnelSequence()
     if not State.Running then return end
     task.wait(0.2)
 
-    updateCurrencies()
-    if State.CurrentAcorns >= AcornsTarget or State.CurrentAcorns > 1e11 then
-        State.CurrentActionText = "TUNNEL EGG: 300X LUCK EGG HATCHING..."
-        pushLog("Acorns available! Hatching 300x egg in tunnel!")
-        teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
-        task.wait(0.4)
+    State.CurrentActionText = "TUNNEL EGG: 300X LUCK EGG (TRYING LUCK)..."
+    pushLog("Chests cleared! Hatching 300x egg with available acorns!")
+    teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
+    task.wait(0.4)
 
-        while State.Running do
-            local elapsed = os.clock() - tunnelStart
-            local remaining = tunnelDuration - elapsed
-            State.TunnelTimeRemaining = remaining
-            State.ProgressFraction = math.clamp(remaining / tunnelDuration, 0, 1)
+    local hatchAttempts = 0
+    while State.Running do
+        local elapsed = os.clock() - tunnelStart
+        local remaining = tunnelDuration - elapsed
+        State.TunnelTimeRemaining = remaining
 
-            if remaining <= 10 then
-                pushLog("Tunnel closing soon (4:50). Exiting safely...")
-                break
-            end
-
-            local hrp = getHRP()
-            if hrp and (hrp.Position - Points.TunnelEgg.Position).Magnitude > 6 then
-                teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
-            end
-
-            hatchNearestEgg(Points.TunnelEgg, getSafeHatchCount())
-            useUltimateAbility()
-            collectGroundDrops()
-            task.wait(0.8)
+        if remaining <= 10 then
+            pushLog("Tunnel closing soon. Exiting safely...")
+            break
         end
-    else
-        State.CurrentActionText = "TUNNEL CHESTS CLEARED. RETURNING TO FARM..."
-        pushLog("Chests finished. Returning to Farm Zone to farm acorns.")
-        task.wait(0.5)
+
+        local hrp = getHRP()
+        if hrp and (hrp.Position - Points.TunnelEgg.Position).Magnitude > 6 then
+            teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
+        end
+
+        updateCurrencies()
+        hatchAttempts = hatchAttempts + 1
+
+        hatchNearestEgg(Points.TunnelEgg, getSafeHatchCount())
+        useUltimateAbility()
+        collectGroundDrops()
+        task.wait(0.8)
+
+        if hatchAttempts >= 30 and State.CurrentAcorns <= 0 then
+            pushLog("Tunnel hatch attempts completed or acorns spent. Exiting to farm...")
+            break
+        end
+    end
+
+    State.TunnelOpen = false
+    local now = os.clock()
+    if State.FarmYetiEnabled and (now >= State.YetiCooldownEnd) then
+        local yObj = findBreakableNear(Points.Yeti, 85)
+        if yObj then
+            pushLog("Tunnel finished. Transitioning to Yeti boss!")
+            runYetiSequence()
+            return
+        end
     end
 
     teleportSafely(Points.FarmEgg, Vector3.new(0, 3, 0))
-    State.TunnelOpen = false
     pushLog("Returned to Farm Zone.")
 end
 
@@ -1533,7 +1771,6 @@ local function runYetiSequence()
         collectGroundDrops()
 
         local elapsed = os.clock() - engageStart
-        State.ProgressFraction = math.abs(math.sin(elapsed * 2))
         task.wait(0.05)
     end
 
@@ -1569,7 +1806,6 @@ local function runFreeTimeSequence()
     collectGroundDrops()
 
     local targetProgress = math.clamp(State.CurrentAcorns / AcornsTarget, 0, 1)
-    State.ProgressFraction = targetProgress
 end
 
 task.spawn(function()
