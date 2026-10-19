@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.4.0"
+local _VERSION = "9.5.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -98,7 +98,6 @@ local Points = {
     TunnelEgg = CFrame.new(-29905.1, 752.5, 30932.4),
     FarmEgg = CFrame.new(-30137.7, 752.6, 30916.3),
     Yeti = CFrame.new(-30046.1, 754.9, 31107.3),
-    Camp = CFrame.new(-29990.4, 753.5, 31150.8)
 }
 
 local AcornsTarget = 2600000000000
@@ -123,7 +122,6 @@ local State = {
     CurrentPhase = "INIT",
     CurrentActionText = "SYSTEM INITIALIZING...",
     LastFlagTime = 0,
-    LastCampDeposit = 0,
     LastHatchTime = 0,
     LastMerchantTime = 0,
     LastUltimateTime = 0,
@@ -131,7 +129,6 @@ local State = {
     LastLogMessage = "System initialized.",
     AutoTunnelEnabled = true,
     FarmYetiEnabled = true,
-    DepositPetsEnabled = true,
     MagnetFlagEnabled = true,
     OledModeActive = false
 }
@@ -302,88 +299,81 @@ local function updateCurrencies()
         local gems = 0
         local acorns = 0
 
-        if ClientModules["Save"] then
+        pcall(function()
+            if ClientModules["CurrencyCmds"] and ClientModules["CurrencyCmds"].Get then
+                local g = ClientModules["CurrencyCmds"].Get("Diamonds")
+                if g and tonumber(g) then gems = tonumber(g) end
+                for _, aName in ipairs({"Acorns", "Event Coins", "Gingerbread", "Snowflakes"}) do
+                    local a = ClientModules["CurrencyCmds"].Get(aName)
+                    if a and tonumber(a) and tonumber(a) > 0 then acorns = tonumber(a); break end
+                end
+            end
+        end)
+
+        if gems == 0 or acorns == 0 then
             pcall(function()
-                local data = ClientModules["Save"].Get()
-                if data then
-                    if data.Diamonds then gems = tonumber(data.Diamonds) or gems end
-                    if data.Acorns then acorns = tonumber(data.Acorns) or acorns end
-                    if data.Inventory and data.Inventory.Currency then
-                        local c = data.Inventory.Currency
-                        if c.Diamonds then gems = tonumber(c.Diamonds) or gems end
-                        if c.Acorns then acorns = tonumber(c.Acorns) or acorns end
-                        if c["Event Coins"] then acorns = tonumber(c["Event Coins"]) or acorns end
-                    end
-                    if data.Currency then
-                        if data.Currency.Diamonds then gems = tonumber(data.Currency.Diamonds) or gems end
-                        if data.Currency.Acorns then acorns = tonumber(data.Currency.Acorns) or acorns end
+                if ClientModules["Save"] then
+                    local data = ClientModules["Save"].Get()
+                    if data then
+                        if data.Diamonds and gems == 0 then gems = tonumber(data.Diamonds) or gems end
+                        if data.Acorns and acorns == 0 then acorns = tonumber(data.Acorns) or acorns end
+                        if data.Inventory and data.Inventory.Currency then
+                            local c = data.Inventory.Currency
+                            if c.Diamonds and gems == 0 then gems = tonumber(c.Diamonds) or gems end
+                            if c.Acorns and acorns == 0 then acorns = tonumber(c.Acorns) or acorns end
+                            if c["Event Coins"] and acorns == 0 then acorns = tonumber(c["Event Coins"]) or acorns end
+                        end
                     end
                 end
             end)
         end
 
-        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-        if leaderstats then
-            local d = leaderstats:FindFirstChild("Diamonds") or leaderstats:FindFirstChild("Gems")
-            if d and d.Value and gems == 0 then
-                gems = tonumber(d.Value) or 0
-            end
-            local a = leaderstats:FindFirstChild("Acorns") or leaderstats:FindFirstChild("Event Coins")
-            if a and a.Value and acorns == 0 then
-                acorns = tonumber(a.Value) or 0
-            end
+        if gems == 0 or acorns == 0 then
+            pcall(function()
+                local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+                if leaderstats then
+                    local d = leaderstats:FindFirstChild("Diamonds") or leaderstats:FindFirstChild("Gems")
+                    if d and d.Value and gems == 0 then gems = tonumber(d.Value) or 0 end
+                    local a = leaderstats:FindFirstChild("Acorns") or leaderstats:FindFirstChild("Event Coins")
+                    if a and a.Value and acorns == 0 then acorns = tonumber(a.Value) or 0 end
+                end
+            end)
         end
 
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then
-            for _, desc in ipairs(pg:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Visible and desc.Text and desc.Text ~= "" then
-                    local isSelfGui = false
-                    if ScreenGui and (desc == ScreenGui or desc:IsDescendantOf(ScreenGui)) then
-                        isSelfGui = true
-                    end
-                    if not isSelfGui then
-                        local parentName = string.lower(desc.Parent and desc.Parent.Name or "")
-                        local selfName = string.lower(desc.Name)
-                        local isCurrencyLabel = false
-                        local isAcorn = false
-                        local isGem = false
-
-                        if string.find(parentName, "acorn") or string.find(selfName, "acorn") or string.find(parentName, "event") then
-                            isCurrencyLabel = true
-                            isAcorn = true
-                        elseif string.find(parentName, "diamond") or string.find(selfName, "diamond") or string.find(parentName, "gem") or string.find(selfName, "gem") then
-                            isCurrencyLabel = true
-                            isGem = true
-                        end
-
-                        if isCurrencyLabel then
-                            local parsed = parseFormattedNumber(desc.Text)
-                            if isAcorn and parsed > 0 then
-                                acorns = parsed
-                            elseif isGem and parsed > 0 then
-                                gems = parsed
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if pg then
+                for _, desc in ipairs(pg:GetDescendants()) do
+                    pcall(function()
+                        if desc:IsA("TextLabel") and desc.Visible and desc.Text and desc.Text ~= "" then
+                            local isSelf = false
+                            if ScreenGui and (desc == ScreenGui or desc:IsDescendantOf(ScreenGui)) then isSelf = true end
+                            if not isSelf then
+                                local pName = string.lower(desc.Parent and desc.Parent.Name or "")
+                                local sName = string.lower(desc.Name)
+                                local txt = desc.Text
+                                if string.find(pName, "acorn") or string.find(sName, "acorn") or string.find(pName, "event") or string.find(sName, "event") then
+                                    local parsed = parseFormattedNumber(txt)
+                                    if parsed > 0 then acorns = parsed end
+                                elseif string.find(pName, "diamond") or string.find(sName, "diamond") or string.find(pName, "gem") or string.find(sName, "gem") then
+                                    local parsed = parseFormattedNumber(txt)
+                                    if parsed > 0 then gems = parsed end
+                                end
                             end
                         end
-                    end
+                    end)
                 end
             end
-        end
+        end)
 
-        State.CurrentGems = gems
-        State.CurrentAcorns = acorns
-
-        if gems > 0 and State.StartGems == nil then
-            State.StartGems = gems
-        end
-        if State.StartGems then
+        if gems > 0 then
+            State.CurrentGems = gems
+            if State.StartGems == nil then State.StartGems = gems end
             State.GemsGained = math.max(0, gems - State.StartGems)
-        else
-            State.GemsGained = 0
         end
-
-        if acorns > 0 and State.StartAcorns == nil then
-            State.StartAcorns = acorns
+        if acorns > 0 then
+            State.CurrentAcorns = acorns
+            if State.StartAcorns == nil then State.StartAcorns = acorns end
         end
     end)
 end
@@ -907,84 +897,6 @@ local function placeMagnetFlag()
     end
 end
 
-local function executeCampPetDepositFlow()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return end
-    pushLog("Yeti Power machine active. Engaging Auto-Feed & Feed...")
-    for _, g in ipairs(pg:GetChildren()) do
-        if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
-            local gName = string.lower(g.Name)
-            if string.find(gName, "yeti") or string.find(gName, "power") or string.find(gName, "camp") or string.find(gName, "feed") or string.find(gName, "altar") then
-                findAndClickButton(g, {"auto-feed", "auto feed", "autofeed", "select all"})
-                task.wait(0.3)
-                findAndClickButton(g, {"feed pets", "feed", "deposit", "confirm", "power"})
-                task.wait(0.3)
-            end
-        end
-    end
-    for _, topG in ipairs(pg:GetChildren()) do
-        if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
-            local tName = string.lower(topG.Name)
-            if string.find(tName, "confirm") or string.find(tName, "prompt") or string.find(tName, "dialog") or string.find(tName, "modal") then
-                findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
-            end
-        end
-    end
-    task.wait(0.3)
-    for _, g in ipairs(pg:GetChildren()) do
-        if g:IsA("ScreenGui") and g ~= ScreenGui then
-            local gName = string.lower(g.Name)
-            if string.find(gName, "yeti") or string.find(gName, "power") or string.find(gName, "camp") or string.find(gName, "feed") then
-                findAndClickButton(g, {"close", "exit", "cancel", "back", "x"})
-                g.Enabled = false
-            end
-        end
-    end
-    pushLog("Yeti Power processed successfully!")
-end
-
-local function depositCampPets()
-    local now = os.clock()
-    if now - State.LastCampDeposit < 90 then return end
-    State.LastCampDeposit = now
-    State.CurrentPhase = "DEPOSIT"
-    State.CurrentActionText = "CAMP: YETI POWER FEEDING...",
-    pushLog("Interacting with Yeti Power machine...")
-
-    teleportSafely(Points.Camp, Vector3.new(0, 3, 0))
-    task.wait(0.5)
-
-    pcall(function()
-        local hrp = getHRP()
-        if hrp then
-            for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and (desc.Position - hrp.Position).Magnitude <= 35 then
-                    if fireproximityprompt then
-                        fireproximityprompt(desc)
-                    end
-                end
-            end
-        end
-    end)
-
-    task.wait(0.5)
-    pcall(executeCampPetDepositFlow)
-
-    pcall(function()
-        fireNetwork("Camp_DepositPets")
-        fireNetwork("EventAltar_Deposit")
-        fireNetwork("WinterCamp_Deposit")
-        fireNetwork("ShinyMachine_Deposit")
-        fireNetwork("Altar_Deposit")
-        fireNetwork("YetiPower_Feed")
-        fireNetwork("Yeti_Feed")
-    end)
-    task.wait(0.3)
-
-    teleportSafely(Points.Camp, Vector3.new(0, 25, 0))
-    task.wait(0.3)
-end
-
 local function findMerchantLocation()
     local hrp = getHRP()
     local myPos = hrp and hrp.Position or Vector3.zero
@@ -1051,12 +963,12 @@ local function buyMerchantItems()
     if merchantCF then
         pushLog("Visiting Merchant vendor: " .. tostring(merchantName))
         State.CurrentActionText = "BUYING MERCHANT BUFFS & ITEMS..."
-        teleportSafely(merchantCF, Vector3.new(0, 2, 3))
-        task.wait(0.4)
+        teleportSafely(merchantCF, Vector3.new(0, 2, 2))
+        task.wait(0.8)
 
         if prompt and fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
-            task.wait(0.5)
+            task.wait(1.0)
         end
 
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
@@ -1064,10 +976,10 @@ local function buyMerchantItems()
             for _, g in ipairs(pg:GetChildren()) do
                 if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
                     local gName = string.lower(g.Name)
-                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") then
-                        for _ = 1, 3 do
-                            findAndClickButton(g, {"buy", "purchase", "free", "get", "claim"})
-                            task.wait(0.2)
+                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") or string.find(gName, "event") then
+                        for _ = 1, 4 do
+                            findAndClickButton(g, {"buy", "purchase", "free", "get", "claim", "all", "max"})
+                            task.wait(0.3)
                         end
                         for _, topG in ipairs(pg:GetChildren()) do
                             if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
@@ -1080,7 +992,7 @@ local function buyMerchantItems()
         end
 
         pcall(function()
-            local mList = {merchantName or "TravelingMerchant", "TravelingMerchant", "BuffMerchant", "WinterMerchant", "Buffs", "WinterBuffs"}
+            local mList = {merchantName or "TravelingMerchant", "TravelingMerchant", "BuffMerchant", "WinterMerchant", "EventMerchant", "Buffs", "WinterBuffs"}
             for _, mId in ipairs(mList) do
                 for slot = 1, 8 do
                     fireNetwork("Merchant: RequestBuy", mId, slot)
@@ -1098,25 +1010,14 @@ local function buyMerchantItems()
                 end
             end
         end)
-        task.wait(0.3)
+        task.wait(1.2)
 
-        pcall(function()
-            if pg then
-                for _, g in ipairs(pg:GetChildren()) do
-                    if g:IsA("ScreenGui") and g ~= ScreenGui then
-                        local gName = string.lower(g.Name)
-                        if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") then
-                            findAndClickButton(g, {"close", "exit", "cancel", "back", "x"})
-                        end
-                    end
-                end
-            end
-        end)
         if pg then
             for _, g in ipairs(pg:GetChildren()) do
                 if g:IsA("ScreenGui") and g ~= ScreenGui then
                     local gName = string.lower(g.Name)
                     if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") then
+                        findAndClickButton(g, {"close", "exit", "cancel", "back", "x"})
                         g.Enabled = false
                     end
                 end
@@ -1371,7 +1272,7 @@ do
 end
 
 local TitleText = makeLabel(TopBar, UDim2.new(0, 180, 0, 22), UDim2.new(0, 14, 0, 6), "<< PUFYFTYK >>", Colors.CyanBright, Enum.Font.GothamBold, 16, Enum.TextXAlignment.Left, 15)
-local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v9.4", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
+local SubBadgeText = makeLabel(TopBar, UDim2.new(0, 250, 0, 14), UDim2.new(0, 14, 0, 28), "SYSTEM: OPERATIONAL // WINTER AFB HUB v9.5", Colors.Muted, Enum.Font.Code, 9, Enum.TextXAlignment.Left, 15)
 
 local MinBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -68, 0, 10), Colors.Card, "-", 15, 6, 20)
 local CloseBtn = makeBtn(TopBar, UDim2.new(0, 28, 0, 28), UDim2.new(1, -36, 0, 10), Colors.Ruby, "X", 12, 6, 20)
@@ -1443,10 +1344,9 @@ local function makeActionBtn(parent, xFrac, label, activeBg)
 end
 
 local BtnAutoTunnel = makeActionBtn(ButtonRow, 0.00, "[AUTO TUNNEL]", Colors.PanelBright)
-local BtnFarmYeti = makeActionBtn(ButtonRow, 0.203, "[FARM YETI]", Colors.PanelBright)
-local BtnDepositPets = makeActionBtn(ButtonRow, 0.406, "[DEPOSIT PETS]", Colors.PanelBright)
-local BtnMagnetFlag = makeActionBtn(ButtonRow, 0.609, "[MAGNET FLAG]", Colors.PanelBright)
-local BtnOledSleep = makeActionBtn(ButtonRow, 0.812, "[OLED SLEEP]", Colors.PurpleDim)
+local BtnFarmYeti = makeActionBtn(ButtonRow, 0.255, "[FARM YETI]", Colors.PanelBright)
+local BtnMagnetFlag = makeActionBtn(ButtonRow, 0.510, "[MAGNET FLAG]", Colors.PanelBright)
+local BtnOledSleep = makeActionBtn(ButtonRow, 0.765, "[OLED SLEEP]", Colors.PurpleDim)
 
 local FooterBar = Instance.new("Frame")
 FooterBar.Size = UDim2.new(1, -20, 0, 34)
@@ -1517,12 +1417,6 @@ bindSafeClick(BtnFarmYeti, function()
     pushLog("FarmYeti: " .. tostring(State.FarmYetiEnabled))
 end)
 
-bindSafeClick(BtnDepositPets, function()
-    State.DepositPetsEnabled = not State.DepositPetsEnabled
-    BtnDepositPets.BackgroundColor3 = State.DepositPetsEnabled and Colors.PanelBright or Colors.Panel
-    pushLog("DepositPets: " .. tostring(State.DepositPetsEnabled))
-end)
-
 bindSafeClick(BtnMagnetFlag, function()
     State.MagnetFlagEnabled = not State.MagnetFlagEnabled
     BtnMagnetFlag.BackgroundColor3 = State.MagnetFlagEnabled and Colors.PanelBright or Colors.Panel
@@ -1556,8 +1450,6 @@ end)
 
 local function updateUI()
     pcall(function()
-        updateCurrencies()
-
         YetiVal.Text = tostring(State.YetiKills)
 
         if State.TunnelOpen then
@@ -1611,6 +1503,13 @@ task.spawn(function()
     while State.Running do
         updateUI()
         task.wait(0.2)
+    end
+end)
+
+task.spawn(function()
+    while State.Running do
+        updateCurrencies()
+        task.wait(1.5)
     end
 end)
 
@@ -1774,17 +1673,11 @@ local function runYetiSequence()
         task.wait(0.05)
     end
 
-    if State.DepositPetsEnabled then
-        depositCampPets()
-    end
 end
 
 local function runFreeTimeSequence()
     local now = os.clock()
 
-    if State.DepositPetsEnabled and (now - State.LastCampDeposit > 180) then
-        depositCampPets()
-    end
 
     State.CurrentPhase = "FLAG"
     State.CurrentActionText = "FARM ZONE: ACCUMULATING ACORNS & AMBIENT FARM..."
