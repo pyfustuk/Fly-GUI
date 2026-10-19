@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.6.0"
+local _VERSION = "9.7.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -455,16 +455,24 @@ end
 local function attackBreakableUID(uid, obj)
     if not uid then return end
     pcall(function()
+        for _ = 1, 6 do
+            fireNetwork("Breakables_PlayerDealDamage", uid)
+            fireNetwork("Breakables_Damage", uid)
+            fireNetwork("Breakables_Tap", uid)
+            fireNetwork("Breakables_Click", uid)
+        end
         fireNetwork("Breakables_JoinPet", uid)
         fireNetwork("Breakables_JoinPetAll", uid)
         fireNetwork("Pets: Attack", uid)
         fireNetwork("Pets_Attack", uid)
-        fireNetwork("Breakables_Damage", uid)
     end)
     if ClientModules["BreakableCmds"] then
         pcall(function()
             if ClientModules["BreakableCmds"].Damage then
                 ClientModules["BreakableCmds"].Damage(uid)
+            end
+            if ClientModules["BreakableCmds"].Tap then
+                ClientModules["BreakableCmds"].Tap(uid)
             end
         end)
     end
@@ -499,25 +507,83 @@ local function farmAmbientBreakables(centerCFrame, radius)
     collectGroundDrops()
 end
 
-local function sendAllPetsToBoss(bossObj, uid)
-    if not uid then return end
+local function tapBossVirtual(bossObj, uid)
+    local targetUids = {}
+    if uid then table.insert(targetUids, tostring(uid)) end
+    if bossObj and bossObj:IsA("Instance") then
+        local attrId = bossObj:GetAttribute("id") or bossObj:GetAttribute("uid") or bossObj:GetAttribute("BreakableId")
+        if attrId and tostring(attrId) ~= tostring(uid) then
+            table.insert(targetUids, tostring(attrId))
+        end
+        if bossObj.Name and bossObj.Name ~= tostring(uid) then
+            table.insert(targetUids, bossObj.Name)
+        end
+    end
+    table.insert(targetUids, "Yeti")
+    table.insert(targetUids, "Boss")
     pcall(function()
-        fireNetwork("Breakables_JoinPet", uid)
-        fireNetwork("Breakables_JoinPetAll", uid)
-        fireNetwork("Pets: Attack", uid)
-        fireNetwork("Pets_Attack", uid)
+        for _, id in ipairs(targetUids) do
+            for _ = 1, 15 do
+                fireNetwork("Breakables_PlayerDealDamage", id)
+                fireNetwork("Breakables_Damage", id)
+                fireNetwork("Breakables_Tap", id)
+                fireNetwork("Breakables_Click", id)
+                fireNetwork("Breakable_Damage", id)
+                fireNetwork("TapBoss_Damage", id)
+                fireNetwork("Yeti_Tap", id)
+                fireNetwork("Boss_Tap", id)
+                fireNetwork("ClickDamage", id)
+            end
+        end
+    end)
+    if ClientModules["BreakableCmds"] then
+        pcall(function()
+            for _, id in ipairs(targetUids) do
+                if ClientModules["BreakableCmds"].Damage then
+                    ClientModules["BreakableCmds"].Damage(id)
+                end
+                if ClientModules["BreakableCmds"].Tap then
+                    ClientModules["BreakableCmds"].Tap(id)
+                end
+                if ClientModules["BreakableCmds"].Hit then
+                    ClientModules["BreakableCmds"].Hit(id)
+                end
+            end
+        end)
+    end
+    if ClientModules["PlayerCmds"] then
+        pcall(function()
+            for _, id in ipairs(targetUids) do
+                if ClientModules["PlayerCmds"].Click then
+                    ClientModules["PlayerCmds"].Click(id)
+                end
+                if ClientModules["PlayerCmds"].Tap then
+                    ClientModules["PlayerCmds"].Tap(id)
+                end
+            end
+        end)
+    end
+    pcall(function()
+        for _, id in ipairs(targetUids) do
+            fireNetwork("Breakables_JoinPet", id)
+            fireNetwork("Breakables_JoinPetAll", id)
+            fireNetwork("Pets: Attack", id)
+            fireNetwork("Pets_Attack", id)
+        end
     end)
     if ClientModules["PetCmds"] then
         pcall(function()
-            if ClientModules["PetCmds"].Attack then
-                ClientModules["PetCmds"].Attack(uid)
-            elseif ClientModules["PetCmds"].SetTarget then
-                ClientModules["PetCmds"].SetTarget(uid)
+            for _, id in ipairs(targetUids) do
+                if ClientModules["PetCmds"].Attack then
+                    ClientModules["PetCmds"].Attack(id)
+                elseif ClientModules["PetCmds"].SetTarget then
+                    ClientModules["PetCmds"].SetTarget(id)
+                end
             end
         end)
     end
 end
-local tapBossVirtual = sendAllPetsToBoss
+local sendAllPetsToBoss = tapBossVirtual
 
 local function useUltimateAbility()
     local now = os.clock()
@@ -1600,7 +1666,7 @@ local function breakChestAtPoint(cframePt, chestIndex)
         end
 
         attackBreakableUID(currUid, currObj)
-        sendAllPetsToBoss(currObj, currUid)
+        tapBossVirtual(currObj, currUid)
         useUltimateAbility()
         collectGroundDrops()
         task.wait(0.06)
@@ -1716,7 +1782,7 @@ local function runYetiSequence()
         end
 
         attackBreakableUID(currUid, currObj)
-        sendAllPetsToBoss(currObj, currUid)
+        tapBossVirtual(currObj, currUid)
         useUltimateAbility()
         collectGroundDrops()
 
