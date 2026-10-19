@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
-local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub"
-local _VERSION = "4.1.0"
+local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Masterpiece"
+local _VERSION = "5.0.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -100,29 +100,47 @@ local Points = {
 
 local AcornsTarget = 2600000000000
 
+local StartClock = os.clock()
+local StartTimeString = os.date("%H:%M:%S")
+
 local State = {
     Running = true,
-    StartTime = os.clock(),
+    StartTime = StartClock,
+    StartTimeStr = StartTimeString,
     StartGems = nil,
     CurrentGems = 0,
     GemsGained = 0,
+    StartAcorns = nil,
     CurrentAcorns = 0,
     YetiKills = 0,
     YetiCooldownEnd = 0,
     TunnelOpen = false,
     TunnelTimeRemaining = 0,
-    NextTunnelCheck = 0,
-    NextMerchantRestock = os.clock() + 3600,
+    LastTunnelEggHatch = 0,
     LastFlagTime = 0,
     LastCampDeposit = 0,
     LastMerchantTime = 0,
     LastUltimateTime = 0,
     LastHatchTime = 0,
-    CurrentActionText = "Starting pufyftyk Autonomous Engine...",
+    CurrentActionText = "ENGINE READY: STANDING BY...",
     CurrentPhase = "INIT",
     ProgressFraction = 0,
-    IsOled = false
+    IsOled = false,
+    RecentLogs = {
+        "System initialized.",
+        "Awaiting target scan...",
+        "Autonomous loop engaged."
+    }
 }
+
+local function pushLog(msg)
+    local tStr = os.date("%H:%M:%S")
+    local entry = string.format("[%s] %s", tStr, msg)
+    table.insert(State.RecentLogs, entry)
+    if #State.RecentLogs > 3 then
+        table.remove(State.RecentLogs, 1)
+    end
+end
 
 local function getHRP()
     local char = LocalPlayer.Character
@@ -130,7 +148,7 @@ local function getHRP()
     return char:FindFirstChild("HumanoidRootPart")
 end
 
-local function teleportTo(cf, offset)
+local function teleportSafely(cf, offset)
     local hrp = getHRP()
     if not hrp then return end
     local targetCF = cf
@@ -162,9 +180,14 @@ end
 
 local function formatDuration(sec)
     sec = math.max(0, math.floor(tonumber(sec) or 0))
-    local m = math.floor(sec / 60)
+    local h = math.floor(sec / 3600)
+    local m = math.floor((sec % 3600) / 60)
     local s = sec % 60
-    return string.format("%02d:%02d", m, s)
+    if h > 0 then
+        return string.format("%02d:%02d:%02d", h, m, s)
+    else
+        return string.format("%02d:%02d", m, s)
+    end
 end
 
 local function formatGemsProfit(val)
@@ -203,6 +226,14 @@ end)
 local function fireNetwork(name, ...)
     if not Network then return nil end
     local remote = Network:FindFirstChild(name)
+    if not remote then
+        for _, desc in ipairs(Network:GetDescendants()) do
+            if desc.Name == name then
+                remote = desc
+                break
+            end
+        end
+    end
     if not remote then return nil end
     local res = nil
     if remote:IsA("RemoteEvent") then
@@ -233,13 +264,31 @@ local function updateCurrencies()
             end
         end
 
+        if gems == 0 then
+            local ls = LocalPlayer:FindFirstChild("leaderstats")
+            if ls then
+                local d = ls:FindFirstChild("Diamonds")
+                if d and tonumber(d.Value) then
+                    gems = tonumber(d.Value)
+                end
+            end
+        end
+
         State.CurrentGems = gems
         State.CurrentAcorns = acorns
 
-        if State.StartGems == nil then
+        if gems > 0 and State.StartGems == nil then
             State.StartGems = gems
         end
-        State.GemsGained = gems - State.StartGems
+        if State.StartGems then
+            State.GemsGained = math.max(0, gems - State.StartGems)
+        else
+            State.GemsGained = 0
+        end
+
+        if acorns > 0 and State.StartAcorns == nil then
+            State.StartAcorns = acorns
+        end
     end)
 end
 
@@ -254,7 +303,7 @@ end
 local function findBreakableNear(cframeTarget, maxRadius)
     local targetPos = cframeTarget.Position
     local bestObj = nil
-    local bestDist = maxRadius or 20
+    local bestDist = maxRadius or 35
     local bestUid = nil
 
     local bFolder = getBreakablesFolder()
@@ -344,8 +393,8 @@ local function hatchNearestEgg(eggCFrame, batchCount)
 end
 
 local function checkTunnelStatus()
-    local obj, uid, dist = findBreakableNear(Points.Chest1, 20)
-    if obj and dist <= 20 then
+    local obj, uid, dist = findBreakableNear(Points.Chest1, 35)
+    if obj and dist <= 35 then
         return true
     end
     local isOpenByPart = false
@@ -367,19 +416,104 @@ local function checkTunnelStatus()
     return isOpenByPart
 end
 
+local function findNearestFlagPole(pos, maxDist)
+    local bestPole = nil
+    local bestD = maxDist or 80
+    pcall(function()
+        local things = Workspace:FindFirstChild("__THINGS")
+        if things then
+            local poles = things:FindFirstChild("FlagPoles") or things:FindFirstChild("Flags")
+            if poles then
+                for _, p in ipairs(poles:GetChildren()) do
+                    local pPart = p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart") or p
+                    if pPart and pPart.Position then
+                        local d = (pPart.Position - pos).Magnitude
+                        if d <= bestD then
+                            bestD = d
+                            bestPole = p
+                        end
+                    end
+                end
+            end
+        end
+        if not bestPole then
+            for _, desc in ipairs(Workspace:GetDescendants()) do
+                if string.find(string.lower(desc.Name), "flagpole") then
+                    local pPart = desc:IsA("BasePart") and desc or desc:FindFirstChildWhichIsA("BasePart")
+                    if pPart then
+                        local d = (pPart.Position - pos).Magnitude
+                        if d <= bestD then
+                            bestD = d
+                            bestPole = desc
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return bestPole
+end
+
 local function placeMagnetFlag()
     local now = os.clock()
     if now - State.LastFlagTime < 300 then return end
     State.LastFlagTime = now
+
+    local pole = findNearestFlagPole(Points.FarmEgg.Position, 80)
     pcall(function()
+        if pole then
+            fireNetwork("Flags_Place", "Magnet", pole)
+            fireNetwork("Flags: Consume", "Magnet", pole)
+        end
         fireNetwork("Flags_Place", "Magnet", Points.FarmEgg.Position)
         fireNetwork("Flags: Consume", "Magnet", Points.FarmEgg.Position)
+        fireNetwork("Flags_Place", "Magnet", "Diamond Mountain")
     end)
     if ClientModules["FlagCmds"] then
         pcall(function()
             ClientModules["FlagCmds"].Place("Magnet", Points.FarmEgg.Position)
         end)
     end
+    pushLog("Placed Magnet Flag at Farm Zone.")
+end
+
+local function autoSubmitCampGui()
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, g in ipairs(pg:GetChildren()) do
+            if g:IsA("ScreenGui") and g.Enabled then
+                local gLow = string.lower(g.Name)
+                if string.find(gLow, "altar") or string.find(gLow, "camp") or string.find(gLow, "machine") or string.find(gLow, "deposit") or string.find(gLow, "shiny") then
+                    for _, desc in ipairs(g:GetDescendants()) do
+                        if desc:IsA("GuiButton") and desc.Visible then
+                            local t = string.lower(desc.Text or "")
+                            local n = string.lower(desc.Name or "")
+                            if string.find(t, "deposit") or string.find(t, "max") or string.find(t, "all") or string.find(t, "add") or string.find(t, "submit") or string.find(t, "upgrade") or string.find(n, "deposit") or string.find(n, "max") or string.find(n, "submit") then
+                                if firesignal then
+                                    firesignal(desc.Activated)
+                                elseif desc.MouseButton1Click then
+                                    desc.MouseButton1Click:Fire()
+                                end
+                                task.wait(0.2)
+                            end
+                        end
+                    end
+                    task.wait(0.5)
+                    for _, desc in ipairs(g:GetDescendants()) do
+                        if desc:IsA("GuiButton") and desc.Visible then
+                            local t = string.lower(desc.Text or "")
+                            local n = string.lower(desc.Name or "")
+                            if t == "x" or string.find(t, "close") or string.find(n, "close") or string.find(n, "exit") then
+                                if firesignal then firesignal(desc.Activated) end
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
 end
 
 local function depositCampPets()
@@ -387,14 +521,17 @@ local function depositCampPets()
     if now - State.LastCampDeposit < 90 then return end
     State.LastCampDeposit = now
     State.CurrentPhase = "DEPOSIT"
-    teleportTo(Points.Camp, Vector3.new(0, 3, 0))
-    task.wait(0.4)
+    State.CurrentActionText = "CAMP: DEPOSITING PETS FOR RAINBOW SHINY..."
+    pushLog("Entering Camp to charge Rainbow Shiny...")
+
+    teleportSafely(Points.Camp, Vector3.new(0, 3, 0))
+    task.wait(0.5)
 
     pcall(function()
         local hrp = getHRP()
         if hrp then
             for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and (desc.Position - hrp.Position).Magnitude <= 25 then
+                if desc:IsA("ProximityPrompt") and (desc.Position - hrp.Position).Magnitude <= 30 then
                     if fireproximityprompt then
                         fireproximityprompt(desc)
                     end
@@ -403,24 +540,33 @@ local function depositCampPets()
         end
     end)
 
+    task.wait(0.3)
+    autoSubmitCampGui()
+
     pcall(function()
         fireNetwork("Camp_DepositPets")
         fireNetwork("EventAltar_Deposit")
         fireNetwork("WinterCamp_Deposit")
         fireNetwork("ShinyMachine_Deposit")
+        fireNetwork("Altar_Deposit")
     end)
+
+    pushLog("Pets submitted to Camp Altar.")
 end
 
 local function buyMerchantItems()
     local now = os.clock()
     if now - State.LastMerchantTime < 30 then return end
     State.LastMerchantTime = now
+
     pcall(function()
         for slot = 1, 6 do
             fireNetwork("TravelingMerchant_Buy", slot)
             fireNetwork("Merchant_Buy", "TravelingMerchant", slot)
             fireNetwork("Merchant_Buy", "MysteryMerchant", slot)
             fireNetwork("Merchant_Buy", "WinterMerchant", slot)
+            fireNetwork("EventShop_Buy", slot)
+            fireNetwork("WinterShop_Buy", slot)
         end
     end)
 end
@@ -562,8 +708,8 @@ end
 
 local DayCard = Instance.new("Frame")
 DayCard.Name = "DayCardCyberIce"
-DayCard.Size = UDim2.new(0, 380, 0, 295)
-DayCard.Position = UDim2.new(0.5, -190, 0.5, -147)
+DayCard.Size = UDim2.new(0, 390, 0, 310)
+DayCard.Position = UDim2.new(0.5, -195, 0.5, -155)
 DayCard.BackgroundColor3 = Colors.Bg
 DayCard.BorderSizePixel = 0
 DayCard.ZIndex = 10
@@ -582,11 +728,11 @@ DaySnowTop.Parent = DayCard
 addCorner(DaySnowTop, 4)
 addGradient(DaySnowTop, Color3.fromRGB(255, 255, 255), Colors.Frost, 0)
 
-for i = 1, 7 do
+for i = 1, 8 do
     local icicle = Instance.new("Frame")
     local w = math.random(6, 12)
-    local h = math.random(5, 10)
-    local xPos = (i - 1) * 52 + math.random(10, 25)
+    local h = math.random(5, 11)
+    local xPos = (i - 1) * 48 + math.random(8, 22)
     icicle.Size = UDim2.new(0, w, 0, h)
     icicle.Position = UDim2.new(0, xPos, 0, 4)
     icicle.BackgroundColor3 = Colors.SnowWhite
@@ -598,8 +744,8 @@ for i = 1, 7 do
 end
 
 local CableHolder = Instance.new("Frame")
-CableHolder.Size = UDim2.new(0.8, 0, 0, 10)
-CableHolder.Position = UDim2.new(0.1, 0, 1, 0)
+CableHolder.Size = UDim2.new(0.85, 0, 0, 10)
+CableHolder.Position = UDim2.new(0.075, 0, 1, 0)
 CableHolder.BackgroundTransparency = 1
 CableHolder.ZIndex = 8
 CableHolder.Parent = DayCard
@@ -625,7 +771,7 @@ addCorner(DayCable2, 2)
 addGradient(DayCable2, Colors.AmberBright, Colors.Amber, 0)
 
 local DayTopHeader = Instance.new("Frame")
-DayTopHeader.Size = UDim2.new(1, 0, 0, 46)
+DayTopHeader.Size = UDim2.new(1, 0, 0, 48)
 DayTopHeader.BackgroundColor3 = Colors.Header
 DayTopHeader.BorderSizePixel = 0
 DayTopHeader.ZIndex = 11
@@ -659,10 +805,10 @@ do
     end)
 end
 
-makeLabel(DayTopHeader, UDim2.new(0, 100, 0, 24), UDim2.new(0, 12, 0, 3), "pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 16)
+makeLabel(DayTopHeader, UDim2.new(0, 95, 0, 22), UDim2.new(0, 10, 0, 2), "pufyftyk", Colors.CyanBright, Enum.Font.GothamBold, 16)
 local SysStatusBadge = Instance.new("Frame")
-SysStatusBadge.Size = UDim2.new(0, 140, 0, 16)
-SysStatusBadge.Position = UDim2.new(0, 12, 0, 26)
+SysStatusBadge.Size = UDim2.new(0, 145, 0, 16)
+SysStatusBadge.Position = UDim2.new(0, 10, 0, 25)
 SysStatusBadge.BackgroundColor3 = Color3.fromRGB(8, 12, 20)
 SysStatusBadge.BorderSizePixel = 0
 SysStatusBadge.ZIndex = 12
@@ -672,9 +818,11 @@ addStroke(SysStatusBadge, Colors.Amber, 1)
 
 makeLabel(SysStatusBadge, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "SYSTEM STATUS: OK // WINTER", Colors.AmberBright, Enum.Font.GothamBold, 8, Enum.TextXAlignment.Center, 13)
 
-local BtnOledSwitch = makeBtn(DayTopHeader, UDim2.new(0, 50, 0, 24), UDim2.new(1, -114, 0, 11), Colors.PurpleDim, "OLED", 10, 5)
-local BtnDayMin = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -58, 0, 11), Colors.CardBright, "-", 13, 5)
-local BtnDayClose = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -30, 0, 11), Colors.Red, "X", 11, 5)
+local DayLblTimeStats = makeLabel(DayTopHeader, UDim2.new(0, 160, 0, 18), UDim2.new(0, 160, 0, 14), string.format("START: %s | UP: 00:00", StartTimeString), Colors.SubText, Enum.Font.Gotham, 8)
+
+local BtnOledSwitch = makeBtn(DayTopHeader, UDim2.new(0, 50, 0, 24), UDim2.new(1, -114, 0, 12), Colors.PurpleDim, "OLED", 10, 5)
+local BtnDayMin = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -58, 0, 12), Colors.CardBright, "-", 13, 5)
+local BtnDayClose = makeBtn(DayTopHeader, UDim2.new(0, 24, 0, 24), UDim2.new(1, -30, 0, 12), Colors.Red, "X", 11, 5)
 
 local MiniBadge = makeBtn(ScreenGui, UDim2.new(0, 145, 0, 36), UDim2.new(0, 10, 0, 10), Colors.Header, "[*] pufyftyk Hub", 11, 8)
 MiniBadge.TextColor3 = Colors.CyanBright
@@ -707,17 +855,17 @@ local function createDayStatBox(parent, iconTxt, title, initVal, posX, posY, w, 
     return lbl
 end
 
-local DayLblYeti = createDayStatBox(DayCard, "[+]", "YETI KILLS", "0", 8, 52, 86, 34, Colors.SnowWhite)
-local DayLblTunnel = createDayStatBox(DayCard, "[O]", "TUNNEL", "CHECKING", 98, 52, 90, 34, Colors.CyanBright)
-local DayLblYetiState = createDayStatBox(DayCard, "[*]", "YETI", "READY", 192, 52, 90, 34, Colors.AmberBright, Colors.Amber)
-local DayLblAcorns = createDayStatBox(DayCard, "[$]", "ACORNS", "0 / 2.6T", 286, 52, 86, 34, Colors.Gold)
+local DayLblYeti = createDayStatBox(DayCard, "[+]", "YETI KILLS", "0", 8, 54, 88, 34, Colors.SnowWhite)
+local DayLblTunnel = createDayStatBox(DayCard, "[O]", "TUNNEL", "CHECKING", 102, 54, 92, 34, Colors.CyanBright)
+local DayLblYetiState = createDayStatBox(DayCard, "[*]", "YETI", "READY", 200, 54, 90, 34, Colors.AmberBright, Colors.Amber)
+local DayLblAcorns = createDayStatBox(DayCard, "[$]", "ACORNS", "0 / 2.6T", 296, 54, 86, 34, Colors.Gold)
 
-local DayLblGems = createDayStatBox(DayCard, "[#]", "GEMS GAINED", "+0", 8, 90, 180, 32, Colors.CyanBright)
-local DayLblMerchant = createDayStatBox(DayCard, "[@]", "MERCHANT RESTOCK", "00:00", 192, 90, 180, 32, Colors.SnowWhite)
+local DayLblGems = createDayStatBox(DayCard, "[#]", "GEMS PROFIT", "+0", 8, 92, 186, 32, Colors.CyanBright)
+local DayLblMerchant = createDayStatBox(DayCard, "[@]", "MERCHANT RESTOCK", "00:00", 200, 92, 182, 32, Colors.SnowWhite)
 
 local ActionFrame = Instance.new("Frame")
-ActionFrame.Size = UDim2.new(1, -16, 0, 58)
-ActionFrame.Position = UDim2.new(0, 8, 0, 128)
+ActionFrame.Size = UDim2.new(1, -16, 0, 62)
+ActionFrame.Position = UDim2.new(0, 8, 0, 130)
 ActionFrame.BackgroundColor3 = Colors.InputBg
 ActionFrame.BorderSizePixel = 0
 ActionFrame.ZIndex = 12
@@ -725,12 +873,12 @@ ActionFrame.Parent = DayCard
 addCorner(ActionFrame, 6)
 addStroke(ActionFrame, Colors.CyanDim, 1)
 
-makeLabel(ActionFrame, UDim2.new(1, -12, 0, 14), UDim2.new(0, 8, 0, 4), "CURRENT ACTION:", Colors.SubText, Enum.Font.Gotham, 8)
+makeLabel(ActionFrame, UDim2.new(1, -12, 0, 14), UDim2.new(0, 8, 0, 3), "CURRENT ACTION:", Colors.SubText, Enum.Font.Gotham, 8)
 local DayLblAction = makeLabel(ActionFrame, UDim2.new(1, -12, 0, 18), UDim2.new(0, 8, 0, 16), "INITIALIZING ENGINE...", Colors.SnowWhite, Enum.Font.GothamBold, 11)
 
 local SegMeterFrame = Instance.new("Frame")
-SegMeterFrame.Size = UDim2.new(1, -16, 0, 12)
-SegMeterFrame.Position = UDim2.new(0, 8, 0, 38)
+SegMeterFrame.Size = UDim2.new(1, -16, 0, 14)
+SegMeterFrame.Position = UDim2.new(0, 8, 0, 40)
 SegMeterFrame.BackgroundColor3 = Colors.Card
 SegMeterFrame.BorderSizePixel = 0
 SegMeterFrame.ZIndex = 13
@@ -763,19 +911,32 @@ local function setMeterPercent(pct)
     end
 end
 
+local LogTerminal = Instance.new("Frame")
+LogTerminal.Size = UDim2.new(1, -16, 0, 36)
+LogTerminal.Position = UDim2.new(0, 8, 0, 196)
+LogTerminal.BackgroundColor3 = Color3.fromRGB(8, 12, 18)
+LogTerminal.BorderSizePixel = 0
+LogTerminal.ZIndex = 12
+LogTerminal.Parent = DayCard
+addCorner(LogTerminal, 4)
+addStroke(LogTerminal, Colors.CardBright, 1)
+
+local DayLblLog = makeLabel(LogTerminal, UDim2.new(1, -10, 1, -4), UDim2.new(0, 6, 0, 2), "Engine Ready...", Colors.SubText, Enum.Font.Gotham, 8)
+DayLblLog.TextWrapped = true
+
 local BadgesRow = Instance.new("Frame")
-BadgesRow.Size = UDim2.new(1, -16, 0, 32)
-BadgesRow.Position = UDim2.new(0, 8, 0, 192)
+BadgesRow.Size = UDim2.new(1, -16, 0, 28)
+BadgesRow.Position = UDim2.new(0, 8, 0, 236)
 BadgesRow.BackgroundTransparency = 1
 BadgesRow.ZIndex = 12
 BadgesRow.Parent = DayCard
 
 local PillList = {
-    { Name = "TUNNEL", Label = "[AUTO TUNNEL]", Col = Colors.Cyan },
-    { Name = "YETI", Label = "[FARM YETI]", Col = Colors.AmberBright },
-    { Name = "DEPOSIT", Label = "[DEPOSIT PETS]", Col = Colors.PurpleBright },
-    { Name = "FLAG", Label = "[MAGNET FLAG]", Col = Colors.Green },
-    { Name = "OLED", Label = "[OLED SLEEP]", Col = Colors.Purple }
+    { Name = "TUNNEL", Label = "[AUTO TUNNEL]" },
+    { Name = "YETI", Label = "[FARM YETI]" },
+    { Name = "DEPOSIT", Label = "[DEPOSIT PETS]" },
+    { Name = "FLAG", Label = "[MAGNET FLAG]" },
+    { Name = "OLED", Label = "[OLED SLEEP]" }
 }
 
 local PillFrames = {}
@@ -814,15 +975,15 @@ local function updateActivePills()
 end
 
 local DayBottomBar = Instance.new("Frame")
-DayBottomBar.Size = UDim2.new(1, -16, 0, 48)
-DayBottomBar.Position = UDim2.new(0, 8, 0, 230)
+DayBottomBar.Size = UDim2.new(1, -16, 0, 36)
+DayBottomBar.Position = UDim2.new(0, 8, 0, 268)
 DayBottomBar.BackgroundTransparency = 1
 DayBottomBar.ZIndex = 12
 DayBottomBar.Parent = DayCard
 
 local DayStatusPill = Instance.new("Frame")
-DayStatusPill.Size = UDim2.new(1, 0, 0, 26)
-DayStatusPill.Position = UDim2.new(0, 0, 0, 8)
+DayStatusPill.Size = UDim2.new(1, 0, 0, 24)
+DayStatusPill.Position = UDim2.new(0, 0, 0, 4)
 DayStatusPill.BackgroundColor3 = Colors.CardBright
 DayStatusPill.BorderSizePixel = 0
 DayStatusPill.ZIndex = 13
@@ -915,7 +1076,7 @@ local function createOledStatRow(parent, labelText, valText, posY, valColor)
     return vLbl
 end
 
-local OledLblGems = createOledStatRow(OledCard, "GEMS GAINED:", "+0", 54, Colors.PurpleBright)
+local OledLblGems = createOledStatRow(OledCard, "GEMS PROFIT:", "+0", 54, Colors.PurpleBright)
 local OledLblYeti = createOledStatRow(OledCard, "YETI KILLS:", "0", 82, Colors.SnowWhite)
 local OledLblAcorns = createOledStatRow(OledCard, "ACORNS:", "0 / 2.60T", 110, Colors.Gold)
 local OledLblTunnel = createOledStatRow(OledCard, "TUNNEL STATUS:", "CHECKING", 138, Colors.CyanBright)
@@ -987,16 +1148,15 @@ task.spawn(function()
         pcall(function()
             updateCurrencies()
 
+            local elapsedSec = os.clock() - State.StartTime
+            DayLblTimeStats.Text = string.format("START: %s | UP: %s", State.StartTimeStr, formatDuration(elapsedSec))
+
             local gemsText = formatGemsProfit(State.GemsGained)
             local acornsText = string.format("%s / 2.6T", formatNumber(State.CurrentAcorns))
             local yetiKillsText = tostring(State.YetiKills)
 
-            local now = os.clock()
-            local merchantRemaining = math.max(0, math.floor(State.NextMerchantRestock - now))
-            if merchantRemaining == 0 then
-                State.NextMerchantRestock = now + 3600
-                merchantRemaining = 3600
-            end
+            local nowSec = os.time()
+            local merchantRemaining = 3600 - (nowSec % 3600)
             local merchantText = formatDuration(merchantRemaining)
 
             local tunnelText = ""
@@ -1006,6 +1166,7 @@ task.spawn(function()
                 tunnelText = "STANDBY"
             end
 
+            local now = os.clock()
             local yetiStatusText = "READY"
             if now < State.YetiCooldownEnd then
                 local cdLeft = math.floor(State.YetiCooldownEnd - now)
@@ -1019,6 +1180,7 @@ task.spawn(function()
             DayLblGems.Text = gemsText
             DayLblMerchant.Text = merchantText
             DayLblAction.Text = State.CurrentActionText
+            DayLblLog.Text = table.concat(State.RecentLogs, "  //  ")
 
             setMeterPercent(State.ProgressFraction)
             updateActivePills()
@@ -1040,18 +1202,40 @@ end)
 
 local function breakChestAtPoint(cframePt, chestIndex)
     State.CurrentPhase = "TUNNEL"
-    State.CurrentActionText = string.format("Tunnel: Smashing Chest #%d...", chestIndex)
-    teleportTo(cframePt, Vector3.new(0, 3, 0))
+    State.CurrentActionText = string.format("TUNNEL: SMASHING CHEST #%d...", chestIndex)
+    pushLog(string.format("Teleporting to Chest #%d...", chestIndex))
+    teleportSafely(cframePt, Vector3.new(0, 3, 0))
+    task.wait(0.5)
 
-    local startTime = os.clock()
+    local acquireStart = os.clock()
+    local obj, uid, dist = nil, nil, nil
+    while State.Running and (os.clock() - acquireStart < 3.5) do
+        obj, uid, dist = findBreakableNear(cframePt, 35)
+        if obj and dist <= 35 then break end
+        task.wait(0.2)
+    end
+
+    if not obj or dist > 35 then
+        pushLog(string.format("Chest #%d already broken or missing.", chestIndex))
+        return
+    end
+
+    pushLog(string.format("Destroying Chest #%d...", chestIndex))
+    local attackStart = os.clock()
     while State.Running do
-        if os.clock() - startTime > 25 then break end
-        local obj, uid, dist = findBreakableNear(cframePt, 18)
-        if not obj or dist > 18 then
+        if os.clock() - attackStart > 25 then break end
+        local currObj, currUid, currDist = findBreakableNear(cframePt, 35)
+        if not currObj or currDist > 35 then
+            pushLog(string.format("Chest #%d successfully destroyed!", chestIndex))
             break
         end
-        teleportTo(cframePt, Vector3.new(0, 2, 0))
-        attackBreakableUID(uid, obj)
+
+        local hrp = getHRP()
+        if hrp and (hrp.Position - cframePt.Position).Magnitude > 8 then
+            teleportSafely(cframePt, Vector3.new(0, 2, 0))
+        end
+
+        attackBreakableUID(currUid, currObj)
         useUltimateAbility()
         task.wait(0.12)
     end
@@ -1060,20 +1244,28 @@ end
 local function runTunnelSequence()
     State.TunnelOpen = true
     State.CurrentPhase = "TUNNEL"
+    pushLog("Tunnel open detected! Smashing tunnel chests...")
     local tunnelStart = os.clock()
     local tunnelDuration = 300
 
     breakChestAtPoint(Points.Chest1, 1)
     if not State.Running then return end
+    task.wait(0.3)
+
     breakChestAtPoint(Points.Chest2, 2)
     if not State.Running then return end
+    task.wait(0.3)
+
     breakChestAtPoint(Points.Chest3, 3)
     if not State.Running then return end
+    task.wait(0.3)
 
     updateCurrencies()
     if State.CurrentAcorns >= AcornsTarget then
-        State.CurrentActionText = "Tunnel Egg: 300x Luck Egg Hatching..."
-        teleportTo(Points.TunnelEgg, Vector3.new(0, 2, 0))
+        State.CurrentActionText = "TUNNEL EGG: 300X LUCK EGG HATCHING..."
+        pushLog("Balance >= 2.6T. Hatching 300x luck tunnel egg!")
+        teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
+        task.wait(0.4)
 
         while State.Running do
             local elapsed = os.clock() - tunnelStart
@@ -1081,45 +1273,70 @@ local function runTunnelSequence()
             State.TunnelTimeRemaining = remaining
             State.ProgressFraction = math.clamp(remaining / tunnelDuration, 0, 1)
 
-            if remaining <= 10 then break end
+            if remaining <= 10 then
+                pushLog("Tunnel closing soon (4:50). Exiting safely...")
+                break
+            end
 
-            teleportTo(Points.TunnelEgg, Vector3.new(0, 2, 0))
+            local hrp = getHRP()
+            if hrp and (hrp.Position - Points.TunnelEgg.Position).Magnitude > 6 then
+                teleportSafely(Points.TunnelEgg, Vector3.new(0, 2, 0))
+            end
+
             hatchNearestEgg(Points.TunnelEgg, 79)
             useUltimateAbility()
             task.wait(1.0)
         end
     else
-        State.CurrentActionText = "Tunnel Egg Skipped (< 2.6T Acorns). Teleporting to Farm..."
-        task.wait(1.0)
+        State.CurrentActionText = "TUNNEL EGG SKIPPED (< 2.6T ACORNS). EXITING..."
+        pushLog("Acorns < 2.6T. Exiting tunnel to farm acorns.")
+        task.wait(0.8)
     end
 
-    teleportTo(Points.FarmEgg, Vector3.new(0, 3, 0))
+    teleportSafely(Points.FarmEgg, Vector3.new(0, 3, 0))
     State.TunnelOpen = false
+    pushLog("Returned to Farm Zone.")
 end
 
 local function runYetiSequence()
     State.CurrentPhase = "YETI"
-    State.CurrentActionText = "Yeti: Engaging Boss Wall..."
-    teleportTo(Points.Yeti, Vector3.new(0, 2, 0))
+    State.CurrentActionText = "YETI: ENGAGING BOSS WALL..."
+    pushLog("Yeti ready! Teleporting to boss wall...")
+    teleportSafely(Points.Yeti, Vector3.new(0, 2, 0))
+    task.wait(0.5)
 
-    local obj, uid, dist = findBreakableNear(Points.Yeti, 22)
-    if not obj then
+    local acquireStart = os.clock()
+    local obj, uid, dist = nil, nil, nil
+    while State.Running and (os.clock() - acquireStart < 3.0) do
+        obj, uid, dist = findBreakableNear(Points.Yeti, 40)
+        if obj and dist <= 40 then break end
+        task.wait(0.2)
+    end
+
+    if not obj or dist > 40 then
+        pushLog("Yeti not spawned yet. Setting 5m cooldown...")
         State.YetiCooldownEnd = os.clock() + 300
         return
     end
 
+    pushLog("Engaging Yeti with pets and ultimate!")
     local engageStart = os.clock()
     while State.Running do
-        local currObj, currUid, currDist = findBreakableNear(Points.Yeti, 22)
-        if not currObj or currDist > 22 then
+        local currObj, currUid, currDist = findBreakableNear(Points.Yeti, 40)
+        if not currObj or currDist > 40 then
             State.YetiKills = State.YetiKills + 1
             State.YetiCooldownEnd = os.clock() + 300
-            State.CurrentActionText = string.format("Yeti Defeated! (Total: %d). Starting Cooldown...", State.YetiKills)
+            State.CurrentActionText = string.format("YETI DEFEATED! (TOTAL: %d). COOLDOWN 5M...", State.YetiKills)
+            pushLog(string.format("Yeti defeated! Total kills: %d.", State.YetiKills))
             task.wait(0.5)
             break
         end
 
-        teleportTo(Points.Yeti, Vector3.new(0, 2, 0))
+        local hrp = getHRP()
+        if hrp and (hrp.Position - Points.Yeti.Position).Magnitude > 8 then
+            teleportSafely(Points.Yeti, Vector3.new(0, 2, 0))
+        end
+
         attackBreakableUID(currUid, currObj)
         useUltimateAbility()
 
@@ -1139,12 +1356,16 @@ local function runFreeTimeSequence()
     end
 
     State.CurrentPhase = "FLAG"
-    State.CurrentActionText = "Farm Zone: Farming Acorns & Base Eggs..."
-    teleportTo(Points.FarmEgg, Vector3.new(0, 2, 0))
+    State.CurrentActionText = "FARM ZONE: ACCUMULATING ACORNS & BASE EGGS..."
+
+    local hrp = getHRP()
+    if hrp and (hrp.Position - Points.FarmEgg.Position).Magnitude > 8 then
+        teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
+    end
 
     placeMagnetFlag()
 
-    local bObj, bUid, bDist = findBreakableNear(Points.FarmEgg, 30)
+    local bObj, bUid, bDist = findBreakableNear(Points.FarmEgg, 35)
     if bObj and bUid then
         attackBreakableUID(bUid, bObj)
     end
@@ -1167,7 +1388,7 @@ task.spawn(function()
             else
                 local now = os.clock()
                 if now >= State.YetiCooldownEnd then
-                    local yObj = findBreakableNear(Points.Yeti, 22)
+                    local yObj = findBreakableNear(Points.Yeti, 40)
                     if yObj then
                         runYetiSequence()
                     else
