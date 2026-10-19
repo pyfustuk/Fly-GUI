@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.5.0"
+local _VERSION = "9.6.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -170,18 +170,23 @@ local function fireNetwork(name, ...)
     local args = {...}
     local remote = NetworkRemotes[name]
     if remote then
-        if remote:IsA("RemoteEvent") then
-            remote:FireServer(unpack(args))
-        elseif remote:IsA("RemoteFunction") then
-            return remote:InvokeServer(unpack(args))
-        end
+        pcall(function()
+            if remote:IsA("RemoteEvent") then
+                remote:FireServer(unpack(args))
+            elseif remote:IsA("RemoteFunction") then
+                remote:InvokeServer(unpack(args))
+            end
+        end)
     end
     if ClientModules["Network"] then
         pcall(function()
+            if ClientModules["Network"].Invoke then
+                ClientModules["Network"].Invoke(name, unpack(args))
+            end
+        end)
+        pcall(function()
             if ClientModules["Network"].Fire then
                 ClientModules["Network"].Fire(name, unpack(args))
-            elseif ClientModules["Network"].Invoke then
-                ClientModules["Network"].Invoke(name, unpack(args))
             end
         end)
     end
@@ -451,14 +456,25 @@ local function attackBreakableUID(uid, obj)
     if not uid then return end
     pcall(function()
         fireNetwork("Breakables_JoinPet", uid)
-        fireNetwork("Breakables_PlayerDealDamage", uid)
-        fireNetwork("Breakables_Tap", uid)
-        fireNetwork("Breakables_Click", uid)
+        fireNetwork("Breakables_JoinPetAll", uid)
+        fireNetwork("Pets: Attack", uid)
+        fireNetwork("Pets_Attack", uid)
         fireNetwork("Breakables_Damage", uid)
     end)
     if ClientModules["BreakableCmds"] then
         pcall(function()
-            ClientModules["BreakableCmds"].Damage(uid)
+            if ClientModules["BreakableCmds"].Damage then
+                ClientModules["BreakableCmds"].Damage(uid)
+            end
+        end)
+    end
+    if ClientModules["PetCmds"] then
+        pcall(function()
+            if ClientModules["PetCmds"].Attack then
+                ClientModules["PetCmds"].Attack(uid)
+            elseif ClientModules["PetCmds"].SetTarget then
+                ClientModules["PetCmds"].SetTarget(uid)
+            end
         end)
     end
 end
@@ -483,41 +499,25 @@ local function farmAmbientBreakables(centerCFrame, radius)
     collectGroundDrops()
 end
 
-local function tapBossVirtual(bossObj, uid)
+local function sendAllPetsToBoss(bossObj, uid)
     if not uid then return end
     pcall(function()
-        for _ = 1, 12 do
-            fireNetwork("Breakables_PlayerDealDamage", uid)
-            fireNetwork("Breakables_Tap", uid)
-            fireNetwork("Breakables_Click", uid)
-            fireNetwork("Breakable_Damage", uid)
-            fireNetwork("TapBoss_Damage", uid)
-            fireNetwork("Yeti_Tap", uid)
-            fireNetwork("Boss_Tap", uid)
-            fireNetwork("ClickDamage", uid)
-        end
+        fireNetwork("Breakables_JoinPet", uid)
+        fireNetwork("Breakables_JoinPetAll", uid)
+        fireNetwork("Pets: Attack", uid)
+        fireNetwork("Pets_Attack", uid)
     end)
-    if ClientModules["BreakableCmds"] then
+    if ClientModules["PetCmds"] then
         pcall(function()
-            if ClientModules["BreakableCmds"].Damage then
-                ClientModules["BreakableCmds"].Damage(uid)
-            end
-            if ClientModules["BreakableCmds"].Tap then
-                ClientModules["BreakableCmds"].Tap(uid)
-            end
-        end)
-    end
-    if ClientModules["PlayerCmds"] then
-        pcall(function()
-            if ClientModules["PlayerCmds"].Click then
-                ClientModules["PlayerCmds"].Click(uid)
-            end
-            if ClientModules["PlayerCmds"].Tap then
-                ClientModules["PlayerCmds"].Tap(uid)
+            if ClientModules["PetCmds"].Attack then
+                ClientModules["PetCmds"].Attack(uid)
+            elseif ClientModules["PetCmds"].SetTarget then
+                ClientModules["PetCmds"].SetTarget(uid)
             end
         end)
     end
 end
+local tapBossVirtual = sendAllPetsToBoss
 
 local function useUltimateAbility()
     local now = os.clock()
@@ -706,14 +706,16 @@ local function findNearestFlagPole(pos, maxDist)
     local bestPole = nil
     local bestPrompt = nil
     local bestPos = nil
-    local bestD = maxDist or 350
+    local bestD = maxDist or 800
     pcall(function()
         for _, desc in ipairs(Workspace:GetDescendants()) do
             if desc:IsA("ProximityPrompt") then
                 local act = string.lower(desc.ActionText or "")
                 local obj = string.lower(desc.ObjectText or "")
                 local pName = string.lower(desc.Parent and desc.Parent.Name or "")
-                if string.find(act, "flag") or string.find(obj, "flag") or string.find(pName, "flag") then
+                local ppName = string.lower(desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name or "")
+                local isFlag = string.find(act, "flag") or string.find(obj, "flag") or string.find(pName, "flag") or string.find(ppName, "flag") or string.find(pName, "pole") or string.find(ppName, "pole") or string.find(act, "place") or string.find(act, "plant")
+                if isFlag then
                     local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
                     local pPos = pPart and pPart.Position or (desc.Parent:IsA("Model") and desc.Parent:GetPivot().Position)
                     if pPos then
@@ -735,7 +737,7 @@ local function findNearestFlagPole(pos, maxDist)
         local containers = {things, Workspace}
         for _, cont in ipairs(containers) do
             if cont then
-                for _, folderName in ipairs({"FlagPoles", "Flags", "Poles"}) do
+                for _, folderName in ipairs({"FlagPoles", "Flags", "Poles", "ZoneFlags"}) do
                     local folder = cont:FindFirstChild(folderName)
                     if folder then
                         for _, p in ipairs(folder:GetChildren()) do
@@ -829,8 +831,7 @@ end
 local function placeMagnetFlag()
     local now = os.clock()
     if now - State.LastFlagTime < 240 then return end
-    State.LastFlagTime = now
-    local pole, prompt, polePos = findNearestFlagPole(Points.FarmEgg.Position, 350)
+    local pole, prompt, polePos = findNearestFlagPole(Points.FarmEgg.Position, 800)
     if pole and polePos then
         pushLog("Deploying Magnet Flag at flagpole...")
         local savedPos = getHRP() and getHRP().CFrame
@@ -838,17 +839,14 @@ local function placeMagnetFlag()
         task.wait(0.3)
         if prompt and fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
-            task.wait(0.4)
+            task.wait(0.5)
         end
         local pg = LocalPlayer:FindFirstChild("PlayerGui")
         if pg then
             for _, g in ipairs(pg:GetChildren()) do
                 if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
-                    local gName = string.lower(g.Name)
-                    if string.find(gName, "flag") then
-                        findAndClickButton(g, {"magnet", "magnet flag", "place", "use", "deploy"})
-                        task.wait(0.2)
-                    end
+                    findAndClickButton(g, {"magnet", "magnet flag", "place", "use", "deploy"})
+                    task.wait(0.15)
                 end
             end
         end
@@ -856,8 +854,10 @@ local function placeMagnetFlag()
         pcall(function()
             fireNetwork("Flags: Consume", "Magnet Flag", poleRef)
             fireNetwork("Flags: Consume", "Magnet Flag", pole)
+            fireNetwork("Flags: Consume", "Magnet Flag")
             fireNetwork("Flags: Place", "Magnet Flag", poleRef)
             fireNetwork("Flags: Place", "Magnet Flag", pole)
+            fireNetwork("Flags: Place", "Magnet Flag")
             fireNetwork("Flags: Deploy", "Magnet Flag", poleRef)
             fireNetwork("Flags: Deploy", "Magnet Flag", pole)
             fireNetwork("Flags: RequestPlace", "Magnet Flag", poleRef)
@@ -886,14 +886,18 @@ local function placeMagnetFlag()
         else
             teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
         end
+        State.LastFlagTime = now
         pushLog("Magnet Flag placed successfully in Farm Zone.")
     else
         pcall(function()
             fireNetwork("Flags: Consume", "Magnet Flag", "Zone")
+            fireNetwork("Flags: Consume", "Magnet Flag")
             fireNetwork("Flags: Place", "Magnet Flag", "Zone")
+            fireNetwork("Flags: Place", "Magnet Flag")
             fireNetwork("Flags_Consume", "Magnet Flag")
             fireNetwork("Flags_Place", "Magnet Flag")
         end)
+        State.LastFlagTime = now - 180
     end
 end
 
@@ -954,6 +958,57 @@ local function findMerchantLocation()
     return bestCF, bestPrompt, bestName
 end
 
+local function buyAllFromOpenMerchantGui()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, g in ipairs(pg:GetChildren()) do
+        if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
+            local gName = string.lower(g.Name)
+            local isShop = string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "stall") or string.find(gName, "buff") or string.find(gName, "traveling")
+            local containers = {}
+            if isShop then
+                table.insert(containers, g)
+            end
+            for _, desc in ipairs(g:GetDescendants()) do
+                if (desc:IsA("Frame") or desc:IsA("ScrollingFrame")) and desc.Visible then
+                    local dName = string.lower(desc.Name)
+                    if string.find(dName, "merchant") or string.find(dName, "shop") or string.find(dName, "stall") or string.find(dName, "buff") or string.find(dName, "items") or string.find(dName, "slots") then
+                        table.insert(containers, desc)
+                    end
+                end
+            end
+            for _, c in ipairs(containers) do
+                for _, btn in ipairs(c:GetDescendants()) do
+                    if btn:IsA("GuiButton") and btn.Visible and btn.Active ~= false then
+                        local bName = string.lower(btn.Name)
+                        local bText = btn:IsA("TextButton") and string.lower(btn.Text or "") or ""
+                        local isClose = string.find(bName, "close") or string.find(bName, "exit") or string.find(bName, "back") or string.find(bName, "cancel") or bText == "x" or bText == "close" or bText == "exit"
+                        local isRobux = string.find(bName, "robux") or string.find(bName, "r$") or string.find(bName, "gamepass") or string.find(bName, "pass") or string.find(bName, "+1") or string.find(bText, "r$") or string.find(bText, "robux")
+                        if not isClose and not isRobux then
+                            clickSmartButton(btn)
+                            task.wait(0.08)
+                            for _, mGui in ipairs(pg:GetChildren()) do
+                                if mGui:IsA("ScreenGui") and mGui.Enabled and mGui ~= ScreenGui then
+                                    for _, mBtn in ipairs(mGui:GetDescendants()) do
+                                        if mBtn:IsA("GuiButton") and mBtn.Visible then
+                                            local mName = string.lower(mBtn.Name)
+                                            local mText = mBtn:IsA("TextButton") and string.lower(mBtn.Text or "") or ""
+                                            if string.find(mName, "yes") or string.find(mName, "confirm") or string.find(mName, "ok") or string.find(mText, "yes") or string.find(mText, "confirm") or string.find(mText, "ok") or string.find(mText, "sure") then
+                                                clickSmartButton(mBtn)
+                                                task.wait(0.05)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function buyMerchantItems()
     local now = os.clock()
     if now - State.LastMerchantTime < 60 then return end
@@ -971,47 +1026,40 @@ local function buyMerchantItems()
             task.wait(1.0)
         end
 
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then
-            for _, g in ipairs(pg:GetChildren()) do
-                if g:IsA("ScreenGui") and g.Enabled and g ~= ScreenGui then
-                    local gName = string.lower(g.Name)
-                    if string.find(gName, "merchant") or string.find(gName, "shop") or string.find(gName, "buff") or string.find(gName, "boost") or string.find(gName, "event") then
-                        for _ = 1, 4 do
-                            findAndClickButton(g, {"buy", "purchase", "free", "get", "claim", "all", "max"})
-                            task.wait(0.3)
-                        end
-                        for _, topG in ipairs(pg:GetChildren()) do
-                            if topG:IsA("ScreenGui") and topG.Enabled and topG ~= ScreenGui then
-                                findAndClickButton(topG, {"yes", "sure", "ok", "confirm"})
-                            end
-                        end
-                    end
-                end
-            end
+        for _ = 1, 3 do
+            buyAllFromOpenMerchantGui()
+            task.wait(0.2)
         end
 
         pcall(function()
-            local mList = {merchantName or "TravelingMerchant", "TravelingMerchant", "BuffMerchant", "WinterMerchant", "EventMerchant", "Buffs", "WinterBuffs"}
+            local mList = {merchantName or "TravelingMerchant", "TravelingMerchant", "RegularMerchant", "AdvancedMerchant", "DealerMerchant", "BuffMerchant", "WinterMerchant", "EventMerchant", "SnowMerchant", "IceMerchant", "Buffs", "WinterBuffs"}
             for _, mId in ipairs(mList) do
-                for slot = 1, 8 do
+                for slot = 1, 6 do
+                    fireNetwork("Merchant_RequestPurchase", mId, slot)
+                    fireNetwork("Merchant: RequestPurchase", mId, slot)
                     fireNetwork("Merchant: RequestBuy", mId, slot)
                     fireNetwork("Merchant: Buy", mId, slot)
                     fireNetwork("Merchant_Buy", mId, slot)
                     fireNetwork("Buffs: Buy", slot)
-                    fireNetwork("Buffs_Buy", slot)
                     fireNetwork("WinterBuffs: Buy", slot)
-                    fireNetwork("EventBuffs: Buy", slot)
                 end
-                if ClientModules["MerchantCmds"] and ClientModules["MerchantCmds"].Buy then
-                    for slot = 1, 8 do
-                        pcall(function() ClientModules["MerchantCmds"].Buy(mId, slot) end)
-                    end
+                if ClientModules["MerchantCmds"] then
+                    pcall(function()
+                        for slot = 1, 6 do
+                            if ClientModules["MerchantCmds"].RequestPurchase then
+                                ClientModules["MerchantCmds"].RequestPurchase(mId, slot)
+                            end
+                            if ClientModules["MerchantCmds"].Buy then
+                                ClientModules["MerchantCmds"].Buy(mId, slot)
+                            end
+                        end
+                    end)
                 end
             end
         end)
-        task.wait(1.2)
+        task.wait(0.8)
 
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
         if pg then
             for _, g in ipairs(pg:GetChildren()) do
                 if g:IsA("ScreenGui") and g ~= ScreenGui then
@@ -1028,12 +1076,15 @@ local function buyMerchantItems()
         pushLog("Merchant purchase cycle complete. Returned to farm.")
     else
         pcall(function()
-            for slot = 1, 8 do
-                fireNetwork("Merchant: RequestBuy", "TravelingMerchant", slot)
-                fireNetwork("Merchant: Buy", "TravelingMerchant", slot)
-                fireNetwork("Buffs: Buy", slot)
-                fireNetwork("WinterBuffs: Buy", slot)
-                fireNetwork("Merchant: Buy", "BuffMerchant", slot)
+            local mList = {"TravelingMerchant", "RegularMerchant", "AdvancedMerchant", "DealerMerchant", "BuffMerchant", "WinterMerchant", "Buffs", "WinterBuffs"}
+            for _, mId in ipairs(mList) do
+                for slot = 1, 6 do
+                    fireNetwork("Merchant_RequestPurchase", mId, slot)
+                    fireNetwork("Merchant: RequestBuy", mId, slot)
+                    fireNetwork("Merchant: Buy", mId, slot)
+                    fireNetwork("Buffs: Buy", slot)
+                    fireNetwork("WinterBuffs: Buy", slot)
+                end
             end
         end)
     end
@@ -1549,7 +1600,7 @@ local function breakChestAtPoint(cframePt, chestIndex)
         end
 
         attackBreakableUID(currUid, currObj)
-        tapBossVirtual(currObj, currUid)
+        sendAllPetsToBoss(currObj, currUid)
         useUltimateAbility()
         collectGroundDrops()
         task.wait(0.06)
@@ -1665,7 +1716,7 @@ local function runYetiSequence()
         end
 
         attackBreakableUID(currUid, currObj)
-        tapBossVirtual(currObj, currUid)
+        sendAllPetsToBoss(currObj, currUid)
         useUltimateAbility()
         collectGroundDrops()
 
