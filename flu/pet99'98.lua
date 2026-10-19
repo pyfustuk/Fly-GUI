@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
 local _PROJECT = "PS99 Autonomous Winter Yeti & Tunnel Hub Definitive Edition"
-local _VERSION = "9.7.0"
+local _VERSION = "9.8.0"
 
 pcall(function()
     local _players = game:GetService("Players")
@@ -121,9 +121,9 @@ local State = {
     LastTunnelCheck = 0,
     CurrentPhase = "INIT",
     CurrentActionText = "SYSTEM INITIALIZING...",
-    LastFlagTime = 0,
+    LastFlagTime = StartClock + 15,
     LastHatchTime = 0,
-    LastMerchantTime = 0,
+    LastMerchantTime = StartClock + 25,
     LastUltimateTime = 0,
     LastOrbCollectTime = 0,
     LastLogMessage = "System initialized.",
@@ -391,6 +391,93 @@ local function getBreakablesFolder()
     return nil
 end
 
+local function findYetiBoss()
+    local targetPos = Points.Yeti.Position
+    local bestObj = nil
+    local bestUid = nil
+    local bestDist = 350
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("Model") then
+                local lName = string.lower(desc.Name)
+                if string.find(lName, "yeti") or string.find(lName, "abominable") then
+                    local p = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart") or desc:FindFirstChild("HumanoidRootPart")
+                    local pPos = p and p.Position or (desc:IsA("Model") and desc:GetPivot().Position)
+                    if pPos then
+                        local d = (pPos - targetPos).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestObj = desc
+                            bestUid = desc.Name
+                        end
+                    else
+                        bestObj = desc
+                        bestUid = desc.Name
+                    end
+                end
+            end
+        end
+    end)
+    if bestObj then return bestObj, bestUid or "Yeti", bestDist end
+    pcall(function()
+        local things = Workspace:FindFirstChild("__THINGS")
+        if things then
+            for _, folderName in ipairs({"Bosses", "Boss", "Breakables", "CustomBreakables", "EventBreakables", "Event"}) do
+                local f = things:FindFirstChild(folderName)
+                if f then
+                    for _, child in ipairs(f:GetChildren()) do
+                        local lName = string.lower(child.Name)
+                        local isCandidate = string.find(lName, "yeti") or string.find(lName, "boss") or string.find(lName, "wall") or string.find(lName, "abominable")
+                        local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")) or (child:IsA("BasePart") and child)
+                        local pPos = p and p.Position or (child:IsA("Model") and child:GetPivot().Position)
+                        if pPos then
+                            local d = (pPos - targetPos).Magnitude
+                            if isCandidate and d <= 300 then
+                                if d < bestDist then
+                                    bestDist = d
+                                    bestObj = child
+                                    bestUid = child.Name
+                                end
+                            elseif d <= 150 then
+                                if d < bestDist then
+                                    bestDist = d
+                                    bestObj = child
+                                    bestUid = child.Name
+                                end
+                            end
+                        else
+                            if isCandidate then
+                                bestObj = child
+                                bestUid = child.Name
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if bestObj then return bestObj, bestUid or "Yeti", bestDist end
+    if ClientModules["BreakableCmds"] then
+        pcall(function()
+            local all = ClientModules["BreakableCmds"].All()
+            if type(all) == "table" then
+                for uid, data in pairs(all) do
+                    if data and data.pos then
+                        local d = (data.pos - targetPos).Magnitude
+                        if d <= 150 and d < bestDist then
+                            bestDist = d
+                            bestUid = uid
+                            bestObj = uid
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    if bestObj then return bestObj, bestUid or "Yeti", bestDist end
+    return nil, nil, nil
+end
+
 local function findBreakableNear(cframeTarget, maxRadius)
     local targetPos = cframeTarget.Position
     local bestObj = nil
@@ -431,7 +518,7 @@ local function findBreakableNear(cframeTarget, maxRadius)
     end
 
     if not bestObj then
-        for _, desc in ipairs(Workspace:GetChildren()) do
+        for _, desc in ipairs(Workspace:GetDescendants()) do
             if desc:IsA("Model") then
                 local lName = string.lower(desc.Name)
                 if string.find(lName, "yeti") or string.find(lName, "boss") or string.find(lName, "wall") or string.find(lName, "chest") then
@@ -1578,7 +1665,11 @@ local function updateUI()
         end
 
         local now = os.clock()
-        if now < State.YetiCooldownEnd then
+        local yLive = findYetiBoss()
+        if yLive then
+            ShinyVal.Text = "ACTIVE"
+            ShinyVal.TextColor3 = Colors.Ruby
+        elseif now < State.YetiCooldownEnd then
             local rem = State.YetiCooldownEnd - now
             ShinyVal.Text = string.format("CD (%s)", formatTimer(rem))
             ShinyVal.TextColor3 = Colors.AmberBright
@@ -1744,36 +1835,58 @@ end
 
 local function runYetiSequence()
     State.CurrentPhase = "YETI"
-    State.CurrentActionText = "YETI: ENGAGING BOSS WALL (TAPPING)..."
-    pushLog("Yeti ready! Teleporting to boss wall...")
+    State.CurrentActionText = "YETI: ENGAGING BOSS (HYPER VIRTUAL TAPS & PETS)..."
+    pushLog("Yeti ready! Teleporting to boss summit...")
     teleportSafely(Points.Yeti, Vector3.new(0, 2, 0))
-    task.wait(0.4)
+    task.wait(0.35)
 
-    local acquireStart = os.clock()
-    local obj, uid, dist = nil, nil, nil
-    while State.Running and (os.clock() - acquireStart < 3.5) do
-        obj, uid, dist = findBreakableNear(Points.Yeti, 85)
-        if obj and dist <= 85 then break end
-        task.wait(0.2)
+    local obj, uid, dist = findYetiBoss()
+    if not obj then
+        local retryStart = os.clock()
+        while State.Running and (os.clock() - retryStart < 2.0) do
+            task.wait(0.2)
+            obj, uid, dist = findYetiBoss()
+            if obj then break end
+        end
     end
 
-    if not obj or dist > 85 then
-        pushLog("Yeti not spawned. Setting 5m cooldown...")
-        State.YetiCooldownEnd = os.clock() + 300
+    if not obj then
+        pushLog("Yeti not visible. Probing area with packets...")
+        attackBreakableUID("Yeti", nil)
+        tapBossVirtual(nil, "Yeti")
+        useUltimateAbility()
+        collectGroundDrops()
+        task.wait(0.5)
+        obj, uid, dist = findYetiBoss()
+    end
+
+    if not obj then
+        pushLog("Yeti not spawned at summit. Checking again in 10s...")
+        State.YetiCooldownEnd = os.clock() + 10
+        teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
         return
     end
 
-    pushLog("Attacking Yeti with rapid virtual taps, pets & ult!")
+    pushLog("Attacking Yeti with hyper virtual taps (300/s), pets & ult!")
     local engageStart = os.clock()
+    local lastSeen = os.clock()
     while State.Running do
-        local currObj, currUid, currDist = findBreakableNear(Points.Yeti, 85)
-        if not currObj or currDist > 85 then
-            State.YetiKills = State.YetiKills + 1
-            State.YetiCooldownEnd = os.clock() + 300
-            State.CurrentActionText = string.format("YETI DEFEATED! (TOTAL: %d). COOLDOWN 5M...", State.YetiKills)
-            pushLog(string.format("Yeti defeated! Total kills: %d.", State.YetiKills))
-            task.wait(0.5)
-            break
+        local currObj, currUid, currDist = findYetiBoss()
+        if currObj then
+            lastSeen = os.clock()
+            obj = currObj
+            uid = currUid
+        else
+            if os.clock() - lastSeen > 3.0 then
+                State.YetiKills = State.YetiKills + 1
+                State.YetiCooldownEnd = os.clock() + 270
+                State.CurrentActionText = string.format("YETI DEFEATED! (TOTAL: %d). COOLDOWN 4.5M...", State.YetiKills)
+                pushLog(string.format("Yeti defeated! Total kills: %d.", State.YetiKills))
+                task.wait(0.8)
+                collectGroundDrops()
+                teleportSafely(Points.FarmEgg, Vector3.new(0, 2, 0))
+                break
+            end
         end
 
         local hrp = getHRP()
@@ -1781,15 +1894,14 @@ local function runYetiSequence()
             teleportSafely(Points.Yeti, Vector3.new(0, 2, 0))
         end
 
-        attackBreakableUID(currUid, currObj)
-        tapBossVirtual(currObj, currUid)
+        attackBreakableUID(uid or "Yeti", obj)
+        tapBossVirtual(obj, uid or "Yeti")
         useUltimateAbility()
         collectGroundDrops()
 
         local elapsed = os.clock() - engageStart
-        task.wait(0.05)
+        task.wait(0.04)
     end
-
 end
 
 local function runFreeTimeSequence()
@@ -1831,13 +1943,18 @@ task.spawn(function()
             if checkTunnelNow then
                 runTunnelSequence()
             else
-                if State.FarmYetiEnabled and (now >= State.YetiCooldownEnd) then
-                    local yObj = findBreakableNear(Points.Yeti, 85)
-                    if yObj then
-                        runYetiSequence()
+                local yetiActive = false
+                if State.FarmYetiEnabled then
+                    if now >= State.YetiCooldownEnd then
+                        yetiActive = true
                     else
-                        runFreeTimeSequence()
+                        local yObj = findYetiBoss()
+                        if yObj then yetiActive = true end
                     end
+                end
+
+                if yetiActive then
+                    runYetiSequence()
                 else
                     runFreeTimeSequence()
                 end
