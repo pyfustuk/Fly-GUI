@@ -1,6 +1,6 @@
 local _CREATOR = "by pufyftyk"
-local _PROJECT = "PS99 Cozy Cyber-Winter Point Recorder"
-local _VERSION = "2.5.0"
+local _PROJECT = "PS99 pufyftyk Cyber-Ice Asset UI"
+local _VERSION = "3.0.0"
 
 pcall(function()
     if not game:IsLoaded() then
@@ -12,7 +12,6 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 while not LocalPlayer do
@@ -37,23 +36,24 @@ local function copyText(str)
     end)
 end
 
-local Theme = {
-    Bg = Color3.fromRGB(12, 16, 23),
-    BgDark = Color3.fromRGB(8, 11, 16),
-    Panel = Color3.fromRGB(17, 22, 33),
-    PanelSlot = Color3.fromRGB(22, 29, 44),
-    Header = Color3.fromRGB(15, 20, 30),
-    SnowWhite = Color3.fromRGB(235, 245, 255),
-    FrostIce = Color3.fromRGB(160, 215, 240),
-    Amber = Color3.fromRGB(255, 140, 25),
-    AmberBright = Color3.fromRGB(255, 175, 45),
-    AmberDim = Color3.fromRGB(180, 95, 15),
-    Gold = Color3.fromRGB(255, 210, 65),
-    DarkText = Color3.fromRGB(14, 18, 26),
-    SubText = Color3.fromRGB(150, 180, 205),
+local Pal = {
+    Bg = Color3.fromRGB(11, 15, 23),
+    BgDark = Color3.fromRGB(7, 10, 16),
+    Panel = Color3.fromRGB(16, 22, 34),
+    Slot = Color3.fromRGB(21, 28, 44),
+    Header = Color3.fromRGB(14, 19, 30),
+    Snow = Color3.fromRGB(235, 248, 255),
+    Frost = Color3.fromRGB(150, 215, 245),
+    Cyan = Color3.fromRGB(0, 215, 255),
+    CyanBright = Color3.fromRGB(90, 235, 255),
+    CyanDim = Color3.fromRGB(25, 95, 130),
+    Amber = Color3.fromRGB(235, 125, 45),
+    AmberBright = Color3.fromRGB(255, 165, 60),
     Green = Color3.fromRGB(46, 213, 115),
-    Red = Color3.fromRGB(255, 75, 75),
-    Purple = Color3.fromRGB(195, 115, 255)
+    Red = Color3.fromRGB(255, 75, 85),
+    TextWhite = Color3.fromRGB(240, 248, 255),
+    TextMuted = Color3.fromRGB(140, 175, 205),
+    DarkText = Color3.fromRGB(10, 14, 22)
 }
 
 local ParentGui = nil
@@ -69,16 +69,16 @@ end
 if not ParentGui then ParentGui = Workspace end
 
 pcall(function()
-    if ParentGui:FindFirstChild("PS99CyberWinterRecorder") then
-        ParentGui:FindFirstChild("PS99CyberWinterRecorder"):Destroy()
+    if ParentGui:FindFirstChild("PS99PufyftykAssetUI") then
+        ParentGui:FindFirstChild("PS99PufyftykAssetUI"):Destroy()
     end
 end)
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PS99CyberWinterRecorder"
+ScreenGui.Name = "PS99PufyftykAssetUI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 160
+ScreenGui.DisplayOrder = 180
 pcall(function() ScreenGui.IgnoreGuiInset = true end)
 ScreenGui.Parent = ParentGui
 
@@ -88,7 +88,7 @@ end
 
 local function addStroke(inst, col, th)
     local s = Instance.new("UIStroke", inst)
-    s.Color = col or Theme.AmberDim
+    s.Color = col or Pal.CyanDim
     s.Thickness = th or 1.2
     return s
 end
@@ -106,7 +106,7 @@ local function makeBtn(parent, size, pos, bg, text, textSize, cornerRadius)
     if pos then b.Position = pos end
     b.BackgroundColor3 = bg
     b.Text = text or ""
-    b.TextColor3 = Theme.SnowWhite
+    b.TextColor3 = Pal.TextWhite
     b.Font = Enum.Font.GothamBold
     b.TextSize = textSize or 11
     b.TextStrokeTransparency = 0.6
@@ -117,7 +117,7 @@ local function makeBtn(parent, size, pos, bg, text, textSize, cornerRadius)
     b.ZIndex = 25
     b.Parent = parent
     addCorner(b, cornerRadius or 6)
-    addStroke(b, Theme.AmberDim, 1)
+    addStroke(b, Pal.CyanDim, 1)
     return b
 end
 
@@ -127,7 +127,7 @@ local function makeLabel(parent, size, pos, text, color, font, textSize, xAlign)
     if pos then l.Position = pos end
     l.BackgroundTransparency = 1
     l.Text = text or ""
-    l.TextColor3 = color or Theme.SnowWhite
+    l.TextColor3 = color or Pal.TextWhite
     l.Font = font or Enum.Font.GothamBold
     l.TextSize = textSize or 11
     l.TextStrokeTransparency = 0.5
@@ -156,46 +156,56 @@ local function bindSafeClick(btn, cb)
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "RecorderCard"
-MainFrame.Size = UDim2.new(0, 360, 0, 355)
-MainFrame.Position = UDim2.new(0.5, -180, 0.5, -177)
-MainFrame.BackgroundColor3 = Theme.Bg
+MainFrame.Name = "PufyftykMainCard"
+MainFrame.Size = UDim2.new(0, 360, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -180, 0.5, -180)
+MainFrame.BackgroundColor3 = Pal.Bg
 MainFrame.BorderSizePixel = 0
 MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
-addCorner(MainFrame, 10)
-local mainStroke = addStroke(MainFrame, Theme.Amber, 1.5)
-addGradient(MainFrame, Theme.Bg, Color3.fromRGB(18, 24, 34), 45)
+addCorner(MainFrame, 8)
+local mainStroke = addStroke(MainFrame, Pal.Cyan, 1.5)
+addGradient(MainFrame, Pal.Bg, Color3.fromRGB(15, 21, 33), 45)
 
-local SnowTopCap = Instance.new("Frame")
-SnowTopCap.Size = UDim2.new(1, 0, 0, 3)
-SnowTopCap.Position = UDim2.new(0, 0, 0, 0)
-SnowTopCap.BackgroundColor3 = Theme.SnowWhite
-SnowTopCap.BorderSizePixel = 0
-SnowTopCap.ZIndex = 15
-SnowTopCap.Parent = MainFrame
-addCorner(SnowTopCap, 3)
-addGradient(SnowTopCap, Color3.fromRGB(255, 255, 255), Theme.FrostIce, 0)
+local SnowTopBar = Instance.new("Frame")
+SnowTopBar.Size = UDim2.new(1, 4, 0, 4)
+SnowTopBar.Position = UDim2.new(0, -2, 0, -2)
+SnowTopBar.BackgroundColor3 = Pal.Snow
+SnowTopBar.BorderSizePixel = 0
+SnowTopBar.ZIndex = 20
+SnowTopBar.Parent = MainFrame
+addCorner(SnowTopBar, 4)
+addGradient(SnowTopBar, Color3.fromRGB(255, 255, 255), Pal.Frost, 0)
 
-local MiniBadge = makeBtn(ScreenGui, UDim2.new(0, 140, 0, 34), UDim2.new(0, 10, 0, 10), Theme.Header, "[*] by pufyftyk (0)", 11, 8)
-MiniBadge.TextColor3 = Theme.AmberBright
+local CableDeco = Instance.new("Frame")
+CableDeco.Size = UDim2.new(0.6, 0, 0, 3)
+CableDeco.Position = UDim2.new(0.2, 0, 1, 0)
+CableDeco.BackgroundColor3 = Pal.Amber
+CableDeco.BorderSizePixel = 0
+CableDeco.ZIndex = 11
+CableDeco.Parent = MainFrame
+addCorner(CableDeco, 2)
+addGradient(CableDeco, Pal.Amber, Pal.AmberBright, 0)
+
+local MiniBadge = makeBtn(ScreenGui, UDim2.new(0, 140, 0, 34), UDim2.new(0, 10, 0, 10), Pal.Header, "[*] pufyftyk (0)", 11, 8)
+MiniBadge.TextColor3 = Pal.CyanBright
 MiniBadge.Visible = false
-addStroke(MiniBadge, Theme.Amber, 1.5)
+addStroke(MiniBadge, Pal.Cyan, 1.5)
 
-local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 46)
-TopBar.BackgroundColor3 = Theme.Header
-TopBar.BorderSizePixel = 0
-TopBar.ZIndex = 11
-TopBar.Active = true
-TopBar.Parent = MainFrame
-addCorner(TopBar, 10)
-addGradient(TopBar, Color3.fromRGB(26, 34, 48), Theme.Header, 90)
+local TopHeader = Instance.new("Frame")
+TopHeader.Size = UDim2.new(1, 0, 0, 48)
+TopHeader.BackgroundColor3 = Pal.Header
+TopHeader.BorderSizePixel = 0
+TopHeader.ZIndex = 11
+TopHeader.Active = true
+TopHeader.Parent = MainFrame
+addCorner(TopHeader, 8)
+addGradient(TopHeader, Color3.fromRGB(20, 28, 44), Pal.Header, 90)
 
 local isDragging = false
 do
     local dragStart, startPos = nil, nil
-    TopBar.InputBegan:Connect(function(input)
+    TopHeader.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             isDragging = true
             dragStart = input.Position
@@ -217,11 +227,11 @@ do
     end)
 end
 
-local TopTitle = makeLabel(TopBar, UDim2.new(1, -70, 0, 22), UDim2.new(0, 12, 0, 4), "SYSTEM ONLINE // by pufyftyk", Theme.AmberBright, Enum.Font.GothamBold, 13)
-local TopSub = makeLabel(TopBar, UDim2.new(1, -70, 0, 16), UDim2.new(0, 12, 0, 25), "COZY CYBER-WINTER // POINT RECORDER", Theme.SubText, Enum.Font.Gotham, 10)
+local LogoLabel = makeLabel(TopHeader, UDim2.new(1, -75, 0, 24), UDim2.new(0, 12, 0, 3), "pufyftyk", Pal.CyanBright, Enum.Font.GothamBold, 16)
+local SubStatusLabel = makeLabel(TopHeader, UDim2.new(1, -75, 0, 16), UDim2.new(0, 12, 0, 26), "SYSTEM STATUS: OK // POINT RECORDER", Pal.TextMuted, Enum.Font.Gotham, 10)
 
-local MinBtn = makeBtn(TopBar, UDim2.new(0, 26, 0, 24), UDim2.new(1, -58, 0, 11), Theme.Panel, "-", 13, 5)
-local CloseBtn = makeBtn(TopBar, UDim2.new(0, 26, 0, 24), UDim2.new(1, -30, 0, 11), Theme.Red, "X", 11, 5)
+local MinBtn = makeBtn(TopHeader, UDim2.new(0, 24, 0, 22), UDim2.new(1, -56, 0, 13), Pal.Panel, "-", 13, 5)
+local CloseBtn = makeBtn(TopHeader, UDim2.new(0, 24, 0, 22), UDim2.new(1, -28, 0, 13), Pal.Red, "X", 11, 5)
 
 bindSafeClick(MinBtn, function()
     MainFrame.Visible = false
@@ -237,56 +247,56 @@ bindSafeClick(CloseBtn, function()
     ScreenGui:Destroy()
 end)
 
-local TelemetryCard = Instance.new("Frame")
-TelemetryCard.Size = UDim2.new(1, -16, 0, 30)
-TelemetryCard.Position = UDim2.new(0, 8, 0, 52)
-TelemetryCard.BackgroundColor3 = Theme.Panel
-TelemetryCard.BorderSizePixel = 0
-TelemetryCard.ZIndex = 12
-TelemetryCard.Parent = MainFrame
-addCorner(TelemetryCard, 6)
-addStroke(TelemetryCard, Theme.AmberDim, 1)
+local TelemetryFrame = Instance.new("Frame")
+TelemetryFrame.Size = UDim2.new(1, -16, 0, 30)
+TelemetryFrame.Position = UDim2.new(0, 8, 0, 54)
+TelemetryFrame.BackgroundColor3 = Pal.Panel
+TelemetryFrame.BorderSizePixel = 0
+TelemetryFrame.ZIndex = 12
+TelemetryFrame.Parent = MainFrame
+addCorner(TelemetryFrame, 6)
+addStroke(TelemetryFrame, Pal.CyanDim, 1)
 
 local PulseDot = Instance.new("Frame")
 PulseDot.Size = UDim2.new(0, 8, 0, 8)
 PulseDot.Position = UDim2.new(0, 8, 0.5, -4)
-PulseDot.BackgroundColor3 = Theme.AmberBright
+PulseDot.BackgroundColor3 = Pal.Cyan
 PulseDot.BorderSizePixel = 0
 PulseDot.ZIndex = 13
-PulseDot.Parent = TelemetryCard
+PulseDot.Parent = TelemetryFrame
 addCorner(PulseDot, 4)
 
-local PosLabel = makeLabel(TelemetryCard, UDim2.new(1, -95, 1, 0), UDim2.new(0, 22, 0, 0), "POS: X: 0 | Y: 0 | Z: 0", Theme.SnowWhite, Enum.Font.Gotham, 10)
+local PosLabel = makeLabel(TelemetryFrame, UDim2.new(1, -100, 1, 0), UDim2.new(0, 22, 0, 0), "POS: X: 0 | Y: 0 | Z: 0", Pal.TextWhite, Enum.Font.Gotham, 10)
 
-local LoadMeter = Instance.new("Frame")
-LoadMeter.Size = UDim2.new(0, 68, 0, 20)
-LoadMeter.Position = UDim2.new(1, -74, 0.5, -10)
-LoadMeter.BackgroundColor3 = Color3.fromRGB(12, 16, 24)
-LoadMeter.BorderSizePixel = 0
-LoadMeter.ZIndex = 13
-LoadMeter.Parent = TelemetryCard
-addCorner(LoadMeter, 4)
-addStroke(LoadMeter, Theme.AmberDim, 1)
+local LoadBadge = Instance.new("Frame")
+LoadBadge.Size = UDim2.new(0, 72, 0, 20)
+LoadBadge.Position = UDim2.new(1, -78, 0.5, -10)
+LoadBadge.BackgroundColor3 = Pal.BgDark
+LoadBadge.BorderSizePixel = 0
+LoadBadge.ZIndex = 13
+LoadBadge.Parent = TelemetryFrame
+addCorner(LoadBadge, 4)
+addStroke(LoadBadge, Pal.CyanDim, 1)
 
-local LoadText = makeLabel(LoadMeter, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "PTS: 00", Theme.AmberBright, Enum.Font.GothamBold, 9, Enum.TextXAlignment.Center)
-LoadText.ZIndex = 14
+local LoadLabel = makeLabel(LoadBadge, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), "LOAD: 00", Pal.CyanBright, Enum.Font.GothamBold, 9, Enum.TextXAlignment.Center)
+LoadLabel.ZIndex = 14
 
-local TagContainer = Instance.new("Frame")
-TagContainer.Size = UDim2.new(1, -16, 0, 28)
-TagContainer.Position = UDim2.new(0, 8, 0, 88)
-TagContainer.BackgroundTransparency = 1
-TagContainer.ZIndex = 12
-TagContainer.Parent = MainFrame
+local TagRow = Instance.new("Frame")
+TagRow.Size = UDim2.new(1, -16, 0, 28)
+TagRow.Position = UDim2.new(0, 8, 0, 90)
+TagRow.BackgroundTransparency = 1
+TagRow.ZIndex = 12
+TagRow.Parent = MainFrame
 
 local SelectedTag = "Egg"
 local TagBtns = {}
 
 local TagList = {
-    { Name = "Egg", Label = "EGG", Col = Theme.Gold },
-    { Name = "Tunnel", Label = "TUNNEL", Col = Theme.FrostIce },
-    { Name = "Chest", Label = "CHEST", Col = Theme.Purple },
-    { Name = "Camp", Label = "CAMP", Col = Theme.Amber },
-    { Name = "Wall", Label = "WALL", Col = Theme.Red }
+    { Name = "Egg", Label = "EGG", Col = Pal.AmberBright },
+    { Name = "Tunnel", Label = "TUNNEL", Col = Pal.Cyan },
+    { Name = "Chest", Label = "CHEST", Col = Color3.fromRGB(190, 120, 255) },
+    { Name = "Camp", Label = "CAMP", Col = Pal.Frost },
+    { Name = "Wall", Label = "WALL", Col = Pal.Red }
 }
 
 local function refreshTags()
@@ -295,23 +305,23 @@ local function refreshTags()
         if b then
             if SelectedTag == item.Name then
                 b.BackgroundColor3 = item.Col
-                b.TextColor3 = Theme.DarkText
+                b.TextColor3 = Pal.DarkText
                 b.Font = Enum.Font.GothamBold
                 local s = b:FindFirstChildOfClass("UIStroke")
-                if s then s.Color = Theme.SnowWhite s.Thickness = 1.4 end
+                if s then s.Color = Pal.Snow s.Thickness = 1.4 end
             else
-                b.BackgroundColor3 = Theme.Panel
-                b.TextColor3 = Theme.SubText
+                b.BackgroundColor3 = Pal.Panel
+                b.TextColor3 = Pal.TextMuted
                 b.Font = Enum.Font.Gotham
                 local s = b:FindFirstChildOfClass("UIStroke")
-                if s then s.Color = Theme.AmberDim s.Thickness = 1 end
+                if s then s.Color = Pal.CyanDim s.Thickness = 1 end
             end
         end
     end
 end
 
 for idx, item in ipairs(TagList) do
-    local b = makeBtn(TagContainer, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.2 * (idx - 1), 2, 0, 0), Theme.Panel, item.Label, 10, 5)
+    local b = makeBtn(TagRow, UDim2.new(0.2, -4, 1, 0), UDim2.new(0.2 * (idx - 1), 2, 0, 0), Pal.Panel, item.Label, 10, 5)
     TagBtns[item.Name] = b
     bindSafeClick(b, function()
         SelectedTag = item.Name
@@ -320,43 +330,44 @@ for idx, item in ipairs(TagList) do
 end
 refreshTags()
 
-local AddHeroBtn = makeBtn(MainFrame, UDim2.new(1, -16, 0, 34), UDim2.new(0, 8, 0, 122), Theme.Amber, "[+] RECORD THIS SPOT", 12, 8)
-AddHeroBtn.TextColor3 = Theme.DarkText
-local heroStroke = addStroke(AddHeroBtn, Theme.Gold, 1.5)
-local heroGradient = addGradient(AddHeroBtn, Theme.AmberBright, Theme.AmberDim, 90)
+local HeroBtn = makeBtn(MainFrame, UDim2.new(1, -16, 0, 34), UDim2.new(0, 8, 0, 124), Pal.CyanDim, "[+] RECORD THIS SPOT", 12, 6)
+HeroBtn.TextColor3 = Pal.TextWhite
+local heroStroke = addStroke(HeroBtn, Pal.Cyan, 1.5)
+addGradient(HeroBtn, Color3.fromRGB(0, 160, 210), Color3.fromRGB(0, 90, 130), 90)
 
 local ScrollFrame = Instance.new("ScrollingFrame")
-ScrollFrame.Size = UDim2.new(1, -16, 0, 124)
-ScrollFrame.Position = UDim2.new(0, 8, 0, 162)
-ScrollFrame.BackgroundColor3 = Theme.BgDark
+ScrollFrame.Size = UDim2.new(1, -16, 0, 122)
+ScrollFrame.Position = UDim2.new(0, 8, 0, 164)
+ScrollFrame.BackgroundColor3 = Pal.BgDark
 ScrollFrame.BorderSizePixel = 0
 ScrollFrame.ScrollBarThickness = 4
-ScrollFrame.ScrollBarImageColor3 = Theme.AmberBright
+ScrollFrame.ScrollBarImageColor3 = Pal.Cyan
 ScrollFrame.ZIndex = 12
 ScrollFrame.Parent = MainFrame
 addCorner(ScrollFrame, 6)
-addStroke(ScrollFrame, Theme.AmberDim, 1)
+addStroke(ScrollFrame, Pal.CyanDim, 1)
 
 local UIList = Instance.new("UIListLayout")
 UIList.Padding = UDim.new(0, 3)
 UIList.SortOrder = Enum.SortOrder.LayoutOrder
 UIList.Parent = ScrollFrame
 
-local StatusLabel = makeLabel(MainFrame, UDim2.new(1, -16, 0, 16), UDim2.new(0, 8, 0, 290), "SYSTEM READY // Select tag and record | by pufyftyk", Theme.SubText, Enum.Font.Gotham, 9)
+local StatusLabel = makeLabel(MainFrame, UDim2.new(1, -16, 0, 16), UDim2.new(0, 8, 0, 292), "DECODED // Select tag & record spot | by pufyftyk", Pal.TextMuted, Enum.Font.Gotham, 9)
 
 local BottomBar = Instance.new("Frame")
 BottomBar.Size = UDim2.new(1, -16, 0, 32)
-BottomBar.Position = UDim2.new(0, 8, 0, 310)
+BottomBar.Position = UDim2.new(0, 8, 0, 314)
 BottomBar.BackgroundTransparency = 1
 BottomBar.ZIndex = 12
 BottomBar.Parent = MainFrame
 
-local CopyAllBtn = makeBtn(BottomBar, UDim2.new(0.55, -4, 1, 0), UDim2.new(0, 0, 0, 0), Theme.Amber, "[#] COPY ALL FOR CHAT", 10, 6)
-CopyAllBtn.TextColor3 = Theme.DarkText
-addGradient(CopyAllBtn, Theme.AmberBright, Theme.Amber, 90)
+local CopyAllBtn = makeBtn(BottomBar, UDim2.new(0.55, -4, 1, 0), UDim2.new(0, 0, 0, 0), Pal.Cyan, "[#] COPY ALL FOR CHAT", 10, 6)
+CopyAllBtn.TextColor3 = Pal.DarkText
+addGradient(CopyAllBtn, Pal.CyanBright, Pal.Cyan, 90)
+addStroke(CopyAllBtn, Pal.Snow, 1.2)
 
-local UndoBtn = makeBtn(BottomBar, UDim2.new(0.23, -4, 1, 0), UDim2.new(0.55, 2, 0, 0), Theme.Panel, "Undo", 10, 6)
-local ClearBtn = makeBtn(BottomBar, UDim2.new(0.22, -4, 1, 0), UDim2.new(0.78, 4, 0, 0), Theme.Red, "Clear", 10, 6)
+local UndoBtn = makeBtn(BottomBar, UDim2.new(0.23, -4, 1, 0), UDim2.new(0.55, 2, 0, 0), Pal.Panel, "Undo", 10, 6)
+local ClearBtn = makeBtn(BottomBar, UDim2.new(0.22, -4, 1, 0), UDim2.new(0.78, 4, 0, 0), Pal.Red, "Clear", 10, 6)
 
 local SavedPoints = {}
 local DeletedHistory = {}
@@ -366,7 +377,7 @@ local function getTagColor(tag)
     for _, t in ipairs(TagList) do
         if t.Name == tag then return t.Col end
     end
-    return Theme.Amber
+    return Pal.Cyan
 end
 
 local function renderList()
@@ -374,13 +385,13 @@ local function renderList()
         if ch:IsA("Frame") then ch:Destroy() end
     end
 
-    MiniBadge.Text = string.format("[*] by pufyftyk (%d)", #SavedPoints)
-    LoadText.Text = string.format("PTS: %02d", #SavedPoints)
+    MiniBadge.Text = string.format("[*] pufyftyk (%d)", #SavedPoints)
+    LoadLabel.Text = string.format("LOAD: %02d", #SavedPoints)
 
     for i, pt in ipairs(SavedPoints) do
         local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -6, 0, 26)
-        item.BackgroundColor3 = (i % 2 == 0) and Theme.Panel or Theme.PanelSlot
+        item.BackgroundColor3 = (i % 2 == 0) and Pal.Panel or Pal.Slot
         item.BorderSizePixel = 0
         item.ZIndex = 13
         item.Parent = ScrollFrame
@@ -397,16 +408,16 @@ local function renderList()
         tagBadge.Parent = item
         addCorner(tagBadge, 3)
 
-        local tagTxt = makeLabel(tagBadge, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), string.format("#%d %s", i, pt.Tag), Theme.DarkText, Enum.Font.GothamBold, 8, Enum.TextXAlignment.Center)
+        local tagTxt = makeLabel(tagBadge, UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), string.format("#%d %s", i, pt.Tag), Pal.DarkText, Enum.Font.GothamBold, 8, Enum.TextXAlignment.Center)
         tagTxt.ZIndex = 15
 
         local coordsTxt = string.format("%.0f, %.0f, %.0f", pt.X, pt.Y, pt.Z)
-        local coordLbl = makeLabel(item, UDim2.new(1, -165, 1, 0), UDim2.new(0, 62, 0, 0), coordsTxt, Theme.SnowWhite, Enum.Font.Gotham, 9)
+        local coordLbl = makeLabel(item, UDim2.new(1, -165, 1, 0), UDim2.new(0, 62, 0, 0), coordsTxt, Pal.TextWhite, Enum.Font.Gotham, 9)
 
-        local tpBtn = makeBtn(item, UDim2.new(0, 30, 0, 18), UDim2.new(1, -94, 0.5, -9), Theme.Header, "TP", 8, 4)
-        local cpBtn = makeBtn(item, UDim2.new(0, 36, 0, 18), UDim2.new(1, -61, 0.5, -9), Theme.Amber, "Copy", 8, 4)
-        cpBtn.TextColor3 = Theme.DarkText
-        local delBtn = makeBtn(item, UDim2.new(0, 22, 0, 18), UDim2.new(1, -23, 0.5, -9), Theme.Red, "X", 9, 4)
+        local tpBtn = makeBtn(item, UDim2.new(0, 30, 0, 18), UDim2.new(1, -94, 0.5, -9), Pal.Header, "TP", 8, 4)
+        local cpBtn = makeBtn(item, UDim2.new(0, 36, 0, 18), UDim2.new(1, -61, 0.5, -9), Pal.Cyan, "Copy", 8, 4)
+        cpBtn.TextColor3 = Pal.DarkText
+        local delBtn = makeBtn(item, UDim2.new(0, 22, 0, 18), UDim2.new(1, -23, 0.5, -9), Pal.Red, "X", 9, 4)
 
         bindSafeClick(tpBtn, function()
             local hrp = getHRP()
@@ -439,7 +450,7 @@ local function renderList()
     ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 12)
 end
 
-bindSafeClick(AddHeroBtn, function()
+bindSafeClick(HeroBtn, function()
     local hrp = getHRP()
     if not hrp then return end
     local p = hrp.Position
@@ -455,7 +466,7 @@ bindSafeClick(AddHeroBtn, function()
 
     table.insert(SavedPoints, newPoint)
     renderList()
-    StatusLabel.Text = string.format("RECORDED Point #%d [%s]! Total: %d", #SavedPoints, SelectedTag, #SavedPoints)
+    StatusLabel.Text = string.format("ACCESS GRANTED // Recorded Point #%d [%s]!", #SavedPoints, SelectedTag)
 
     pcall(function()
         ScrollFrame.CanvasPosition = Vector2.new(0, 9999)
@@ -476,7 +487,7 @@ bindSafeClick(CopyAllBtn, function()
     table.insert(lines, "==============================")
     local fullText = table.concat(lines, "\n")
     copyText(fullText)
-    StatusLabel.Text = string.format("COPIED %d POINTS TO CLIPBOARD! Paste in chat!", #SavedPoints)
+    StatusLabel.Text = string.format("COPIED %d POINTS! Paste into chat!", #SavedPoints)
 end)
 
 bindSafeClick(UndoBtn, function()
@@ -521,10 +532,11 @@ task.spawn(function()
             PosLabel.Text = string.format("POS: X: %.1f | Y: %.1f | Z: %.1f", p.X, p.Y, p.Z)
         end
         pulseCount = pulseCount + 1
-        PulseDot.BackgroundTransparency = (pulseCount % 2 == 0) and 0.1 or 0.7
-        local glowCycle = math.abs(math.sin(pulseCount * 0.2))
-        mainStroke.Color = Color3.fromRGB(math.floor(255 - glowCycle * 35), math.floor(140 + glowCycle * 40), math.floor(25 + glowCycle * 35))
-        heroStroke.Color = Color3.fromRGB(255, math.floor(180 + glowCycle * 50), math.floor(40 + glowCycle * 40))
+        PulseDot.BackgroundTransparency = (pulseCount % 2 == 0) and 0.1 or 0.8
+        local glowCycle = math.abs(math.sin(pulseCount * 0.25))
+        mainStroke.Color = Color3.fromRGB(math.floor(0 + glowCycle * 60), math.floor(180 + glowCycle * 60), 255)
+        heroStroke.Color = Color3.fromRGB(math.floor(40 + glowCycle * 80), math.floor(200 + glowCycle * 55), 255)
+        CableDeco.BackgroundColor3 = Color3.fromRGB(math.floor(220 + glowCycle * 35), math.floor(110 + glowCycle * 40), 30)
         task.wait(0.2)
     end
 end)
