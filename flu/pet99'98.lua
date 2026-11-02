@@ -1,57 +1,70 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Headless Tracker v3.0
-     
-     ЧАСТИНА 1: Завантажувач Kero Hub (авто-фарм, юніти, макроси)
-     ЧАСТИНА 2: Фоновий трекер (БЕЗ ЖОДНОГО GUI В ГРІ):
-       - Чіткі статуси: "Заходить на сервер", "В мережі / Фарм", "Вилетіло / Кік"
-       - Детекція кіків через GuiService (фіксує точну причину вильоту)
-       - Реальні коїни (~600 за раунд) та розрахунок за хвилю
-       - Прив'язка нікнейму, DisplayName та UserId
-       - Авто-збереження в CameraTD_Macros/DashboardStats.json кожні 1.5с
-       - Миттєва передача на локальний сервер (0ms) без попереджень браузера
+     Cameraman TD · All-in-One Loader & Headless Tracker v3.5 (Auto-Inject Edition)
      ============================================================ ]]
-
--- Фіксація статусу старту
-local Folder = "CameraTD_Macros"
-local StatsPath = Folder .. "/DashboardStats.json"
-
-if makefolder and isfolder and not isfolder(Folder) then
-    pcall(makefolder, Folder)
+if not game:IsLoaded() then
+    game.Loaded:Wait()
 end
 
--- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub
--- ============================================================
-task.spawn(function()
-    local ok, err = pcall(function()
-        print("[Kero Loader] Запуск Kero Hub...")
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
-    end)
-    if ok then
-        print("[Kero Loader] Kero Hub успішно запущено!")
-    else
-        warn("[Kero Loader] Помилка або Kero Hub уже працює: " .. tostring(err))
-    end
-end)
-
--- ============================================================
--- ЧАСТИНА 2: Повністю фоновий трекер
--- ============================================================
-local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local GuiService = game:GetService("GuiService")
-local TeleportService = game:GetService("TeleportService")
-local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or (delta and delta.request) or request
-
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    Players.PlayerAdded:Wait()
+while not LocalPlayer do
+    task.wait(0.1)
     LocalPlayer = Players.LocalPlayer
 end
 
-local genv = (getgenv and getgenv()) or _G
+pcall(function()
+    LocalPlayer:WaitForChild("PlayerGui", 12)
+end)
 
--- 1. Helper: Currency Readers
+local HttpService = game:GetService("HttpService")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+
+local function findHttpRequest()
+    local fn = (syn and syn.request) 
+        or (http and http.request) 
+        or http_request 
+        or (fluxus and fluxus.request) 
+        or (delta and delta.request) 
+        or request
+    if not fn and getgenv then
+        local env = getgenv()
+        fn = env.request or env.http_request or (env.syn and env.syn.request) or (env.fluxus and env.fluxus.request)
+    end
+    return fn
+end
+local httpRequest = findHttpRequest()
+
+local Folder = "CameraTD_Macros"
+local StatsPath = Folder .. "/DashboardStats.json"
+pcall(function()
+    if makefolder and isfolder and not isfolder(Folder) then
+        makefolder(Folder)
+    end
+end)
+
+local genv = (getgenv and getgenv()) or _G
+local currentInstanceToken = tick()
+genv.__CameraTD_ActiveInstance = currentInstanceToken
+
+-- 1. Kero Hub Loader (з повторами)
+task.spawn(function()
+    task.wait(1.5)
+    local maxRetries = 3
+    for attempt = 1, maxRetries do
+        local ok, err = pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
+        end)
+        if ok then
+            print("[Kero Loader] ✅ Kero Hub успішно запущено!")
+            break
+        else
+            task.wait(2.5)
+        end
+    end
+end)
+
+-- 2. Допоміжні функції
 local function getCoins()
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
@@ -69,17 +82,6 @@ local function getCoins()
         if m and m:IsA("TextLabel") then
             local num = m.Text:gsub(",", ""):match("[%d%.]+")
             if num then return tonumber(num) or 0 end
-        end
-        for _, desc in ipairs(pgui:GetDescendants()) do
-            if desc:IsA("TextLabel") and desc.Visible then
-                local lname = desc.Name:lower()
-                if lname:find("money") or lname:find("coin") then
-                    local num = desc.Text:gsub(",", ""):match("[%d%.]+")
-                    if num and tonumber(num) and tonumber(num) > 0 then
-                        return tonumber(num)
-                    end
-                end
-            end
         end
     end
     return 0
@@ -119,7 +121,6 @@ local function getCurrentWave()
     return 0
 end
 
--- 2. Restore cross-server session
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
     pcall(function()
@@ -149,9 +150,8 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
 }
 local Session = genv.__CameraTDSession
 
--- 3. Activity Slot Tracker
 local function getDayAndSlotIndex()
-    local date = os.date("!*t", os.time() + 2 * 3600) -- Local UTC+2
+    local date = os.date("!*t", os.time() + 2 * 3600)
     local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
     local slotIdx = date.hour * 2 + math.floor(date.min / 30)
     return dayIdx, math.clamp(slotIdx, 0, 47)
@@ -163,48 +163,73 @@ local function markActivitySlot(statusType)
     Session.ActivitySlots[key] = statusType
 end
 
--- 4. Kick & Disconnect Listeners
+local function pushUpdate(data)
+    local ok, jsonString = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+    if not ok or not jsonString then return end
+
+    if writefile then
+        pcall(function()
+            writefile(StatsPath, jsonString)
+        end)
+    end
+
+    local req = httpRequest or findHttpRequest()
+    if req then
+        task.spawn(function()
+            pcall(function()
+                req({
+                    Url = "http://127.0.0.1:8765/api/update",
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = jsonString
+                })
+            end)
+        end)
+    end
+end
+
+-- Кік-детектор
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
             Session.IsKicked = true
             Session.Status = "❌ ВИЛЕТІЛО / КІКНУЛО: " .. tostring(msg)
-            markActivitySlot(4) -- Red slot
+            markActivitySlot(4)
             
-            -- Immediate save on kick
-            local exportData = {
+            local kickData = {
                 PlayerName = LocalPlayer.Name,
                 DisplayName = LocalPlayer.DisplayName,
                 UserId = LocalPlayer.UserId,
+                CurrentCoins = getCoins(),
+                CurrentCandy = getCandy(),
+                TotalCoinsEarned = Session.TotalCoinsEarned,
+                TotalCandyEarned = Session.TotalCandyEarned,
+                LastRoundCoins = Session.LastRoundCoins or 600,
+                LastRoundCandy = Session.LastRoundCandy or 10,
+                CoinsPerWave = Session.CoinsPerWave or 50,
+                CandyPerWave = Session.CandyPerWave or 1,
+                CurrentWave = getCurrentWave(),
+                TotalRounds = Session.TotalRounds,
+                TotalWins = Session.TotalWins,
+                TotalLosses = Session.TotalLosses,
+                Rejoins = Session.Rejoins,
+                UptimeSeconds = os.time() - Session.SessionStartTime,
                 Status = Session.Status,
+                IsAFK = false,
                 IsKicked = true,
+                IdleSeconds = os.time() - (Session.LastActionTime or os.time()),
                 LastHeartbeat = os.time(),
+                SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots
             }
-            pcall(function()
-                if writefile then
-                    writefile(StatsPath, HttpService:JSONEncode(exportData))
-                end
-                if httpRequest then
-                    httpRequest({
-                        Url = "http://127.0.0.1:8765/api/update",
-                        Method = "POST",
-                        Headers = { ["Content-Type"] = "application/json" },
-                        Body = HttpService:JSONEncode(exportData)
-                    })
-                end
-            end)
+            pushUpdate(kickData)
         end
     end)
 end)
 
-pcall(function()
-    TeleportService.TeleportInitFailed:Connect(function(player, result, err)
-        Session.Status = "⚠️ Помилка телепорту: " .. tostring(err)
-    end)
-end)
-
--- 5. Match Result Calculator (~600 coins standard)
+-- Підрахунок нагород
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -231,7 +256,7 @@ local function checkMatchResult()
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            if roundCoins == 0 then roundCoins = 600 end -- realistic ~600 coins per round
+            if roundCoins == 0 then roundCoins = 600 end
             local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
@@ -248,32 +273,58 @@ local function checkMatchResult()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot(2) -- Green slot
+            markActivitySlot(2)
         end
     else
         Session.LastRecordedMatchResult = nil
     end
 end
 
--- 6. Background Loop (100% headless, zero GUI in Roblox)
+-- Миттєвий пінг
 task.spawn(function()
-    print("[Camera TD Headless] Трекер успішно запущено без менюшки в грі. Дані надсилаються на сайт!")
+    pushUpdate({
+        PlayerName = LocalPlayer.Name,
+        DisplayName = LocalPlayer.DisplayName,
+        UserId = LocalPlayer.UserId,
+        CurrentCoins = getCoins(),
+        CurrentCandy = getCandy(),
+        TotalCoinsEarned = Session.TotalCoinsEarned,
+        TotalCandyEarned = Session.TotalCandyEarned,
+        LastRoundCoins = Session.LastRoundCoins or 600,
+        LastRoundCandy = Session.LastRoundCandy or 10,
+        CoinsPerWave = Session.CoinsPerWave or 50,
+        CandyPerWave = Session.CandyPerWave or 1,
+        CurrentWave = getCurrentWave(),
+        TotalRounds = Session.TotalRounds,
+        TotalWins = Session.TotalWins,
+        TotalLosses = Session.TotalLosses,
+        Rejoins = Session.Rejoins,
+        UptimeSeconds = os.time() - Session.SessionStartTime,
+        Status = "🔄 Заходить на сервер / Завантаження...",
+        IsAFK = false,
+        IsKicked = false,
+        IdleSeconds = 0,
+        LastHeartbeat = os.time(),
+        SessionStartTime = Session.SessionStartTime,
+        ActivitySlots = Session.ActivitySlots
+    })
+end)
 
-    -- Initial load wait
-    if not game:IsLoaded() then
-        Session.Status = "🔄 Заходить на сервер / Завантаження текстур..."
-        game.Loaded:Wait()
-    end
-    task.wait(2)
+-- Головний фоновий цикл
+task.spawn(function()
+    task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
 
     local lastCoins = 0
     local lastSave = 0
 
     while task.wait(1.5) do
+        if genv.__CameraTD_ActiveInstance ~= currentInstanceToken then
+            break
+        end
+
         local now = os.time()
         local uptime = now - Session.SessionStartTime
-
         local curCoins = getCoins()
         local curCandy = getCandy()
 
@@ -283,11 +334,11 @@ task.spawn(function()
         if curCoins ~= lastCoins then
             lastCoins = curCoins
             Session.LastActionTime = now
-            markActivitySlot(2) -- Bright green (actively farming)
+            markActivitySlot(2)
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 420) -- > 7 minutes timeout
+        local isAFK = (idleSeconds > 420)
 
         local inMatch = (game.PlaceId == 114068177100380)
         local inLobby = (game.PlaceId == 132929771812494)
@@ -296,13 +347,13 @@ task.spawn(function()
         local statusText = ""
         if Session.IsKicked then
             statusText = Session.Status
-            markActivitySlot(4) -- Red (kicked)
+            markActivitySlot(4)
         elseif isAFK then
             statusText = "⚠️ AFK: Немає активності (>7 хв)"
-            markActivitySlot(4) -- Red / Timeout
+            markActivitySlot(4)
         elseif inMatch then
             statusText = string.format("🟢 В мережі: У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
-            markActivitySlot(1) -- Green (in match)
+            markActivitySlot(1)
         elseif inLobby then
             statusText = "🟢 В мережі: Лобі (Очікування раунду)"
             markActivitySlot(1)
@@ -321,7 +372,7 @@ task.spawn(function()
             local liveCandyEarned = inMatch and math.max(0, curCandy - (Session.MatchStartCandy or curCandy)) or Session.LastRoundCandy
             if liveCoinsEarned == 0 and not inMatch then liveCoinsEarned = Session.LastRoundCoins end
 
-            local exportData = {
+            pushUpdate({
                 PlayerName = LocalPlayer.Name,
                 DisplayName = LocalPlayer.DisplayName,
                 UserId = LocalPlayer.UserId,
@@ -346,30 +397,7 @@ task.spawn(function()
                 LastHeartbeat = now,
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots
-            }
-
-            local jsonString = HttpService:JSONEncode(exportData)
-
-            -- 1. Local executor file
-            if writefile then
-                pcall(function()
-                    writefile(StatsPath, jsonString)
-                end)
-            end
-
-            -- 2. Local high-speed server (0ms, direct sync)
-            if httpRequest then
-                task.spawn(function()
-                    pcall(function()
-                        httpRequest({
-                            Url = "http://127.0.0.1:8765/api/update",
-                            Method = "POST",
-                            Headers = { ["Content-Type"] = "application/json" },
-                            Body = jsonString
-                        })
-                    end)
-                end)
-            end
+            })
         end
     end
 end)
