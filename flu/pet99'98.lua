@@ -1,20 +1,26 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Headless Tracker
+     Cameraman TD · All-in-One Loader & Headless Tracker v3.0
      
-     ЧАСТИНА 1: Завантажувач Kero Hub (авто-фарм, авто-юніти)
-     ЧАСТИНА 2: Фоновий трекер (БЕЗ МЕНЮШКИ В ГРІ):
-       - Дані передаються тільки на веб-сайт і в файл DashboardStats.json
-       - Прив'язка справжнього нікнейму та UserId гравця
-       - Підрахунок справжніх монет (~600 за раунд) та за хвилю
-       - Збереження сесії та перезаходів (Rejoins)
-       - Детекція кіків/вильотів (відображення червоним у графіку)
-       - Детекція AFK при паузі > 7 хвилин
+     ЧАСТИНА 1: Завантажувач Kero Hub (авто-фарм, юніти, макроси)
+     ЧАСТИНА 2: Фоновий трекер (БЕЗ ЖОДНОГО GUI В ГРІ):
+       - Чіткі статуси: "Заходить на сервер", "В мережі / Фарм", "Вилетіло / Кік"
+       - Детекція кіків через GuiService (фіксує точну причину вильоту)
+       - Реальні коїни (~600 за раунд) та розрахунок за хвилю
+       - Прив'язка нікнейму, DisplayName та UserId
+       - Авто-збереження в CameraTD_Macros/DashboardStats.json кожні 1.5с
+       - Миттєва передача на локальний сервер (0ms) без попереджень браузера
      ============================================================ ]]
 
-repeat task.wait() until game:IsLoaded()
+-- Фіксація статусу старту
+local Folder = "CameraTD_Macros"
+local StatsPath = Folder .. "/DashboardStats.json"
+
+if makefolder and isfolder and not isfolder(Folder) then
+    pcall(makefolder, Folder)
+end
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (без змін функціоналу)
+-- ЧАСТИНА 1: Завантажувач Kero Hub
 -- ============================================================
 task.spawn(function()
     local ok, err = pcall(function()
@@ -24,31 +30,29 @@ task.spawn(function()
     if ok then
         print("[Kero Loader] Kero Hub успішно запущено!")
     else
-        warn("[Kero Loader] Kero Hub помилка або вже працює: " .. tostring(err))
+        warn("[Kero Loader] Помилка або Kero Hub уже працює: " .. tostring(err))
     end
 end)
 
 -- ============================================================
--- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ GUI В РОБЛОКСІ)
+-- ЧАСТИНА 2: Повністю фоновий трекер
 -- ============================================================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
-
-local genv = (getgenv and getgenv()) or _G
-local Folder = "CameraTD_Macros"
-local StatsPath = Folder .. "/DashboardStats.json"
-
-if makefolder and isfolder and not isfolder(Folder) then
-    pcall(makefolder, Folder)
-end
-
+local TeleportService = game:GetService("TeleportService")
 local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or (delta and delta.request) or request
 
--- 1. Accurate Currency Readers for Cameraman TD
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    Players.PlayerAdded:Wait()
+    LocalPlayer = Players.LocalPlayer
+end
+
+local genv = (getgenv and getgenv()) or _G
+
+-- 1. Helper: Currency Readers
 local function getCoins()
-    -- Check leaderstats
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
         for _, name in ipairs({"Money", "Coins", "Cash", "Coin", "Points", "Gold"}) do
@@ -58,7 +62,6 @@ local function getCoins()
             end
         end
     end
-    -- Check PlayerGui
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
         local stats = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Stats")
@@ -116,13 +119,6 @@ local function getCurrentWave()
     return 0
 end
 
-local function formatTime(seconds)
-    local h = math.floor(seconds / 3600)
-    local m = math.floor((seconds % 3600) / 60)
-    local s = math.floor(seconds % 60)
-    return string.format("%02d:%02d:%02d", h, m, s)
-end
-
 -- 2. Restore cross-server session
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
@@ -139,50 +135,76 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     Rejoins = (savedData.Rejoins or 0) + 1,
     TotalCoinsEarned = savedData.TotalCoinsEarned or 0,
     TotalCandyEarned = savedData.TotalCandyEarned or 0,
-    LastRoundCoins = savedData.LastRoundCoins or 600, -- User standard is ~600 per round
+    LastRoundCoins = savedData.LastRoundCoins or 600,
     LastRoundCandy = savedData.LastRoundCandy or 10,
     LastRoundWaves = savedData.LastRoundWaves or 12,
     CoinsPerWave = savedData.CoinsPerWave or 50,
     CandyPerWave = savedData.CandyPerWave or 1,
-    ActivitySlots = savedData.ActivitySlots or {}, -- 7 days x 48 slots matrix
+    ActivitySlots = savedData.ActivitySlots or {},
     MatchStartCoins = nil,
     MatchStartCandy = nil,
     LastActionTime = os.time(),
     IsKicked = false,
-    Status = "Підключено"
+    Status = "🔄 Заходить на сервер / Завантаження..."
 }
 local Session = genv.__CameraTDSession
 
--- 3. Activity Heatmap Slot Marker
--- slotIndex: 0..47 (every 30 mins)
--- dayIndex: 0..6 (0 = Mon, 6 = Sun)
+-- 3. Activity Slot Tracker
 local function getDayAndSlotIndex()
-    local date = os.date("!*t", os.time() + 2 * 3600) -- UTC+2 (Local)
-    -- wday: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+    local date = os.date("!*t", os.time() + 2 * 3600) -- Local UTC+2
     local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
     local slotIdx = date.hour * 2 + math.floor(date.min / 30)
     return dayIdx, math.clamp(slotIdx, 0, 47)
 end
 
 local function markActivitySlot(statusType)
-    -- 0: gray, 1: dark green (calm farm), 2: bright green (active farm), 3: amber (top farm), 4: red (kicked/error)
     local dayIdx, slotIdx = getDayAndSlotIndex()
     local key = tostring(dayIdx) .. "_" .. tostring(slotIdx)
     Session.ActivitySlots[key] = statusType
 end
 
--- 4. Kick / Disconnect Detection
+-- 4. Kick & Disconnect Listeners
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
             Session.IsKicked = true
-            Session.Status = "❌ КІКНУЛО: " .. tostring(msg)
+            Session.Status = "❌ ВИЛЕТІЛО / КІКНУЛО: " .. tostring(msg)
             markActivitySlot(4) -- Red slot
+            
+            -- Immediate save on kick
+            local exportData = {
+                PlayerName = LocalPlayer.Name,
+                DisplayName = LocalPlayer.DisplayName,
+                UserId = LocalPlayer.UserId,
+                Status = Session.Status,
+                IsKicked = true,
+                LastHeartbeat = os.time(),
+                ActivitySlots = Session.ActivitySlots
+            }
+            pcall(function()
+                if writefile then
+                    writefile(StatsPath, HttpService:JSONEncode(exportData))
+                end
+                if httpRequest then
+                    httpRequest({
+                        Url = "http://127.0.0.1:8765/api/update",
+                        Method = "POST",
+                        Headers = { ["Content-Type"] = "application/json" },
+                        Body = HttpService:JSONEncode(exportData)
+                    })
+                end
+            end)
         end
     end)
 end)
 
--- 5. Match Result & Earnings Calculator (~600 coins per round)
+pcall(function()
+    TeleportService.TeleportInitFailed:Connect(function(player, result, err)
+        Session.Status = "⚠️ Помилка телепорту: " .. tostring(err)
+    end)
+end)
+
+-- 5. Match Result Calculator (~600 coins standard)
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -209,7 +231,7 @@ local function checkMatchResult()
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            if roundCoins == 0 then roundCoins = 600 end -- Fallback to realistic ~600
+            if roundCoins == 0 then roundCoins = 600 end -- realistic ~600 coins per round
             local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
@@ -226,19 +248,27 @@ local function checkMatchResult()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot(2) -- Green slot: successfully finished match
+            markActivitySlot(2) -- Green slot
         end
     else
         Session.LastRecordedMatchResult = nil
     end
 end
 
--- 6. Main Background Loop (Pure Silent Execution)
-local lastCoins = 0
-local lastSave = 0
-
+-- 6. Background Loop (100% headless, zero GUI in Roblox)
 task.spawn(function()
-    print("[Camera TD Headless] Трекер запущено у фоні (без GUI). Дані передаються на сайт!")
+    print("[Camera TD Headless] Трекер успішно запущено без менюшки в грі. Дані надсилаються на сайт!")
+
+    -- Initial load wait
+    if not game:IsLoaded() then
+        Session.Status = "🔄 Заходить на сервер / Завантаження текстур..."
+        game.Loaded:Wait()
+    end
+    task.wait(2)
+    Session.Status = "🟢 В мережі / Завантажено"
+
+    local lastCoins = 0
+    local lastSave = 0
 
     while task.wait(1.5) do
         local now = os.time()
@@ -253,11 +283,11 @@ task.spawn(function()
         if curCoins ~= lastCoins then
             lastCoins = curCoins
             Session.LastActionTime = now
-            markActivitySlot(2) -- Active farming slot (bright green)
+            markActivitySlot(2) -- Bright green (actively farming)
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 420) -- > 7 minutes
+        local isAFK = (idleSeconds > 420) -- > 7 minutes timeout
 
         local inMatch = (game.PlaceId == 114068177100380)
         local inLobby = (game.PlaceId == 132929771812494)
@@ -271,21 +301,20 @@ task.spawn(function()
             statusText = "⚠️ AFK: Немає активності (>7 хв)"
             markActivitySlot(4) -- Red / Timeout
         elseif inMatch then
-            statusText = string.format("У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
+            statusText = string.format("🟢 В мережі: У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
             markActivitySlot(1) -- Green (in match)
         elseif inLobby then
-            statusText = "У лобі (Очікування раунду)"
+            statusText = "🟢 В мережі: Лобі (Очікування раунду)"
             markActivitySlot(1)
         else
-            statusText = "Фарм активний"
+            statusText = "🟢 В мережі: Фарм активний"
             markActivitySlot(1)
         end
         Session.Status = statusText
 
         checkMatchResult()
 
-        -- Save and sync every 2 seconds
-        if now - lastSave >= 2 then
+        if now - lastSave >= 1.5 then
             lastSave = now
 
             local liveCoinsEarned = inMatch and math.max(0, curCoins - (Session.MatchStartCoins or curCoins)) or Session.LastRoundCoins
@@ -321,14 +350,14 @@ task.spawn(function()
 
             local jsonString = HttpService:JSONEncode(exportData)
 
-            -- 1. Save to local executor storage (CameraTD_Macros/DashboardStats.json)
+            -- 1. Local executor file
             if writefile then
                 pcall(function()
                     writefile(StatsPath, jsonString)
                 end)
             end
 
-            -- 2. Send to local dashboard server (0ms latency, if server.py is running)
+            -- 2. Local high-speed server (0ms, direct sync)
             if httpRequest then
                 task.spawn(function()
                     pcall(function()
