@@ -1,5 +1,6 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Headless Tracker v3.5 (Auto-Inject Edition)
+     Cameraman TD · All-in-One Loader & Cloud Realtime Tracker v4.0
+     Хмарна синхронізація через ntfy.sh (0ms Live SSE на сайт)
      ============================================================ ]]
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -47,7 +48,10 @@ local genv = (getgenv and getgenv()) or _G
 local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
--- 1. Kero Hub Loader (з повторами)
+-- За замовчуванням глобальний хмарний канал для сайту
+local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
+
+-- 1. Запуск Kero Hub під Auto-Inject (з авто-повторами)
 task.spawn(function()
     task.wait(1.5)
     local maxRetries = 3
@@ -56,7 +60,7 @@ task.spawn(function()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
         end)
         if ok then
-            print("[Kero Loader] ✅ Kero Hub успішно запущено!")
+            print("[Kero Loader] ✅ Kero Hub успішно активовано!")
             break
         else
             task.wait(2.5)
@@ -64,7 +68,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Допоміжні функції
+-- 2. Зчитування валюти та хвиль
 local function getCoins()
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
@@ -163,6 +167,7 @@ local function markActivitySlot(statusType)
     Session.ActivitySlots[key] = statusType
 end
 
+-- 3. ГОЛОВНА ФУНКЦІЯ ПЕРЕДАЧІ В ХМАРУ ТА НА САЙТ
 local function pushUpdate(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
@@ -177,6 +182,22 @@ local function pushUpdate(data)
 
     local req = httpRequest or findHttpRequest()
     if req then
+        -- Відправка прямо на Хмарний Сервер ntfy.sh для Сайту (0ms Live)
+        task.spawn(function()
+            pcall(function()
+                req({
+                    Url = "https://ntfy.sh/" .. CloudChannel,
+                    Method = "POST",
+                    Headers = {
+                        ["Content-Type"] = "application/json",
+                        ["Title"] = "Camera TD Live Status"
+                    },
+                    Body = jsonString
+                })
+            end)
+        end)
+
+        -- Локальний сервер (якщо запущено)
         task.spawn(function()
             pcall(function()
                 req({
@@ -190,7 +211,7 @@ local function pushUpdate(data)
     end
 end
 
--- Кік-детектор
+-- 4. Детектор вильотів (підсвічує клітинку червоним)
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
@@ -229,7 +250,7 @@ pcall(function()
     end)
 end)
 
--- Підрахунок нагород
+-- 5. Підрахунок перемог / поразок / нагород (~600 💵)
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -280,7 +301,7 @@ local function checkMatchResult()
     end
 end
 
--- Миттєвий пінг
+-- 6. Миттєвий пінг при старті
 task.spawn(function()
     pushUpdate({
         PlayerName = LocalPlayer.Name,
@@ -310,8 +331,12 @@ task.spawn(function()
     })
 end)
 
--- Головний фоновий цикл
+-- 7. Головний фоновий цикл
 task.spawn(function()
+    print("[Camera TD Headless] ✅ Фоновий трекер успішно запущено!")
+    print("[Camera TD Headless] ☁️ Хмарний канал: " .. CloudChannel)
+    print("[Camera TD Headless] 🌐 Сайт: https://kvires-ps99-cloud.static.hf.space")
+
     task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
 
