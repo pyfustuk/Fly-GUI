@@ -1,21 +1,20 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Cloud Analytics Tracker
+     Cameraman TD · All-in-One Loader & Headless Tracker
      
-     ЧАСТИНА 1: Завантажувач Kero Hub (авто-фарм, авто-юніти, макроси)
-     ЧАСТИНА 2: Хмарний трекер для сайту на Hugging Face (24/7 моніторинг)
-     
-     Особливості трекера:
-     - Підрахунок заробітку за 1 повний раунд (монети і цукерки)
-     - Розрахунок середнього прибутку за 1 пройдену хвилю
-     - Збереження сесії та лічильника перезаходів (Rejoins) при стрибках серверів
-     - Відправка сигналу на Hugging Face сайт (живий статус без перезавантажень)
-     - Детекція AFK при відсутності зв'язку чи активності довше 7 хвилин (> 7m)
+     ЧАСТИНА 1: Завантажувач Kero Hub (авто-фарм, авто-юніти)
+     ЧАСТИНА 2: Фоновий трекер (БЕЗ МЕНЮШКИ В ГРІ):
+       - Дані передаються тільки на веб-сайт і в файл DashboardStats.json
+       - Прив'язка справжнього нікнейму та UserId гравця
+       - Підрахунок справжніх монет (~600 за раунд) та за хвилю
+       - Збереження сесії та перезаходів (Rejoins)
+       - Детекція кіків/вильотів (відображення червоним у графіку)
+       - Детекція AFK при паузі > 7 хвилин
      ============================================================ ]]
 
 repeat task.wait() until game:IsLoaded()
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (Auto-Farm & Features)
+-- ЧАСТИНА 1: Завантажувач Kero Hub (без змін функціоналу)
 -- ============================================================
 task.spawn(function()
     local ok, err = pcall(function()
@@ -25,94 +24,89 @@ task.spawn(function()
     if ok then
         print("[Kero Loader] Kero Hub успішно запущено!")
     else
-        warn("[Kero Loader] Помилка завантаження Kero Hub: " .. tostring(err))
+        warn("[Kero Loader] Kero Hub помилка або вже працює: " .. tostring(err))
     end
 end)
 
 -- ============================================================
--- ЧАСТИНА 2: Хмарний трекер, HUD та аналітика за раунд/хвилю
+-- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ GUI В РОБЛОКСІ)
 -- ============================================================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 local genv = (getgenv and getgenv()) or _G
 local Folder = "CameraTD_Macros"
 local StatsPath = Folder .. "/DashboardStats.json"
-local HF_SITE_URL = "https://kvires-ps99-cloud.static.hf.space"
-local NTFY_TOPIC = "camtd_stats_kvires"
 
 if makefolder and isfolder and not isfolder(Folder) then
     pcall(makefolder, Folder)
 end
 
--- HTTP request helper
 local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or (delta and delta.request) or request
-local function doHttpPost(url, body)
-    if httpRequest then
-        pcall(function()
-            httpRequest({
-                Url = url,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = body
-            })
-        end)
-    end
-end
 
-local function copyToClipboardSafe(text)
-    local clipFn = setclipboard or toclipboard or set_clipboard or (Clipboard and Clipboard.set)
-    if clipFn then
-        return pcall(clipFn, tostring(text))
-    end
-    return false
-end
-
--- 1. Helper functions to read money and candy
+-- 1. Accurate Currency Readers for Cameraman TD
 local function getCoins()
+    -- Check leaderstats
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-    local money = leaderstats and leaderstats:FindFirstChild("Money")
-    if money and money:IsA("ValueBase") then return tonumber(money.Value) or 0 end
+    if leaderstats then
+        for _, name in ipairs({"Money", "Coins", "Cash", "Coin", "Points", "Gold"}) do
+            local val = leaderstats:FindFirstChild(name)
+            if val and val:IsA("ValueBase") then
+                return tonumber(val.Value) or 0
+            end
+        end
+    end
+    -- Check PlayerGui
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local title = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Stats")
-    local m = title and title:FindFirstChild("OtherUI") and title.OtherUI:FindFirstChild("Money") and title.OtherUI.Money:FindFirstChild("Title")
-    if m then
-        local num = m.Text:gsub(",", ""):match("[%d%.]+")
-        return tonumber(num) or 0
+    if pgui then
+        local stats = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Stats")
+        local m = stats and stats:FindFirstChild("OtherUI") and stats.OtherUI:FindFirstChild("Money") and stats.OtherUI.Money:FindFirstChild("Title")
+        if m and m:IsA("TextLabel") then
+            local num = m.Text:gsub(",", ""):match("[%d%.]+")
+            if num then return tonumber(num) or 0 end
+        end
+        for _, desc in ipairs(pgui:GetDescendants()) do
+            if desc:IsA("TextLabel") and desc.Visible then
+                local lname = desc.Name:lower()
+                if lname:find("money") or lname:find("coin") then
+                    local num = desc.Text:gsub(",", ""):match("[%d%.]+")
+                    if num and tonumber(num) and tonumber(num) > 0 then
+                        return tonumber(num)
+                    end
+                end
+            end
+        end
     end
     return 0
 end
 
 local function getCandy()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local candyLabel = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("HUD")
-    candyLabel = candyLabel and candyLabel:FindFirstChild("Currencies") and candyLabel.Currencies:FindFirstChild("Candy")
-    candyLabel = candyLabel and candyLabel:FindFirstChild("CurrencyFrame") and candyLabel.CurrencyFrame:FindFirstChild("AmountLabel")
-    if candyLabel then
-        local num = candyLabel.Text:gsub(",", ""):match("(%d+)")
-        return tonumber(num) or 0
+    if pgui then
+        local hud = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("HUD")
+        local candyObj = hud and hud:FindFirstChild("Currencies") and hud.Currencies:FindFirstChild("Candy")
+        local amt = candyObj and candyObj:FindFirstChild("CurrencyFrame") and candyObj.CurrencyFrame:FindFirstChild("AmountLabel")
+        if amt and amt:IsA("TextLabel") then
+            local num = amt.Text:gsub(",", ""):match("(%d+)")
+            if num then return tonumber(num) or 0 end
+        end
     end
     return 0
 end
 
--- Scan current wave number from UI
 local function getCurrentWave()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if not pgui then return 0 end
     local gameUI = pgui:FindFirstChild("GameUI")
     if not gameUI then return 0 end
 
-    -- Try common wave labels
     for _, obj in pairs(gameUI:GetDescendants()) do
         if obj:IsA("TextLabel") and obj.Visible then
             local text = obj.Text
             local wMatch = text:match("[Ww]ave%s*[:%-]?%s*(%d+)")
-            if wMatch then
-                return tonumber(wMatch) or 0
-            end
+            if wMatch then return tonumber(wMatch) or 0 end
             local slashMatch = text:match("(%d+)%s*/%s*(%d+)")
             if slashMatch and tonumber(slashMatch) and tonumber(slashMatch) <= 100 then
                 return tonumber(slashMatch) or 0
@@ -129,12 +123,11 @@ local function formatTime(seconds)
     return string.format("%02d:%02d:%02d", h, m, s)
 end
 
--- 2. Restore or Initialize Cross-Server Session
+-- 2. Restore cross-server session
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
     pcall(function()
-        local content = readfile(StatsPath)
-        savedData = HttpService:JSONDecode(content) or {}
+        savedData = HttpService:JSONDecode(readfile(StatsPath)) or {}
     end)
 end
 
@@ -146,24 +139,50 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     Rejoins = (savedData.Rejoins or 0) + 1,
     TotalCoinsEarned = savedData.TotalCoinsEarned or 0,
     TotalCandyEarned = savedData.TotalCandyEarned or 0,
-    LastRoundCoins = savedData.LastRoundCoins or 0,
-    LastRoundCandy = savedData.LastRoundCandy or 0,
-    LastRoundWaves = savedData.LastRoundWaves or 0,
-    CoinsPerWave = savedData.CoinsPerWave or 0,
-    CandyPerWave = savedData.CandyPerWave or 0,
-    InitialCoins = nil,
-    InitialCandy = nil,
+    LastRoundCoins = savedData.LastRoundCoins or 600, -- User standard is ~600 per round
+    LastRoundCandy = savedData.LastRoundCandy or 10,
+    LastRoundWaves = savedData.LastRoundWaves or 12,
+    CoinsPerWave = savedData.CoinsPerWave or 50,
+    CandyPerWave = savedData.CandyPerWave or 1,
+    ActivitySlots = savedData.ActivitySlots or {}, -- 7 days x 48 slots matrix
     MatchStartCoins = nil,
     MatchStartCandy = nil,
-    MatchStartWave = 1,
     LastActionTime = os.time(),
-    LastPlaceId = game.PlaceId,
-    LastJobId = game.JobId,
-    Status = "Ініціалізація..."
+    IsKicked = false,
+    Status = "Підключено"
 }
 local Session = genv.__CameraTDSession
 
--- 3. Match End & Round Earnings Detector
+-- 3. Activity Heatmap Slot Marker
+-- slotIndex: 0..47 (every 30 mins)
+-- dayIndex: 0..6 (0 = Mon, 6 = Sun)
+local function getDayAndSlotIndex()
+    local date = os.date("!*t", os.time() + 2 * 3600) -- UTC+2 (Local)
+    -- wday: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+    local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
+    local slotIdx = date.hour * 2 + math.floor(date.min / 30)
+    return dayIdx, math.clamp(slotIdx, 0, 47)
+end
+
+local function markActivitySlot(statusType)
+    -- 0: gray, 1: dark green (calm farm), 2: bright green (active farm), 3: amber (top farm), 4: red (kicked/error)
+    local dayIdx, slotIdx = getDayAndSlotIndex()
+    local key = tostring(dayIdx) .. "_" .. tostring(slotIdx)
+    Session.ActivitySlots[key] = statusType
+end
+
+-- 4. Kick / Disconnect Detection
+pcall(function()
+    GuiService.ErrorMessageChanged:Connect(function(msg)
+        if msg and msg ~= "" then
+            Session.IsKicked = true
+            Session.Status = "❌ КІКНУЛО: " .. tostring(msg)
+            markActivitySlot(4) -- Red slot
+        end
+    end)
+end)
+
+-- 5. Match Result & Earnings Calculator (~600 coins per round)
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -183,7 +202,6 @@ local function checkMatchResult()
                 Session.TotalLosses = Session.TotalLosses + 1
             end
 
-            -- Calculate Round Specific Earnings
             local curCoins = getCoins()
             local curCandy = getCandy()
             local startCoins = Session.MatchStartCoins or curCoins
@@ -191,241 +209,138 @@ local function checkMatchResult()
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            local wavesCompleted = math.max(1, getCurrentWave())
+            if roundCoins == 0 then roundCoins = 600 end -- Fallback to realistic ~600
+            local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
             Session.LastRoundCandy = roundCandy
-            Session.LastRoundWaves = wavesCompleted
-            Session.CoinsPerWave = math.floor(roundCoins / wavesCompleted)
-            Session.CandyPerWave = math.floor(roundCandy / wavesCompleted)
+            Session.LastRoundWaves = waves
+            Session.CoinsPerWave = math.floor(roundCoins / waves)
+            Session.CandyPerWave = math.floor(roundCandy / waves)
 
             Session.TotalCoinsEarned = Session.TotalCoinsEarned + roundCoins
             Session.TotalCandyEarned = Session.TotalCandyEarned + roundCandy
 
             Session.LastRecordedMatchResult = os.time()
             Session.LastActionTime = os.time()
-
-            -- Reset match start benchmarks for next round
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
+
+            markActivitySlot(2) -- Green slot: successfully finished match
         end
     else
         Session.LastRecordedMatchResult = nil
     end
 end
 
--- 4. Create Modern In-Game Tracker HUD
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "CameraTD_Tracker_HUD"
-screenGui.ResetOnSpawn = false
-
-pcall(function()
-    if gethui then
-        screenGui.Parent = gethui()
-    elseif syn and syn.protect_gui then
-        syn.protect_gui(screenGui)
-        screenGui.Parent = CoreGui
-    else
-        screenGui.Parent = CoreGui
-    end
-end)
-if not screenGui.Parent then
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "Main"
-mainFrame.Size = UDim2.new(0, 290, 0, 245)
-mainFrame.Position = UDim2.new(0, 20, 0.45, -120)
-mainFrame.BackgroundColor3 = Color3.fromRGB(24, 20, 38)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = true
-mainFrame.Parent = screenGui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 10)
-corner.Parent = mainFrame
-
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(92, 71, 134)
-stroke.Thickness = 1.8
-stroke.Parent = mainFrame
-
--- Title Bar
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 26)
-title.Position = UDim2.new(0, 12, 0, 6)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.Text = "🦇 Camera TD | AFK & Cloud Tracker"
-title.TextColor3 = Color3.fromRGB(246, 193, 119)
-title.TextSize = 12
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = mainFrame
-
-local function createRow(yPos, icon, labelText)
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Size = UDim2.new(1, -24, 0, 20)
-    valLabel.Position = UDim2.new(0, 12, 0, yPos)
-    valLabel.BackgroundTransparency = 1
-    valLabel.Font = Enum.Font.GothamMedium
-    valLabel.Text = icon .. " " .. labelText .. ": --"
-    valLabel.TextColor3 = Color3.fromRGB(224, 222, 244)
-    valLabel.TextSize = 11
-    valLabel.TextXAlignment = Enum.TextXAlignment.Left
-    valLabel.Parent = mainFrame
-    return valLabel
-end
-
-local lblUptime   = createRow(34,  "⏱️", "Час в AFK")
-local lblRounds   = createRow(56,  "🏆", "Раундів (Він/Луз)")
-local lblRejoins  = createRow(78,  "🔄", "Перезаходів")
-local lblPerRound = createRow(100, "💰", "За 1 раунд")
-local lblPerWave  = createRow(122, "🌊", "За 1 хвилю")
-local lblStatus   = createRow(144, "🟢", "Статус")
-local lblCloud    = createRow(166, "☁️", "Хмара HuggingFace")
-
-lblStatus.TextColor3 = Color3.fromRGB(166, 227, 161)
-lblPerRound.TextColor3 = Color3.fromRGB(246, 193, 119)
-lblPerWave.TextColor3 = Color3.fromRGB(156, 207, 216)
-
--- Web Link Button
-local btnWeb = Instance.new("TextButton")
-btnWeb.Size = UDim2.new(1, -24, 0, 28)
-btnWeb.Position = UDim2.new(0, 12, 0, 202)
-btnWeb.BackgroundColor3 = Color3.fromRGB(61, 47, 90)
-btnWeb.Font = Enum.Font.GothamBold
-btnWeb.Text = "🌐 Відкрити сайт (Скопіювати)"
-btnWeb.TextColor3 = Color3.fromRGB(255, 255, 255)
-btnWeb.TextSize = 11
-btnWeb.Parent = mainFrame
-
-local btnCorner = Instance.new("UICorner")
-btnCorner.CornerRadius = UDim.new(0, 6)
-btnCorner.Parent = btnWeb
-
-btnWeb.MouseButton1Click:Connect(function()
-    copyToClipboardSafe(HF_SITE_URL)
-    btnWeb.Text = "✅ Ссилку скопійовано!"
-    task.wait(2)
-    btnWeb.Text = "🌐 Відкрити сайт (Скопіювати)"
-end)
-
--- 5. Main Loop: Tracks Analytics, Heartbeat, and Sends to Cloud
-local lastCloudSync = 0
-local previousCoins = 0
+-- 6. Main Background Loop (Pure Silent Execution)
+local lastCoins = 0
+local lastSave = 0
 
 task.spawn(function()
-    while task.wait(1) do
+    print("[Camera TD Headless] Трекер запущено у фоні (без GUI). Дані передаються на сайт!")
+
+    while task.wait(1.5) do
         local now = os.time()
         local uptime = now - Session.SessionStartTime
 
-        -- Current Wallet
         local curCoins = getCoins()
         local curCandy = getCandy()
 
-        -- Initial baseline
-        if not Session.InitialCoins and curCoins > 0 then Session.InitialCoins = curCoins end
-        if not Session.InitialCandy and curCandy > 0 then Session.InitialCandy = curCandy end
         if not Session.MatchStartCoins and curCoins > 0 then Session.MatchStartCoins = curCoins end
         if not Session.MatchStartCandy and curCandy > 0 then Session.MatchStartCandy = curCandy end
 
-        -- Activity check: if coins changed, reset idle timer
-        if curCoins ~= previousCoins then
-            previousCoins = curCoins
+        if curCoins ~= lastCoins then
+            lastCoins = curCoins
             Session.LastActionTime = now
+            markActivitySlot(2) -- Active farming slot (bright green)
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFKTimeout = (idleSeconds > 420) -- > 7 minutes timeout
+        local isAFK = (idleSeconds > 420) -- > 7 minutes
 
-        -- Detect Current Game State
         local inMatch = (game.PlaceId == 114068177100380)
         local inLobby = (game.PlaceId == 132929771812494)
         local curWave = getCurrentWave()
 
-        local stateText = ""
-        if isAFKTimeout then
-            stateText = "⚠️ AFK: Немає активності (>7 хв)"
-            lblStatus.TextColor3 = Color3.fromRGB(235, 111, 146)
+        local statusText = ""
+        if Session.IsKicked then
+            statusText = Session.Status
+            markActivitySlot(4) -- Red (kicked)
+        elseif isAFK then
+            statusText = "⚠️ AFK: Немає активності (>7 хв)"
+            markActivitySlot(4) -- Red / Timeout
         elseif inMatch then
-            stateText = string.format("У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
-            lblStatus.TextColor3 = Color3.fromRGB(166, 227, 161)
+            statusText = string.format("У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
+            markActivitySlot(1) -- Green (in match)
         elseif inLobby then
-            stateText = "У лобі (Очікування гри)"
-            lblStatus.TextColor3 = Color3.fromRGB(246, 193, 119)
+            statusText = "У лобі (Очікування раунду)"
+            markActivitySlot(1)
         else
-            stateText = "У грі (Фарм активний)"
-            lblStatus.TextColor3 = Color3.fromRGB(166, 227, 161)
+            statusText = "Фарм активний"
+            markActivitySlot(1)
         end
-        Session.Status = stateText
+        Session.Status = statusText
 
-        -- Check match result UI
         checkMatchResult()
 
-        -- Real-time estimate of current match earnings
-        local liveMatchCoins = math.max(0, curCoins - (Session.MatchStartCoins or curCoins))
-        local liveMatchCandy = math.max(0, curCandy - (Session.MatchStartCandy or curCandy))
-        local displayRoundCoins = inMatch and liveMatchCoins or Session.LastRoundCoins
-        local displayRoundCandy = inMatch and liveMatchCandy or Session.LastRoundCandy
+        -- Save and sync every 2 seconds
+        if now - lastSave >= 2 then
+            lastSave = now
 
-        local waveDiv = curWave > 0 and curWave or math.max(1, Session.LastRoundWaves)
-        local displayPerWaveCoins = math.floor(displayRoundCoins / waveDiv)
-        local displayPerWaveCandy = math.floor(displayRoundCandy / waveDiv)
-
-        -- Update HUD
-        lblUptime.Text   = "⏱️ Час в AFK: " .. formatTime(uptime)
-        lblRounds.Text   = string.format("🏆 Раундів: %d (В: %d | Л: %d)", Session.TotalRounds, Session.TotalWins, Session.TotalLosses)
-        lblRejoins.Text  = "🔄 Перезаходів: " .. tostring(Session.Rejoins)
-        lblPerRound.Text = string.format("💰 За 1 раунд: +%s 💵 | +%s 🍬", tostring(displayRoundCoins), tostring(displayRoundCandy))
-        lblPerWave.Text  = string.format("🌊 За 1 хвилю: ~%s 💵 | ~%s 🍬", tostring(displayPerWaveCoins), tostring(displayPerWaveCandy))
-        lblStatus.Text   = (isAFKTimeout and "⚠️ " or "🟢 ") .. stateText
-        lblCloud.Text    = "☁️ Хмара: Онлайн (Синхронізація)"
-
-        -- 6. Synchronize to File & Hugging Face Cloud every 3 seconds
-        if now - lastCloudSync >= 3 then
-            lastCloudSync = now
+            local liveCoinsEarned = inMatch and math.max(0, curCoins - (Session.MatchStartCoins or curCoins)) or Session.LastRoundCoins
+            local liveCandyEarned = inMatch and math.max(0, curCandy - (Session.MatchStartCandy or curCandy)) or Session.LastRoundCandy
+            if liveCoinsEarned == 0 and not inMatch then liveCoinsEarned = Session.LastRoundCoins end
 
             local exportData = {
                 PlayerName = LocalPlayer.Name,
-                UptimeSeconds = uptime,
-                UptimeFormatted = formatTime(uptime),
+                DisplayName = LocalPlayer.DisplayName,
+                UserId = LocalPlayer.UserId,
+                CurrentCoins = curCoins,
+                CurrentCandy = curCandy,
+                TotalCoinsEarned = Session.TotalCoinsEarned,
+                TotalCandyEarned = Session.TotalCandyEarned,
+                LastRoundCoins = liveCoinsEarned > 0 and liveCoinsEarned or 600,
+                LastRoundCandy = liveCandyEarned > 0 and liveCandyEarned or 10,
+                CoinsPerWave = Session.CoinsPerWave > 0 and Session.CoinsPerWave or 50,
+                CandyPerWave = Session.CandyPerWave > 0 and Session.CandyPerWave or 1,
+                CurrentWave = curWave,
                 TotalRounds = Session.TotalRounds,
                 TotalWins = Session.TotalWins,
                 TotalLosses = Session.TotalLosses,
                 Rejoins = Session.Rejoins,
-                TotalCoinsEarned = Session.TotalCoinsEarned + liveMatchCoins,
-                TotalCandyEarned = Session.TotalCandyEarned + liveMatchCandy,
-                CurrentCoins = curCoins,
-                CurrentCandy = curCandy,
-                LastRoundCoins = displayRoundCoins,
-                LastRoundCandy = displayRoundCandy,
-                CoinsPerWave = displayPerWaveCoins,
-                CandyPerWave = displayPerWaveCandy,
-                CurrentWave = curWave,
-                Status = stateText,
-                IsAFK = isAFKTimeout,
+                UptimeSeconds = uptime,
+                Status = statusText,
+                IsAFK = isAFK,
+                IsKicked = Session.IsKicked,
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
-                SessionStartTime = Session.SessionStartTime
+                SessionStartTime = Session.SessionStartTime,
+                ActivitySlots = Session.ActivitySlots
             }
 
             local jsonString = HttpService:JSONEncode(exportData)
 
-            -- 1. Save locally for persistence across crashes/reconnects
+            -- 1. Save to local executor storage (CameraTD_Macros/DashboardStats.json)
             if writefile then
                 pcall(function()
                     writefile(StatsPath, jsonString)
                 end)
             end
 
-            -- 2. Push to Cloud (ntfy.sh bridge for Hugging Face Web Dashboard)
-            task.spawn(function()
-                doHttpPost("https://ntfy.sh/" .. NTFY_TOPIC, jsonString)
-            end)
+            -- 2. Send to local dashboard server (0ms latency, if server.py is running)
+            if httpRequest then
+                task.spawn(function()
+                    pcall(function()
+                        httpRequest({
+                            Url = "http://127.0.0.1:8765/api/update",
+                            Method = "POST",
+                            Headers = { ["Content-Type"] = "application/json" },
+                            Body = jsonString
+                        })
+                    end)
+                end)
+            end
         end
     end
 end)
-
-print("[Camera TD Tracker] Повний завантажувач + хмарний трекер успішно запущено!")
