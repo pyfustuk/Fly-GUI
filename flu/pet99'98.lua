@@ -66,97 +66,30 @@ local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 0.5: ТОТАЛЬНЕ ВІДКЛЮЧЕННЯ ЛОГІВ У DELTA (РЯТУВАННЯ ТЕЛЕФОНУ)
--- 1. Відключаємо слухачі LogService.MessageOut та ScriptContext.Error
---    (Delta фізично більше НЕ отримує жодних повідомлень і не оновлює лог!).
--- 2. Глушимо print/warn через getgc(true) у всіх завантажених скриптах гри.
--- 3. Очищаємо консоль Delta.
+-- ЧАСТИНА 0.5: БЕЗПЕЧНЕ ГЛУШІННЯ ЛОГІВ (100% БЕЗ ВИЛЬОТІВ НА ТЕЛЕФОНІ)
 -- ============================================================
-local LogService = game:GetService("LogService")
-local ScriptContext = game:GetService("ScriptContext")
-local dummyFunc = function(...) end
-
-local function killDeltaLogListeners()
-    if getconnections then
-        pcall(function()
-            for _, conn in ipairs(getconnections(LogService.MessageOut)) do
-                conn:Disable()
-            end
-        end)
-        pcall(function()
-            for _, conn in ipairs(getconnections(ScriptContext.Error)) do
-                conn:Disable()
-            end
-        end)
-    end
-end
-
-killDeltaLogListeners()
-task.spawn(function()
-    while task.wait(1) do
-        killDeltaLogListeners()
-    end
-end)
-
--- Глушіння print/warn у всіх завантажених таблицях та скриптах гри
-if getgc then
-    pcall(function()
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" then
-                if rawget(obj, "print") and type(rawget(obj, "print")) == "function" then
-                    rawset(obj, "print", dummyFunc)
-                end
-                if rawget(obj, "warn") and type(rawget(obj, "warn")) == "function" then
-                    rawset(obj, "warn", dummyFunc)
-                end
-            end
-        end
-    end)
-end
-
-if hookfunction then
-    pcall(function() hookfunction(print, dummyFunc) end)
-    pcall(function() hookfunction(warn, dummyFunc) end)
-    if printidentity then
-        pcall(function() hookfunction(printidentity, dummyFunc) end)
-    end
-end
-
-genv.print = dummyFunc
-genv.warn = dummyFunc
-if genv.rconsoleprint then genv.rconsoleprint = dummyFunc end
-if genv.rconsolewarn then genv.rconsolewarn = dummyFunc end
-if genv.rconsoleerr then genv.rconsoleerr = dummyFunc end
-if genv.consoleprint then genv.consoleprint = dummyFunc end
-if genv.consolewarn then genv.consolewarn = dummyFunc end
-_G.print = dummyFunc
-_G.warn = dummyFunc
-print = dummyFunc
-warn = dummyFunc
-
 pcall(function()
-    if rconsoleclear then rconsoleclear() end
-    if consoleclear then consoleclear() end
+    local dummy = function() end
+    if getgenv then
+        local env = getgenv()
+        env.print = dummy
+        env.warn = dummy
+        env.rconsoleprint = dummy
+        env.rconsolewarn = dummy
+    end
+    _G.print = dummy
+    _G.warn = dummy
 end)
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (Ізольоване безшумне середовище)
+-- ЧАСТИНА 1: Завантажувач Kero Hub (Auto-Inject Edition)
 -- ============================================================
 task.spawn(function()
-    task.wait(1.5) -- Даємо грі 1.5с завершити первинну реплікацію об'єктів
-    
+    task.wait(1.5)
     local maxRetries = 3
     for attempt = 1, maxRetries do
         local ok, err = pcall(function()
-            local rawCode = game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD")
-            local fn = loadstring(rawCode)
-            if fn then
-                local env = getfenv(fn)
-                env.print = dummyFunc
-                env.warn = dummyFunc
-                if setfenv then pcall(setfenv, fn, env) end
-                fn()
-            end
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
         end)
         if ok then
             break
@@ -167,19 +100,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 1.5: EXTREME POTATO, PLACEMENT & COMBAT ANTI-LAG (MAX FPS ТЕЛЕФОНУ)
--- 1. АНТИ-ФРИЗ ВИБОРУ ЮНІТА:
---    - Highlight глушиться миттєво (Enabled = false, Adornee = nil).
---    - SelectionBox, SelectionSphere приховані.
---    - Всі деталі радіусів (Range Circle, Preview, Hitbox) отримують
---      CanQuery = false, CanCollide = false, CanTouch = false (палець не застрягає в колі).
--- 2. МИТТЄВЕ ЗНИЩЕННЯ МЕРТВИХ ТУАЛЕТІВ (Zero Ragdoll Physics):
---    - Як тільки туалет помирає (Died), його модель одразу видаляється (Destroy).
---    - Жодних уламків, трупів і падінь FPS у боях!
--- 3. ПОВНЕ ВИМИКАННЯ ВАЖКИХ ЕФЕКТІВ:
---    - ParticleEmitter, Beam, Trail, Light, Explosion, BillboardGui вимкнено.
---    - Текстури та декалі приховані (SmoothPlastic).
--- 4. КЛАВІША [F2]: вмикає/вимикає 3D-рендер (Black Screen) для 0% навантаження в AFK!
+-- ЧАСТИНА 1.5: EXTREME POTATO, PLACEMENT & COMBAT ANTI-LAG (СТАБІЛЬНИЙ FPS)
 -- ============================================================
 task.spawn(function()
     task.wait(1.5)
@@ -188,7 +109,6 @@ task.spawn(function()
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
 
-    -- 1. Рівень графіки рушія на мінімум
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
@@ -196,7 +116,6 @@ task.spawn(function()
         if setfpscap then setfpscap(60) end
     end)
 
-    -- 2. Глобальне освітлення та шейдери
     pcall(function()
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
@@ -219,37 +138,6 @@ task.spawn(function()
         end
     end)
 
-    -- Глушіння нових шейдерних ефектів розмиття (WindUI / PostEffects)
-    Lighting.DescendantAdded:Connect(function(obj)
-        if obj:IsA("PostEffect") or obj:IsA("BlurEffect") then
-            obj.Enabled = false
-        end
-    end)
-    if workspace.CurrentCamera then
-        workspace.CurrentCamera.DescendantAdded:Connect(function(obj)
-            if obj:IsA("PostEffect") or obj:IsA("BlurEffect") then
-                obj.Enabled = false
-            end
-        end)
-    end
-
-    -- 3. Перехоплення Highlight (прибирає секундний фриз при кліку на юніта)
-    if hookfunction and Instance and Instance.new then
-        pcall(function()
-            local oldInstNew; oldInstNew = hookfunction(Instance.new, function(className, parent)
-                local inst = oldInstNew(className, parent)
-                if className == "Highlight" then
-                    pcall(function()
-                        inst.Enabled = false
-                        inst.Adornee = nil
-                    end)
-                end
-                return inst
-            end)
-        end)
-    end
-
-    -- 4. Швидка зачистка окремого об'єкта
     local function cleanSingle(obj)
         local c = obj.ClassName
 
@@ -286,18 +174,16 @@ task.spawn(function()
             obj.Material = Enum.Material.SmoothPlastic
 
             local n = obj.Name
-            -- Перевірка прев'ю та радіусу атак (миттєве проходження тапу пальця)
-            if n == "Range" or n == "Circle" or n == "Radius" or n == "Preview" or n == "Placement" or n == "Hitbox" 
-               or n:find("Range") or n:find("Preview") or n:find("Circle") then
+            -- Прев'ю та радіуси атак: CanQuery = false, CanCollide = false (нуль фризів при виборі юніта)
+            if n:find("Range") or n:find("Circle") or n:find("Radius") or n:find("Preview") or n:find("Placement") or n:find("Hitbox") then
                 obj.CanCollide = false
                 obj.CanTouch = false
                 obj.CanQuery = false
                 return
             end
 
-            -- Уламки, регдоли, трупи
-            if n == "Debris" or n == "Ragdoll" or n == "Dead" or n == "Corpse" 
-               or n:find("Debris") or n:find("Ragdoll") or n:find("Corpse") then
+            -- Уламки та трупи
+            if n:find("Debris") or n:find("Ragdoll") or n:find("Dead") or n:find("Corpse") then
                 obj.CanCollide = false
                 obj.CanTouch = false
                 obj.CanQuery = false
@@ -313,27 +199,33 @@ task.spawn(function()
             return
         end
 
-        -- МИТТЄВЕ ЗНИЩЕННЯ МЕРТВИХ ТУАЛЕТІВ (Жодного регдолу та фізики)
+        -- Мертві туалети: глушіння фізики при смерті
         if obj:IsA("Model") then
             local hum = obj:FindFirstChildOfClass("Humanoid")
             if hum then
                 hum.Died:Connect(function()
-                    pcall(function()
-                        obj:Destroy()
+                    task.defer(function()
+                        for _, part in ipairs(obj:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                                part.CanTouch = false
+                                part.CanQuery = false
+                                part.Anchored = true
+                                part.Transparency = 1
+                            end
+                        end
                     end)
                 end)
             end
         end
     end
 
-    -- 5. Первинна тотальна зачистка Workspace
     pcall(function()
         for _, desc in ipairs(workspace:GetDescendants()) do
             cleanSingle(desc)
         end
     end)
 
-    -- 6. Фільтрація нових об'єктів під час бою та розміщення юнітів
     workspace.DescendantAdded:Connect(function(obj)
         cleanSingle(obj)
     end)
@@ -343,21 +235,27 @@ task.spawn(function()
         end)
     end
 
-    -- 7. Фонова зачистка папок сміття кожні 2 секунди
     task.spawn(function()
-        while task.wait(2) do
+        while task.wait(3) do
             pcall(function()
-                for _, folderName in ipairs({"Debris", "Effects", "Projectiles", "Drops", "Ragdolls", "Trash", "Dead", "Corpses", "Bullets"}) do
+                for _, folderName in ipairs({"Debris", "Effects", "Projectiles", "Drops", "Ragdolls", "Trash"}) do
                     local folder = workspace:FindFirstChild(folderName)
                     if folder then
-                        folder:ClearAllChildren()
+                        for _, item in ipairs(folder:GetChildren()) do
+                            if item:IsA("BasePart") then
+                                item.CanCollide = false
+                                item.CanTouch = false
+                                item.CanQuery = false
+                                item.Anchored = true
+                                item.Transparency = 1
+                            end
+                        end
                     end
                 end
             end)
         end
     end)
 
-    -- 8. Гаряча клавіша [F2] для супер-AFK
     pcall(function()
         local renderEnabled = true
         UserInputService.InputBegan:Connect(function(input, processed)
