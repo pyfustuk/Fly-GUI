@@ -66,85 +66,73 @@ local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 0.5: ТОТАЛЬНЕ ГЛУШІННЯ СПАМУ В ЛОГ (РЯТУВАННЯ ТЕЛЕФОНУ ВІД 1 FPS)
--- На мобільних експлойтах (Delta, Codex, Arceus X) виведення сотень
--- рядків "ability table: 0x... nil" при прицілюванні та атаці намертво
--- вішає інтерфейс та рушій. Ми перехоплюємо print/warn і глушимо
--- будь-які дампи таблиць, абілок, адрес пам'яті та бойовий спам!
+-- ЧАСТИНА 0.5: ТОТАЛЬНЕ ВІДКЛЮЧЕННЯ ЛОГІВ У DELTA (РЯТУВАННЯ ТЕЛЕФОНУ)
+-- 1. Відключаємо слухачі LogService.MessageOut та ScriptContext.Error
+--    (Delta фізично більше НЕ отримує жодних повідомлень і не оновлює лог!).
+-- 2. Глушимо print/warn через getgc(true) у всіх завантажених скриптах гри.
+-- 3. Очищаємо консоль Delta.
 -- ============================================================
-local oldPrint = print
-local oldWarn = warn
+local LogService = game:GetService("LogService")
+local ScriptContext = game:GetService("ScriptContext")
+local dummyFunc = function(...) end
 
-local function isSystemAllowed(...)
-    local n = select("#", ...)
-    if n == 0 then return false end
-    local first = select(1, ...)
-    if type(first) == "string" and first:sub(1, 1) == "[" then
-        if first:find("%[Camera TD") or first:find("%[Extreme Anti%-Lag") or first:find("%[Kero Loader") then
-            return true
-        end
-    end
-    return false
-end
-
-local function isLogSpam(...)
-    local n = select("#", ...)
-    for i = 1, n do
-        local v = select(i, ...)
-        local t = type(v)
-        if t == "table" or t == "function" or t == "thread" then
-            return true
-        end
-        local s = tostring(v):lower()
-        if s:find("table:") or s:find("ability") or s:find("абил") or s:find("nil") 
-           or s:find("cooldown") or s:find("target") or s:find("damage") or s:find("toilet")
-           or s:find("camera") or s:find("attack") or s:find("bullet") or s:find("upgrade")
-           or s:find("placed") or s:find("preview") or #s > 70 then
-            return true
-        end
-    end
-    return false
-end
-
-local function cleanPrint(...)
-    if isSystemAllowed(...) then
-        oldPrint(...)
-        return
-    end
-    if isLogSpam(...) then
-        return
+local function killDeltaLogListeners()
+    if getconnections then
+        pcall(function()
+            for _, conn in ipairs(getconnections(LogService.MessageOut)) do
+                conn:Disable()
+            end
+        end)
+        pcall(function()
+            for _, conn in ipairs(getconnections(ScriptContext.Error)) do
+                conn:Disable()
+            end
+        end)
     end
 end
 
-local function cleanWarn(...)
-    if isSystemAllowed(...) then
-        oldWarn(...)
-        return
+killDeltaLogListeners()
+task.spawn(function()
+    while task.wait(1) do
+        killDeltaLogListeners()
     end
-    if isLogSpam(...) then
-        return
-    end
+end)
+
+-- Глушіння print/warn у всіх завантажених таблицях та скриптах гри
+if getgc then
+    pcall(function()
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" then
+                if rawget(obj, "print") and type(rawget(obj, "print")) == "function" then
+                    rawset(obj, "print", dummyFunc)
+                end
+                if rawget(obj, "warn") and type(rawget(obj, "warn")) == "function" then
+                    rawset(obj, "warn", dummyFunc)
+                end
+            end
+        end
+    end)
 end
 
 if hookfunction then
-    pcall(function() hookfunction(print, cleanPrint) end)
-    pcall(function() hookfunction(warn, cleanWarn) end)
+    pcall(function() hookfunction(print, dummyFunc) end)
+    pcall(function() hookfunction(warn, dummyFunc) end)
     if printidentity then
-        pcall(function() hookfunction(printidentity, function() end) end)
+        pcall(function() hookfunction(printidentity, dummyFunc) end)
     end
 end
 
-genv.print = cleanPrint
-genv.warn = cleanWarn
-if genv.rconsoleprint then genv.rconsoleprint = function() end end
-if genv.rconsolewarn then genv.rconsolewarn = function() end end
-if genv.rconsoleerr then genv.rconsoleerr = function() end end
-if genv.consoleprint then genv.consoleprint = function() end end
-if genv.consolewarn then genv.consolewarn = function() end end
-_G.print = cleanPrint
-_G.warn = cleanWarn
-print = cleanPrint
-warn = cleanWarn
+genv.print = dummyFunc
+genv.warn = dummyFunc
+if genv.rconsoleprint then genv.rconsoleprint = dummyFunc end
+if genv.rconsolewarn then genv.rconsolewarn = dummyFunc end
+if genv.rconsoleerr then genv.rconsoleerr = dummyFunc end
+if genv.consoleprint then genv.consoleprint = dummyFunc end
+if genv.consolewarn then genv.consolewarn = dummyFunc end
+_G.print = dummyFunc
+_G.warn = dummyFunc
+print = dummyFunc
+warn = dummyFunc
 
 pcall(function()
     if rconsoleclear then rconsoleclear() end
@@ -152,23 +140,27 @@ pcall(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (З авто-повторами під Auto-Inject)
+-- ЧАСТИНА 1: Завантажувач Kero Hub (Ізольоване безшумне середовище)
 -- ============================================================
 task.spawn(function()
-    print("[Kero Loader] Підготовка авто-запуску Kero Hub...")
     task.wait(1.5) -- Даємо грі 1.5с завершити первинну реплікацію об'єктів
     
     local maxRetries = 3
     for attempt = 1, maxRetries do
-        print(string.format("[Kero Loader] Спроба %d/%d запуску Kero Hub...", attempt, maxRetries))
         local ok, err = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
+            local rawCode = game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD")
+            local fn = loadstring(rawCode)
+            if fn then
+                local env = getfenv(fn)
+                env.print = dummyFunc
+                env.warn = dummyFunc
+                if setfenv then pcall(setfenv, fn, env) end
+                fn()
+            end
         end)
         if ok then
-            print("[Kero Loader] ✅ Kero Hub успішно активовано!")
             break
         else
-            warn(string.format("[Kero Loader] Спроба %d не вдалася: %s", attempt, tostring(err)))
             task.wait(2.5)
         end
     end
@@ -176,20 +168,20 @@ end)
 
 -- ============================================================
 -- ЧАСТИНА 1.5: EXTREME POTATO, PLACEMENT & COMBAT ANTI-LAG (MAX FPS ТЕЛЕФОНУ)
--- Жорстока оптимізація під запис макросів, бій та встановлення юнітів:
--- 1. АНТИ-ФРИЗ ВИБОРУ ЮНІТА (Фікс 1 FPS при натисканні на юніта):
---    Миттєве глушіння Highlight та SelectionBox, а також встановлення
---    CanQuery = false на всі прев'ю та кола радіусів (щоб промінь тапу не застрягав у колі).
--- 2. ТРУПИ ТА РЕГДОЛИ: миттєве глушіння фізики, CanCollide/CanQuery = false
---    та приховування розбитих уламків унітазів при смерті (Died / HealthChanged <= 0).
--- 3. SMOOTH PLASTIC: всі блоки карти без важких текстур, Decal/Texture.Transparency = 1.
--- 4. ЗНЕШКОДЖЕННЯ ЧАСТОК & СВІТЛА: вимикання Beams, Trails, Highlights, PointLights.
--- 5. ПРИХОВУВАННЯ ЦИФР УРОНУ: вимикання BillboardGui над головами туалетів.
--- 6. РОЗВАНТАЖЕННЯ АУДІО: глушіння 3D-звуків вибухів у Workspace.
--- 7. КЛАВІША [F2]: вмикає/вимикає 3D-рендер (Black Screen) для 0% навантаження в AFK!
+-- 1. АНТИ-ФРИЗ ВИБОРУ ЮНІТА:
+--    - Highlight глушиться миттєво (Enabled = false, Adornee = nil).
+--    - SelectionBox, SelectionSphere приховані.
+--    - Всі деталі радіусів (Range Circle, Preview, Hitbox) отримують
+--      CanQuery = false, CanCollide = false, CanTouch = false (палець не застрягає в колі).
+-- 2. МИТТЄВЕ ЗНИЩЕННЯ МЕРТВИХ ТУАЛЕТІВ (Zero Ragdoll Physics):
+--    - Як тільки туалет помирає (Died), його модель одразу видаляється (Destroy).
+--    - Жодних уламків, трупів і падінь FPS у боях!
+-- 3. ПОВНЕ ВИМИКАННЯ ВАЖКИХ ЕФЕКТІВ:
+--    - ParticleEmitter, Beam, Trail, Light, Explosion, BillboardGui вимкнено.
+--    - Текстури та декалі приховані (SmoothPlastic).
+-- 4. КЛАВІША [F2]: вмикає/вимикає 3D-рендер (Black Screen) для 0% навантаження в AFK!
 -- ============================================================
 task.spawn(function()
-    print("[Extreme Anti-Lag] 🚀 Активація екстремальної оптимізації FPS та встановлення юнітів...")
     task.wait(1.5)
 
     local Lighting = game:GetService("Lighting")
@@ -227,7 +219,21 @@ task.spawn(function()
         end
     end)
 
-    -- 3. Перехоплення створення Highlight для запобігання шейдерним зависанням GPU
+    -- Глушіння нових шейдерних ефектів розмиття (WindUI / PostEffects)
+    Lighting.DescendantAdded:Connect(function(obj)
+        if obj:IsA("PostEffect") or obj:IsA("BlurEffect") then
+            obj.Enabled = false
+        end
+    end)
+    if workspace.CurrentCamera then
+        workspace.CurrentCamera.DescendantAdded:Connect(function(obj)
+            if obj:IsA("PostEffect") or obj:IsA("BlurEffect") then
+                obj.Enabled = false
+            end
+        end)
+    end
+
+    -- 3. Перехоплення Highlight (прибирає секундний фриз при кліку на юніта)
     if hookfunction and Instance and Instance.new then
         pcall(function()
             local oldInstNew; oldInstNew = hookfunction(Instance.new, function(className, parent)
@@ -243,66 +249,55 @@ task.spawn(function()
         end)
     end
 
-    -- 4. Функція жорсткої зачистки об'єкта
-    local function brutalClean(obj)
+    -- 4. Швидка зачистка окремого об'єкта
+    local function cleanSingle(obj)
         local c = obj.ClassName
 
-        -- Підсвічування моделей (найбільший вбивця FPS на мобільних телефонах)
         if c == "Highlight" then
             obj.Enabled = false
             pcall(function() obj.Adornee = nil end)
             return
         end
 
-        -- Виділення юнітів та контури
         if c == "SelectionBox" or c == "SelectionSphere" or c == "ArcHandles" or c == "Handles" then
             obj.Visible = false
             return
         end
 
-        -- Частки, лазери, спалахи, промені
         if c == "ParticleEmitter" or c == "Beam" or c == "Trail" or c == "Smoke" or c == "Fire" or c == "Sparkles" then
             obj.Enabled = false
             return
         elseif c == "Explosion" then
             obj.Visible = false
             return
-        -- Спливаючий текст урону над туалетами
         elseif c == "BillboardGui" then
             obj.Enabled = false
             return
-        -- Динамічні джерела світла від пострілів
         elseif c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
             obj.Enabled = false
             return
-        -- Важкі текстури та декалі
         elseif c == "Decal" or c == "Texture" then
             obj.Transparency = 1
             return
         end
 
-        -- Оптимізація розміщення юнітів та фізики уламків
         if obj:IsA("BasePart") then
-            local name = obj.Name:lower()
-            local pName = obj.Parent and obj.Parent.Name:lower() or ""
+            obj.CastShadow = false
+            obj.Material = Enum.Material.SmoothPlastic
 
-            -- Прев'ю юнітів та радіуси атак (Range Circle):
-            -- CanQuery = false критично важливий: промінь тапу/миші НЕ застрягає в колі юніта,
-            -- що повністю ліквідує зависання на 1 FPS при кліку на іконку юніта!
-            if name:find("range") or name:find("preview") or name:find("radius") or name:find("placement") 
-               or name:find("circle") or name:find("visualizer") or name:find("hover") or name:find("hitbox")
-               or pName:find("preview") or pName:find("placement") or pName:find("range") then
+            local n = obj.Name
+            -- Перевірка прев'ю та радіусу атак (миттєве проходження тапу пальця)
+            if n == "Range" or n == "Circle" or n == "Radius" or n == "Preview" or n == "Placement" or n == "Hitbox" 
+               or n:find("Range") or n:find("Preview") or n:find("Circle") then
                 obj.CanCollide = false
                 obj.CanTouch = false
                 obj.CanQuery = false
-                obj.CastShadow = false
-                obj.Material = Enum.Material.SmoothPlastic
                 return
             end
 
-            -- Фізика трупів / уламків унітазів при смерті: глушимо зіткнення та промені!
-            if name:find("debris") or name:find("ragdoll") or name:find("dead") or name:find("corpse") 
-               or pName:find("debris") or pName:find("ragdoll") or pName:find("corpse") or pName:find("effect") then
+            -- Уламки, регдоли, трупи
+            if n == "Debris" or n == "Ragdoll" or n == "Dead" or n == "Corpse" 
+               or n:find("Debris") or n:find("Ragdoll") or n:find("Corpse") then
                 obj.CanCollide = false
                 obj.CanTouch = false
                 obj.CanQuery = false
@@ -310,111 +305,68 @@ task.spawn(function()
                 obj.Transparency = 1
                 return
             end
-
-            obj.Material = Enum.Material.SmoothPlastic
-            obj.Reflectance = 0
-            obj.CastShadow = false
-
-        -- Звуки вибухів/смертей у 3D-просторі
-        elseif c == "Sound" and obj:IsDescendantOf(workspace) then
-            obj.Volume = 0
+            return
         end
 
-        -- Миттєве глушіння туалетів при смерті або нульовому HP
+        if c == "Sound" and obj:IsDescendantOf(workspace) then
+            obj.Volume = 0
+            return
+        end
+
+        -- МИТТЄВЕ ЗНИЩЕННЯ МЕРТВИХ ТУАЛЕТІВ (Жодного регдолу та фізики)
         if obj:IsA("Model") then
             local hum = obj:FindFirstChildOfClass("Humanoid")
             if hum then
-                local function muteRagdoll()
-                    task.defer(function()
-                        for _, part in ipairs(obj:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide = false
-                                part.CanTouch = false
-                                part.CanQuery = false
-                                part.Anchored = true
-                                part.Transparency = 1
-                            end
-                        end
+                hum.Died:Connect(function()
+                    pcall(function()
+                        obj:Destroy()
                     end)
-                end
-                hum.Died:Connect(muteRagdoll)
-                hum.HealthChanged:Connect(function(hp)
-                    if hp <= 0 then muteRagdoll() end
                 end)
             end
         end
     end
 
-    -- 5. Первинна тотальна зачистка всього Workspace
+    -- 5. Первинна тотальна зачистка Workspace
     pcall(function()
         for _, desc in ipairs(workspace:GetDescendants()) do
-            brutalClean(desc)
+            cleanSingle(desc)
         end
     end)
 
-    -- 6. Миттєва фільтрація нових об'єктів під час бою та розміщення юнітів
-    local function handleDescendant(obj)
-        local c = obj.ClassName
-        if c == "Highlight" or c == "SelectionBox" or c == "SelectionSphere" 
-           or c == "ParticleEmitter" or c == "Beam" or c == "Trail" or c == "BillboardGui" 
-           or c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" 
-           or c == "Decal" or c == "Texture" or c == "Sound" or c == "Explosion"
-           or obj:IsA("BasePart") or obj:IsA("Model") then
-            brutalClean(obj)
-        end
-    end
-
-    workspace.DescendantAdded:Connect(handleDescendant)
+    -- 6. Фільтрація нових об'єктів під час бою та розміщення юнітів
+    workspace.DescendantAdded:Connect(function(obj)
+        cleanSingle(obj)
+    end)
     if workspace.CurrentCamera then
-        workspace.CurrentCamera.DescendantAdded:Connect(handleDescendant)
+        workspace.CurrentCamera.DescendantAdded:Connect(function(obj)
+            cleanSingle(obj)
+        end)
     end
 
-    -- 7. Фонова зачистка сміття кожні 2 секунди (Debris / Effects / Ragdolls)
+    -- 7. Фонова зачистка папок сміття кожні 2 секунди
     task.spawn(function()
         while task.wait(2) do
             pcall(function()
                 for _, folderName in ipairs({"Debris", "Effects", "Projectiles", "Drops", "Ragdolls", "Trash", "Dead", "Corpses", "Bullets"}) do
                     local folder = workspace:FindFirstChild(folderName)
                     if folder then
-                        for _, item in ipairs(folder:GetChildren()) do
-                            if item:IsA("BasePart") then
-                                item.CanCollide = false
-                                item.CanTouch = false
-                                item.CanQuery = false
-                                item.Anchored = true
-                                item.Transparency = 1
-                            elseif item:IsA("Model") then
-                                for _, sub in ipairs(item:GetDescendants()) do
-                                    if sub:IsA("BasePart") then
-                                        sub.CanCollide = false
-                                        sub.CanTouch = false
-                                        sub.CanQuery = false
-                                        sub.Anchored = true
-                                        sub.Transparency = 1
-                                    end
-                                end
-                            end
-                        end
+                        folder:ClearAllChildren()
                     end
                 end
             end)
         end
     end)
 
-    -- 8. Гаряча клавіша [F2] для супер-AFK (вимикає 3D-рендер повністю, 0% CPU/GPU)
+    -- 8. Гаряча клавіша [F2] для супер-AFK
     pcall(function()
         local renderEnabled = true
         UserInputService.InputBegan:Connect(function(input, processed)
             if not processed and input.KeyCode == Enum.KeyCode.F2 then
                 renderEnabled = not renderEnabled
                 RunService:Set3dRenderingEnabled(renderEnabled)
-                print("[Extreme Anti-Lag] 3D-Рендер: " .. (renderEnabled and "УВІМКНЕНО (Звичайний екран)" or "ВИМКНЕНО (Чорний екран / 0% CPU)"))
             end
         end)
     end)
-
-    print("[Extreme Anti-Lag] ✅ Екстремальна оптимізація успішно активована!")
-    print("[Extreme Anti-Lag] 💡 Підказка: Натисніть клавішу F2 у грі для швидкого перемикання Чорного Екрану під AFK.")
 end)
 
 -- ============================================================
