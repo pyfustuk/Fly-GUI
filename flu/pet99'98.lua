@@ -266,26 +266,45 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ ЖОДНОГО МЕНЮ В ГРІ)
+-- ЧАСТИНА 2: KERO ADMIN CLOUD TRACKER v4.4 (ТОЧНИЙ ЧАС ТА ПОВНІ ДАНІ)
+-- 100% Фоновий стелс, без GUI в Roblox, підтримка мульти-акаунтів
 -- ============================================================
 
--- 1. Хелпери зчитування балансу та хвиль
-local function getCoins()
+local Folder = "CameraTD_Macros"
+local StatsPath = Folder .. "/DashboardStats.json"
+local SessionTokenPath = Folder .. "/SessionToken.json"
+
+pcall(function()
+    if makefolder and isfolder and not isfolder(Folder) then
+        makefolder(Folder)
+    end
+end)
+
+-- 1. Хелпери для взаємодії з Kero Hub та грою
+local function getHub()
+    return (getgenv and getgenv().CameraTDHub) or _G.CameraTDHub
+end
+
+-- Зчитування золота / грошей акаунта (в лобі та інвентарі)
+local function getAccountCoins()
+    local hub = getHub()
+    if hub and hub.InventoryData and tonumber(hub.InventoryData.Money) then
+        return tonumber(hub.InventoryData.Money)
+    end
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
-        for _, name in ipairs({"Money", "Coins", "Cash", "Coin", "Points", "Gold"}) do
+        for _, name in ipairs({"Coins", "Gold", "Money", "TotalCoins", "Coin"}) do
             local val = leaderstats:FindFirstChild(name)
-            if val and val:IsA("ValueBase") then
-                return tonumber(val.Value) or 0
-            end
+            if val and val:IsA("ValueBase") then return tonumber(val.Value) or 0 end
         end
     end
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
-        local stats = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Stats")
-        local m = stats and stats:FindFirstChild("OtherUI") and stats.OtherUI:FindFirstChild("Money") and stats.OtherUI.Money:FindFirstChild("Title")
-        if m and m:IsA("TextLabel") then
-            local num = m.Text:gsub(",", ""):match("[%d%.]+")
+        local hud = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("HUD")
+        local coinsObj = hud and hud:FindFirstChild("Currencies") and (hud.Currencies:FindFirstChild("Coins") or hud.Currencies:FindFirstChild("Money") or hud.Currencies:FindFirstChild("Gold"))
+        local amt = coinsObj and coinsObj:FindFirstChild("CurrencyFrame") and coinsObj.CurrencyFrame:FindFirstChild("AmountLabel")
+        if amt and amt:IsA("TextLabel") then
+            local num = amt.Text:gsub(",", ""):match("(%d+)")
             if num then return tonumber(num) or 0 end
         end
         for _, desc in ipairs(pgui:GetDescendants()) do
@@ -303,7 +322,48 @@ local function getCoins()
     return 0
 end
 
-local function getCandy()
+-- Зчитування алмазів / діамантів акаунта
+local function getAccountGems()
+    local hub = getHub()
+    if hub and hub.InventoryData then
+        local g = tonumber(hub.InventoryData.Gems) or tonumber(hub.InventoryData.Diamonds) or tonumber(hub.InventoryData.Crystals)
+        if g then return g end
+    end
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        for _, name in ipairs({"Gems", "Diamonds", "Diamond", "Gem", "Crystals"}) do
+            local val = leaderstats:FindFirstChild(name)
+            if val and val:IsA("ValueBase") then return tonumber(val.Value) or 0 end
+        end
+    end
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if pgui then
+        local hud = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("HUD")
+        local gemObj = hud and hud:FindFirstChild("Currencies") and (hud.Currencies:FindFirstChild("Gems") or hud.Currencies:FindFirstChild("Diamonds"))
+        local amt = gemObj and gemObj:FindFirstChild("CurrencyFrame") and gemObj.CurrencyFrame:FindFirstChild("AmountLabel")
+        if amt and amt:IsA("TextLabel") then
+            local num = amt.Text:gsub(",", ""):match("(%d+)")
+            if num then return tonumber(num) or 0 end
+        end
+        for _, desc in ipairs(pgui:GetDescendants()) do
+            if desc:IsA("TextLabel") and desc.Visible then
+                local lname = desc.Name:lower()
+                if lname:find("gem") or lname:find("diamond") then
+                    local num = desc.Text:gsub(",", ""):match("(%d+)")
+                    if num and tonumber(num) then return tonumber(num) end
+                end
+            end
+        end
+    end
+    return 0
+end
+
+-- Зчитування івент-цукерок
+local function getAccountCandy()
+    local hub = getHub()
+    if hub and hub.InventoryData and tonumber(hub.InventoryData.Candy) then
+        return tonumber(hub.InventoryData.Candy)
+    end
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
         local hud = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("HUD")
@@ -317,7 +377,32 @@ local function getCandy()
     return 0
 end
 
+-- Зчитування грошей всередині матчу (для встановлення веж)
+local function getInMatchCash()
+    local hub = getHub()
+    if hub and hub.Cash then
+        local ok, c = pcall(hub.Cash)
+        if ok and c and tonumber(c) then return tonumber(c) end
+    end
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if pgui then
+        local stats = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Stats")
+        local m = stats and stats:FindFirstChild("OtherUI") and stats.OtherUI:FindFirstChild("Money") and stats.OtherUI.Money:FindFirstChild("Title")
+        if m and m:IsA("TextLabel") then
+            local num = m.Text:gsub(",", ""):match("[%d%.]+")
+            if num then return tonumber(num) or 0 end
+        end
+    end
+    return 0
+end
+
+-- Зчитування поточної хвилі
 local function getCurrentWave()
+    local hub = getHub()
+    if hub and hub.Wave then
+        local ok, w = pcall(hub.Wave)
+        if ok and w and tonumber(w) and tonumber(w) > 0 then return tonumber(w) end
+    end
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if not pgui then return 0 end
     local gameUI = pgui:FindFirstChild("GameUI")
@@ -337,7 +422,7 @@ local function getCurrentWave()
     return 0
 end
 
--- 2. Відновлення попередньої сесії з файлу або глобалу
+-- 2. ВІДНОВЛЕННЯ ТА ЗБЕРЕЖЕННЯ ТОЧНОГО ЧАСУ СЕСІЇ (НІКОЛИ НЕ ЗБИВАЄТЬСЯ ПРИ ТЕЛЕПОРТАХ)
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
     pcall(function()
@@ -345,8 +430,24 @@ if readfile and isfile and isfile(StatsPath) then
     end)
 end
 
+local sessionStartTime = os.time()
+if readfile and isfile and isfile(SessionTokenPath) then
+    pcall(function()
+        local dec = HttpService:JSONDecode(readfile(SessionTokenPath))
+        if dec and type(dec) == "table" and dec.SessionStartTime then
+            local lastHeartbeat = dec.LastHeartbeat or 0
+            -- Якщо останній раз фармив менше 45 хвилин тому - ЗБЕРІГАЄМО ТОЙ САМИЙ ЧАС СЕСІЇ!
+            if (os.time() - lastHeartbeat) < 2700 then
+                sessionStartTime = dec.SessionStartTime
+            end
+        end
+    end)
+elseif savedData.SessionStartTime and (os.time() - (savedData.LastHeartbeat or 0)) < 2700 then
+    sessionStartTime = savedData.SessionStartTime
+end
+
 genv.__CameraTDSession = genv.__CameraTDSession or {
-    SessionStartTime = savedData.SessionStartTime or os.time(),
+    SessionStartTime = sessionStartTime,
     TotalRounds = savedData.TotalRounds or 0,
     TotalWins = savedData.TotalWins or 0,
     TotalLosses = savedData.TotalLosses or 0,
@@ -366,8 +467,9 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     Status = "🔄 Заходить на сервер / Завантаження..."
 }
 local Session = genv.__CameraTDSession
+Session.SessionStartTime = sessionStartTime -- Гарантуємо збереження часу
 
--- Відновлюємо попередні слоти з файлу
+-- Відновлюємо слоти активності
 if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
     for k, v in pairs(savedData.ActivitySlots) do
         if Session.ActivitySlots[k] == nil then
@@ -376,9 +478,9 @@ if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
     end
 end
 
--- 3. Розрахунок слотів активності (30-хвилинні інтервали за точним локальним часом ПК)
+-- 3. Слоти активності для 24/7 Heatmap
 local function getDayAndSlotIndex()
-    local date = os.date("*t") -- Точний локальний час системи (співпадає з часом браузера)
+    local date = os.date("*t")
     local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
     local slotIdx = date.hour * 2 + math.floor(date.min / 30)
     return dayIdx, math.clamp(slotIdx, 0, 47)
@@ -390,30 +492,36 @@ local function markActivitySlot(statusType)
     if Session.IsKicked then
         Session.ActivitySlots[key] = "red"
     else
-        Session.ActivitySlots[key] = statusType -- ТІЛЬКИ "green" АБО "red"
+        Session.ActivitySlots[key] = statusType
     end
 end
 
--- Визначення хмарного каналу (за замовчуванням camtd_cloud_kvires)
+-- Хмарний канал
 local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
 
--- 4. Уніфікована функція відправки та збереження
+-- 4. Уніфікована відправка телеметрії на сайт та збереження
 local function pushUpdate(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
     end)
     if not ok or not jsonString then return end
 
-    -- 1. Локальний файл для браузера / офлайн відстеження
+    -- Збереження постійного токена сесії
     if writefile then
         pcall(function()
             writefile(StatsPath, jsonString)
+            writefile(SessionTokenPath, HttpService:JSONEncode({
+                SessionStartTime = Session.SessionStartTime,
+                LastHeartbeat = os.time(),
+                PlayerName = LocalPlayer.Name,
+                UserId = LocalPlayer.UserId
+            }))
         end)
     end
 
     local req = httpRequest or findHttpRequest()
     if req then
-        -- 2. ГОЛОВНИЙ ХМАРНИЙ КАНАЛ (ntfy.sh) ДЛЯ ОНЛАЙН-САЙТУ 24/7
+        -- Відправка в хмарний канал ntfy.sh для сайту адміністратора
         task.spawn(function()
             pcall(function()
                 req({
@@ -421,20 +529,8 @@ local function pushUpdate(data)
                     Method = "POST",
                     Headers = {
                         ["Content-Type"] = "application/json",
-                        ["Title"] = "Camera TD Live Status"
+                        ["Title"] = "Camera TD Admin Telemetry"
                     },
-                    Body = jsonString
-                })
-            end)
-        end)
-
-        -- 3. Локальний сервер (0ms для локальної гри)
-        task.spawn(function()
-            pcall(function()
-                req({
-                    Url = "http://127.0.0.1:8765/api/update",
-                    Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
                     Body = jsonString
                 })
             end)
@@ -442,27 +538,30 @@ local function pushUpdate(data)
     end
 end
 
--- 5. Детектори кіків та помилок телепорту
+-- 5. Детекція кіків
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
             Session.IsKicked = true
-            Session.Status = "❌ ВИЛЕТІЛО / КІКНУЛО: " .. tostring(msg)
-            markActivitySlot("red") -- Червоний слот (виліт)
+            Session.Status = "❌ ВИЛІТ / КІК: " .. tostring(msg)
+            markActivitySlot("red")
             
             local kickData = {
                 PlayerName = LocalPlayer.Name,
                 DisplayName = LocalPlayer.DisplayName,
                 UserId = LocalPlayer.UserId,
-                CurrentCoins = getCoins(),
-                CurrentCandy = getCandy(),
+                CurrentCoins = getAccountCoins(),
+                AccountCoins = getAccountCoins(),
+                AccountGems = getAccountGems(),
+                AccountCandy = getAccountCandy(),
+                InMatchCash = getInMatchCash(),
                 TotalCoinsEarned = Session.TotalCoinsEarned,
                 TotalCandyEarned = Session.TotalCandyEarned,
                 LastRoundCoins = Session.LastRoundCoins or 600,
                 LastRoundCandy = Session.LastRoundCandy or 10,
                 CoinsPerWave = Session.CoinsPerWave or 50,
-                CandyPerWave = Session.CandyPerWave or 1,
                 CurrentWave = getCurrentWave(),
+                MapName = (game.PlaceId == 114068177100380 and "Toilet City (Match)") or "Lobby",
                 TotalRounds = Session.TotalRounds,
                 TotalWins = Session.TotalWins,
                 TotalLosses = Session.TotalLosses,
@@ -474,20 +573,15 @@ pcall(function()
                 IdleSeconds = os.time() - (Session.LastActionTime or os.time()),
                 LastHeartbeat = os.time(),
                 SessionStartTime = Session.SessionStartTime,
-                ActivitySlots = Session.ActivitySlots
+                ActivitySlots = Session.ActivitySlots,
+                Version = "v4.4 (Kero Admin Cloud)"
             }
             pushUpdate(kickData)
         end
     end)
 end)
 
-pcall(function()
-    TeleportService.TeleportInitFailed:Connect(function(player, result, err)
-        Session.Status = "⚠️ Помилка телепорту: " .. tostring(err)
-    end)
-end)
-
--- 6. Підрахунок результатів матчу (~600 коїнів за раунд)
+-- 6. Підрахунок перемог / поразок
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -507,14 +601,14 @@ local function checkMatchResult()
                 Session.TotalLosses = Session.TotalLosses + 1
             end
 
-            local curCoins = getCoins()
-            local curCandy = getCandy()
+            local curCoins = getAccountCoins()
+            local curCandy = getAccountCandy()
             local startCoins = Session.MatchStartCoins or curCoins
             local startCandy = Session.MatchStartCandy or curCandy
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            if roundCoins == 0 then roundCoins = 600 end -- Реалістичні ~600 за раунд
+            if roundCoins == 0 then roundCoins = 600 end
             local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
@@ -531,7 +625,7 @@ local function checkMatchResult()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot("green") -- Зелений слот (фарм OK)
+            markActivitySlot("green")
         end
     else
         Session.LastRecordedMatchResult = nil
@@ -539,22 +633,25 @@ local function checkMatchResult()
 end
 
 -- ============================================================
--- 7. МИТТЄВИЙ ПЕРШИЙ ПІНГ (0.05с) ДЛЯ ВІДОБРАЖЕННЯ НА САЙТІ
+-- 7. МИТТЄВИЙ ПЕРШИЙ ПІНГ (0.05с)
 -- ============================================================
 task.spawn(function()
     local initialData = {
         PlayerName = LocalPlayer.Name,
         DisplayName = LocalPlayer.DisplayName,
         UserId = LocalPlayer.UserId,
-        CurrentCoins = getCoins(),
-        CurrentCandy = getCandy(),
+        CurrentCoins = getAccountCoins(),
+        AccountCoins = getAccountCoins(),
+        AccountGems = getAccountGems(),
+        AccountCandy = getAccountCandy(),
+        InMatchCash = getInMatchCash(),
         TotalCoinsEarned = Session.TotalCoinsEarned,
         TotalCandyEarned = Session.TotalCandyEarned,
         LastRoundCoins = Session.LastRoundCoins or 600,
         LastRoundCandy = Session.LastRoundCandy or 10,
         CoinsPerWave = Session.CoinsPerWave or 50,
-        CandyPerWave = Session.CandyPerWave or 1,
         CurrentWave = getCurrentWave(),
+        MapName = (game.PlaceId == 114068177100380 and "Toilet City (Match)") or "Lobby",
         TotalRounds = Session.TotalRounds,
         TotalWins = Session.TotalWins,
         TotalLosses = Session.TotalLosses,
@@ -566,7 +663,8 @@ task.spawn(function()
         IdleSeconds = 0,
         LastHeartbeat = os.time(),
         SessionStartTime = Session.SessionStartTime,
-        ActivitySlots = Session.ActivitySlots
+        ActivitySlots = Session.ActivitySlots,
+        Version = "v4.4 (Kero Admin Cloud)"
     }
     pushUpdate(initialData)
 end)
@@ -575,30 +673,30 @@ end)
 -- 8. ГОЛОВНИЙ ФОНОВИЙ ЦИКЛ (100% СТЕЛС, 0 GUI В ROBLOX)
 -- ============================================================
 task.spawn(function()
-    print("[Camera TD Headless] ✅ Фоновий трекер успішно запущено без меню в грі!")
-    print("[Camera TD Headless] ☁️ Хмарний канал: " .. CloudChannel)
-    print("[Camera TD Headless] 🌐 Сайт: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
+    print("[Camera TD Headless] 👑 Kero Admin Cloud Tracker активовано!")
+    print("[Camera TD Headless] ☁️ Канал: " .. CloudChannel)
+    print("[Camera TD Headless] 🌐 Адмін-панель: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
 
     task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
 
     local lastCoins = 0
-    local lastCandy = 0
     local lastWave = 0
     local lastSave = 0
 
     while task.wait(1.5) do
-        -- Перевірка чи цей екземпляр скрипта актуальний
         if genv.__CameraTD_ActiveInstance ~= currentInstanceToken then
             print("[Camera TD Headless] Зупинено попередній екземпляр трекера після зміни сервера.")
             break
         end
 
         local now = os.time()
-        local uptime = now - Session.SessionStartTime
+        local uptime = math.max(0, now - Session.SessionStartTime)
 
-        local curCoins = getCoins()
-        local curCandy = getCandy()
+        local curCoins = getAccountCoins()
+        local curGems = getAccountGems()
+        local curCandy = getAccountCandy()
+        local curCash = getInMatchCash()
         local curWave = getCurrentWave()
 
         local inMatch = (game.PlaceId == 114068177100380)
@@ -607,30 +705,23 @@ task.spawn(function()
         if not Session.MatchStartCoins and curCoins > 0 then Session.MatchStartCoins = curCoins end
         if not Session.MatchStartCandy and curCandy > 0 then Session.MatchStartCandy = curCandy end
 
-        -- Оновлення активності: коїни, цукерки, хвиля або активний матч (захист від хибного AFK у довгих матчах)
-        if curCoins ~= lastCoins or curCandy ~= lastCandy or (curWave > 0 and curWave ~= lastWave) or inMatch then
+        if curCoins ~= lastCoins or (curWave > 0 and curWave ~= lastWave) or inMatch then
             lastCoins = curCoins
-            lastCandy = curCandy
             lastWave = curWave
             Session.LastActionTime = now
-            markActivitySlot("green")
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 420) and not inMatch -- У матчі ніколи не вважати AFK!
+        local isAFK = (idleSeconds > 180)
 
-        local statusText = ""
+        local statusText = "🟢 В мережі"
         if Session.IsKicked then
             statusText = Session.Status
-            markActivitySlot("red") -- ЧЕРВОНИЙ (Виліт / Кік)
-        elseif isAFK then
-            statusText = "⚠️ AFK: Немає активності (>7 хв)"
-            markActivitySlot("red") -- ЧЕРВОНИЙ (Не фармить)
         elseif inMatch then
-            statusText = string.format("🟢 В мережі: У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
-            markActivitySlot("green") -- ЗЕЛЕНИЙ (Фарм OK)
+            statusText = "🟢 У бою: Хвиля " .. tostring(curWave > 0 and curWave or 1)
+            markActivitySlot("green")
         elseif inLobby then
-            statusText = "🟢 В мережі: Лобі (Очікування раунду)"
+            statusText = "🏰 В лобі: Очікує старту"
             markActivitySlot("green")
         else
             statusText = "🟢 В мережі: Фарм активний"
@@ -651,15 +742,22 @@ task.spawn(function()
                 PlayerName = LocalPlayer.Name,
                 DisplayName = LocalPlayer.DisplayName,
                 UserId = LocalPlayer.UserId,
+                
                 CurrentCoins = curCoins,
-                CurrentCandy = curCandy,
+                AccountCoins = curCoins,
+                AccountGems = curGems,
+                AccountCandy = curCandy,
+                InMatchCash = curCash,
+                
                 TotalCoinsEarned = Session.TotalCoinsEarned,
                 TotalCandyEarned = Session.TotalCandyEarned,
                 LastRoundCoins = liveCoinsEarned > 0 and liveCoinsEarned or 600,
                 LastRoundCandy = liveCandyEarned > 0 and liveCandyEarned or 10,
                 CoinsPerWave = Session.CoinsPerWave > 0 and Session.CoinsPerWave or 50,
-                CandyPerWave = Session.CandyPerWave > 0 and Session.CandyPerWave or 1,
                 CurrentWave = curWave,
+                MapName = inMatch and "Toilet City (Match)" or (inLobby and "Lobby" or "Place " .. tostring(game.PlaceId)),
+                Difficulty = "Normal",
+                
                 TotalRounds = Session.TotalRounds,
                 TotalWins = Session.TotalWins,
                 TotalLosses = Session.TotalLosses,
@@ -671,7 +769,8 @@ task.spawn(function()
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
                 SessionStartTime = Session.SessionStartTime,
-                ActivitySlots = Session.ActivitySlots
+                ActivitySlots = Session.ActivitySlots,
+                Version = "v4.4 (Kero Admin Cloud)"
             }
 
             pushUpdate(exportData)
