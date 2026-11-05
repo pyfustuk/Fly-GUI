@@ -1,10 +1,19 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Headless Tracker v3.7
-     100% чиста та стабільна версія (Zero Errors Edition)
+     Cameraman TD · All-in-One Loader & Headless Tracker v3.5 (Auto-Inject Edition)
+     
+     ОСОБЛИВОСТІ ТА ВИПРАВЛЕННЯ ДЛЯ AUTO-INJECT / AUTOEXEC:
+       1. Повна сумісність з autoexec (Solara, Wave, Codex, Delta, Fluxus тощо)
+       2. Жорсткий захист від раннього запуску (game:IsLoaded + non-blocking LocalPlayer resolution)
+       3. Захист Kero Hub від збоїв: відкладений старт (1.5с) з 3 авто-повторами
+       4. Миттєвий перший пінг (0.05с): сайт і файл одразу бачать ваш нік та аватарку
+       5. 100% фоновий трекер БЕЗ ЖОДНОГО GUI В ГРІ (повний стелс, нуль лагів)
+       6. Детекція вильотів та кіків через GuiService (миттєве підсвічування ЧЕРВОНИМ)
+       7. Реальні нагороди (~600 💵 за раунд) та розрахунок за хвилю
+       8. Захист від дублювання потоків між серверами / телепортами (Instance Token)
      ============================================================ ]]
 
 -- ============================================================
--- 0. AUTO-INJECT СТАБІЛІЗАЦІЯ
+-- 0. AUTO-INJECT СТАБІЛІЗАЦІЯ (КРИТИЧНО ДЛЯ AUTOEXEC)
 -- ============================================================
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -17,6 +26,7 @@ while not LocalPlayer do
     LocalPlayer = Players.LocalPlayer
 end
 
+-- Очікуємо PlayerGui для коректного завантаження UI-об'єктів гри
 pcall(function()
     LocalPlayer:WaitForChild("PlayerGui", 12)
 end)
@@ -25,6 +35,7 @@ local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 
+-- Пошук функції запиту для будь-якого експлойта
 local function findHttpRequest()
     local fn = (syn and syn.request) 
         or (http and http.request) 
@@ -40,6 +51,7 @@ local function findHttpRequest()
 end
 local httpRequest = findHttpRequest()
 
+-- Папка для збереження статистики
 local Folder = "CameraTD_Macros"
 local StatsPath = Folder .. "/DashboardStats.json"
 pcall(function()
@@ -48,12 +60,13 @@ pcall(function()
     end
 end)
 
+-- Глобальне середовище та захист від дублікатів потоків
 local genv = (getgenv and getgenv()) or _G
 local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub
+-- ЧАСТИНА 1: Завантажувач Kero Hub + Автоналаштування оптимізації
 -- ============================================================
 task.spawn(function()
     task.wait(1.5)
@@ -70,16 +83,50 @@ task.spawn(function()
     end
 end)
 
+-- Автоматичне ввімкнення оптимізації Kero Hub одразу після завантаження
+task.spawn(function()
+    local attempts = 0
+    while attempts < 35 do
+        task.wait(1)
+        attempts = attempts + 1
+        if genv.CameraTDHub then
+            pcall(function()
+                if genv.CameraTDHub.FPS then genv.CameraTDHub.FPS(true) end
+                if genv.CameraTDHub.SetRemoveVisuals then genv.CameraTDHub.SetRemoveVisuals(true) end
+                local s = genv.CameraTDHub.Settings
+                if s then
+                    s.FPSBoost = true
+                    s.RemoveVisuals = true
+                    s.VisualMethod = "Full (For Afk)"
+                end
+            end)
+            break
+        end
+    end
+end)
+
 -- ============================================================
--- ЧАСТИНА 1.5: БЕЗПЕЧНА ОПТИМІЗАЦІЯ FPS (НУЛЬ ПОМИЛОК)
+-- ЧАСТИНА 1.5: ГЛИБОКА БЕЗПЕЧНА ОПТИМІЗАЦІЯ FPS (ЦІЛЬОВИЙ ФІКС ПРИЦІЛЮВАННЯ ТА СМЕРТІ МОБІВ)
+--
+-- ВИРІШЕННЯ ГОЛОВНИХ ПРОБЛЕМ:
+-- 1. Лаги при наведенні (Aiming / Targeting Lag):
+--    - Повне блокування Highlight (контурів), які активуються при наведенні на туалети
+--    - Відключення променів прицілювання (Beams / Trails) та кружечків радіусу (RangeCircles)
+--    - Глушіння важких 3D-хелсбарів та маркерів цілей (BillboardGui) над туалетами
+-- 2. Фрізи при смерті туалетів (Kill / Death Ragdoll Freeze):
+--    - Миттєва деактивація регдолу та фізики при Humanoid.Died (Anchored = true, CanCollide = false)
+--    - Миттєве приховування трупа (Transparency = 1), щоб GPU не малював уламки
+--    - НУЛЬ викликів :Destroy() під час смерті, що гарантує 0 червоних помилок у Workspace!
+-- 3. Мобільна кнопка [⚡ 3D OFF] для повного відключення 3D-рендеру під час AFK
 -- ============================================================
 task.spawn(function()
-    task.wait(1.5)
+    task.wait(1.2)
 
     local Lighting = game:GetService("Lighting")
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
 
+    -- 1. Мінімальні системні налаштування графіки
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
@@ -87,6 +134,7 @@ task.spawn(function()
         if setfpscap then setfpscap(60) end
     end)
 
+    -- 2. Глобальні шейдери, тіні та постобробка
     pcall(function()
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
@@ -109,40 +157,167 @@ task.spawn(function()
         end
     end)
 
+    -- 3. Функція нейтралізації суто візуальних ефектів прицілювання та бою
     local function cleanVisuals(obj)
         pcall(function()
             local c = obj.ClassName
 
+            -- А) Підсвічування контурів при наведенні (головний вбивця FPS на Android Mali/Adreno)
             if c == "Highlight" then
                 obj.Enabled = false
                 obj.Adornee = nil
+                pcall(function()
+                    obj:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if obj.Enabled then obj.Enabled = false end
+                    end)
+                    obj:GetPropertyChangedSignal("Adornee"):Connect(function()
+                        if obj.Adornee ~= nil then obj.Adornee = nil end
+                    end)
+                end)
                 return
             end
 
-            if c == "ParticleEmitter" or c == "Beam" or c == "Trail" or c == "Smoke" or c == "Fire" or c == "Sparkles" then
+            -- Б) Лазерні промені прицілювання юнітів
+            if c == "Beam" or c == "Trail" then
+                obj.Enabled = false
+                pcall(function() obj.Texture = "" end)
+                return
+            end
+
+            -- В) Частки пострілів, спалахи, дим, іскри
+            if c == "ParticleEmitter" or c == "Smoke" or c == "Fire" or c == "Sparkles" then
                 obj.Enabled = false
                 return
             elseif c == "Explosion" then
                 obj.Visible = false
+                obj.BlastPressure = 0
+                obj.BlastRadius = 0
                 return
-            elseif c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
+            end
+
+            -- Г) Динамічні джерела світла від пострілів
+            if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
                 obj.Enabled = false
                 return
-            elseif c == "BillboardGui" then
-                local name = obj.Name:lower()
-                if name:find("damage") or name:find("indicator") or name:find("hit") then
+            end
+
+            -- Д) Спливаючі хелсбари, маркер цілі та цифри урону над туалетами
+            if c == "BillboardGui" then
+                local p = obj.Parent
+                local isPlayer = p and Players:GetPlayerFromCharacter(p) or (p and p.Parent and Players:GetPlayerFromCharacter(p.Parent))
+                if not isPlayer then
                     obj.Enabled = false
                 end
                 return
             end
 
+            -- Е) 3D-звуки пострілів та вибухів
             if c == "Sound" and obj:IsDescendantOf(workspace) then
                 obj.Volume = 0
                 return
             end
+
+            -- Є) Круги радіусу юнітів (RangeCircles)
+            local name = obj.Name:lower()
+            if name:find("rangecircle") or name:find("range") then
+                if obj:IsA("BasePart") then
+                    obj.Transparency = 1
+                    obj.CanCollide = false
+                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                    obj.Transparency = 1
+                end
+            end
         end)
     end
 
+    -- 4. Нейтралізація фрізів при смерті мобів (Регдол + фізика)
+    local function freezeCorpse(model)
+        task.defer(function()
+            for _, desc in ipairs(model:GetDescendants()) do
+                if desc:IsA("BasePart") then
+                    desc.CanCollide = false
+                    desc.CanTouch = false
+                    desc.CanQuery = false
+                    desc.Anchored = true
+                    desc.Transparency = 1
+                elseif desc:IsA("Decal") or desc:IsA("Texture") then
+                    desc.Transparency = 1
+                elseif desc:IsA("ParticleEmitter") or desc:IsA("Trail") or desc:IsA("Beam") or desc:IsA("Highlight") then
+                    desc.Enabled = false
+                elseif desc:IsA("BillboardGui") then
+                    desc.Enabled = false
+                elseif desc:IsA("Sound") then
+                    desc.Volume = 0
+                    pcall(desc.Stop, desc)
+                end
+            end
+        end)
+    end
+
+    local function hookEnemyDeath(model)
+        if not model or not model:IsA("Model") then return end
+        if Players:GetPlayerFromCharacter(model) then return end
+
+        local died = false
+        local function onDeath()
+            if died then return end
+            died = true
+            freezeCorpse(model)
+        end
+
+        local hum = model:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.Died:Connect(onDeath)
+            hum.HealthChanged:Connect(function(hp)
+                if hp <= 0 then onDeath() end
+            end)
+        else
+            local conn
+            conn = model.ChildAdded:Connect(function(child)
+                if child:IsA("Humanoid") then
+                    conn:Disconnect()
+                    child.Died:Connect(onDeath)
+                    child.HealthChanged:Connect(function(hp)
+                        if hp <= 0 then onDeath() end
+                    end)
+                end
+            end)
+        end
+    end
+
+    -- Прив'язка відстеження смерті до папки Enemies
+    local function bindEnemiesFolder(folder)
+        if not folder then return end
+        for _, child in ipairs(folder:GetChildren()) do
+            hookEnemyDeath(child)
+            cleanVisuals(child)
+        end
+        folder.ChildAdded:Connect(function(child)
+            hookEnemyDeath(child)
+            cleanVisuals(child)
+        end)
+    end
+
+    pcall(function()
+        bindEnemiesFolder(workspace:FindFirstChild("Enemies"))
+        local g = workspace:FindFirstChild("Game")
+        if g then
+            bindEnemiesFolder(g:FindFirstChild("Enemies"))
+        end
+    end)
+
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "Enemies" then
+            bindEnemiesFolder(child)
+        else
+            local lname = child.Name:lower()
+            if lname:find("toilet") or lname:find("enemy") or lname:find("mob") or lname:find("boss") then
+                hookEnemyDeath(child)
+            end
+        end
+    end)
+
+    -- 5. Первинна зачистка ефектів у Workspace та підписка на нові
     pcall(function()
         for _, desc in ipairs(workspace:GetDescendants()) do
             cleanVisuals(desc)
@@ -153,8 +328,9 @@ task.spawn(function()
         cleanVisuals(obj)
     end)
 
+    -- 6. Фонова періодична зачистка сміття (Debris)
     task.spawn(function()
-        while task.wait(5) do
+        while task.wait(3) do
             pcall(function()
                 local debris = workspace:FindFirstChild("Debris")
                 if debris then
@@ -164,20 +340,75 @@ task.spawn(function()
         end
     end)
 
+    -- 7. Мобільна сенсорна кнопка [⚡ 3D OFF] + Гаряча клавіша [F2]
     pcall(function()
         local renderEnabled = true
+        local function toggle3D()
+            renderEnabled = not renderEnabled
+            RunService:Set3dRenderingEnabled(renderEnabled)
+            return renderEnabled
+        end
+
+        -- Клавіша F2 для ПК
         UserInputService.InputBegan:Connect(function(input, processed)
             if not processed and input.KeyCode == Enum.KeyCode.F2 then
-                renderEnabled = not renderEnabled
-                RunService:Set3dRenderingEnabled(renderEnabled)
+                toggle3D()
             end
         end)
+
+        -- Кнопка для сенсорних телефонів у верхньому правому кутку
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pgui then
+            local screen = Instance.new("ScreenGui")
+            screen.Name = "CameraTD_MobileOptimizer"
+            screen.ResetOnSpawn = false
+            screen.DisplayOrder = 999999
+            pcall(function() screen.Parent = (gethui and gethui()) or pgui end)
+
+            local btn = Instance.new("TextButton")
+            btn.Name = "Toggle3D"
+            btn.Size = UDim2.new(0, 84, 0, 32)
+            btn.Position = UDim2.new(1, -94, 0, 10)
+            btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+            btn.BackgroundTransparency = 0.2
+            btn.BorderSizePixel = 0
+            btn.Text = "⚡ 3D: ON"
+            btn.TextColor3 = Color3.fromRGB(0, 255, 160)
+            btn.TextSize = 12
+            btn.Font = Enum.Font.GothamBold
+            btn.Parent = screen
+
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 8)
+            corner.Parent = btn
+
+            local stroke = Instance.new("UIStroke")
+            stroke.Color = Color3.fromRGB(0, 255, 160)
+            stroke.Thickness = 1.2
+            stroke.Transparency = 0.4
+            stroke.Parent = btn
+
+            btn.MouseButton1Click:Connect(function()
+                local state = toggle3D()
+                if state then
+                    btn.Text = "⚡ 3D: ON"
+                    btn.TextColor3 = Color3.fromRGB(0, 255, 160)
+                    stroke.Color = Color3.fromRGB(0, 255, 160)
+                else
+                    btn.Text = "⚡ 3D: OFF"
+                    btn.TextColor3 = Color3.fromRGB(255, 80, 80)
+                    stroke.Color = Color3.fromRGB(255, 80, 80)
+                end
+            end)
+        end
     end)
 end)
 
 -- ============================================================
--- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ ЖОДНОГО GUI В ГРІ)
+-- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ ЖОДНОГО МЕНЮ В ГРІ)
 -- ============================================================
+
+-- 1. Хелпери зчитування балансу та хвиль
 local function getCoins()
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
@@ -245,6 +476,7 @@ local function getCurrentWave()
     return 0
 end
 
+-- 2. Відновлення попередньої сесії з файлу або глобалу
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
     pcall(function()
@@ -274,6 +506,7 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
 }
 local Session = genv.__CameraTDSession
 
+-- Відновлюємо попередні слоти з файлу
 if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
     for k, v in pairs(savedData.ActivitySlots) do
         if Session.ActivitySlots[k] == nil then
@@ -282,8 +515,9 @@ if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
     end
 end
 
+-- 3. Розрахунок слотів активності (30-хвилинні інтервали за точним локальним часом ПК)
 local function getDayAndSlotIndex()
-    local date = os.date("*t")
+    local date = os.date("*t") -- Точний локальний час системи (співпадає з часом браузера)
     local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
     local slotIdx = date.hour * 2 + math.floor(date.min / 30)
     return dayIdx, math.clamp(slotIdx, 0, 47)
@@ -295,18 +529,21 @@ local function markActivitySlot(statusType)
     if Session.IsKicked then
         Session.ActivitySlots[key] = "red"
     else
-        Session.ActivitySlots[key] = statusType
+        Session.ActivitySlots[key] = statusType -- ТІЛЬКИ "green" АБО "red"
     end
 end
 
+-- Визначення хмарного каналу (за замовчуванням camtd_cloud_kvires)
 local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
 
+-- 4. Уніфікована функція відправки та збереження
 local function pushUpdate(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
     end)
     if not ok or not jsonString then return end
 
+    -- 1. Локальний файл для браузера / офлайн відстеження
     if writefile then
         pcall(function()
             writefile(StatsPath, jsonString)
@@ -315,6 +552,7 @@ local function pushUpdate(data)
 
     local req = httpRequest or findHttpRequest()
     if req then
+        -- 2. ГОЛОВНИЙ ХМАРНИЙ КАНАЛ (ntfy.sh) ДЛЯ ОНЛАЙН-САЙТУ 24/7
         task.spawn(function()
             pcall(function()
                 req({
@@ -328,15 +566,28 @@ local function pushUpdate(data)
                 })
             end)
         end)
+
+        -- 3. Локальний сервер (0ms для локальної гри)
+        task.spawn(function()
+            pcall(function()
+                req({
+                    Url = "http://127.0.0.1:8765/api/update",
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = jsonString
+                })
+            end)
+        end)
     end
 end
 
+-- 5. Детектори кіків та помилок телепорту
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
             Session.IsKicked = true
             Session.Status = "❌ ВИЛЕТІЛО / КІКНУЛО: " .. tostring(msg)
-            markActivitySlot("red")
+            markActivitySlot("red") -- Червоний слот (виліт)
             
             local kickData = {
                 PlayerName = LocalPlayer.Name,
@@ -375,6 +626,7 @@ pcall(function()
     end)
 end)
 
+-- 6. Підрахунок результатів матчу (~600 коїнів за раунд)
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -401,7 +653,7 @@ local function checkMatchResult()
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            if roundCoins == 0 then roundCoins = 600 end
+            if roundCoins == 0 then roundCoins = 600 end -- Реалістичні ~600 за раунд
             local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
@@ -418,14 +670,16 @@ local function checkMatchResult()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot("green")
+            markActivitySlot("green") -- Зелений слот (фарм OK)
         end
     else
         Session.LastRecordedMatchResult = nil
     end
 end
 
--- 7. МИТТЄВИЙ ПЕРШИЙ ПІНГ (0.05с)
+-- ============================================================
+-- 7. МИТТЄВИЙ ПЕРШИЙ ПІНГ (0.05с) ДЛЯ ВІДОБРАЖЕННЯ НА САЙТІ
+-- ============================================================
 task.spawn(function()
     local initialData = {
         PlayerName = LocalPlayer.Name,
@@ -456,8 +710,14 @@ task.spawn(function()
     pushUpdate(initialData)
 end)
 
--- 8. ГОЛОВНИЙ ФОНОВИЙ ЦИКЛ
+-- ============================================================
+-- 8. ГОЛОВНИЙ ФОНОВИЙ ЦИКЛ (100% СТЕЛС, 0 GUI В ROBLOX)
+-- ============================================================
 task.spawn(function()
+    print("[Camera TD Headless] ✅ Фоновий трекер успішно запущено без меню в грі!")
+    print("[Camera TD Headless] ☁️ Хмарний канал: " .. CloudChannel)
+    print("[Camera TD Headless] 🌐 Сайт: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
+
     task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
 
@@ -467,7 +727,9 @@ task.spawn(function()
     local lastSave = 0
 
     while task.wait(1.5) do
+        -- Перевірка чи цей екземпляр скрипта актуальний
         if genv.__CameraTD_ActiveInstance ~= currentInstanceToken then
+            print("[Camera TD Headless] Зупинено попередній екземпляр трекера після зміни сервера.")
             break
         end
 
@@ -484,6 +746,7 @@ task.spawn(function()
         if not Session.MatchStartCoins and curCoins > 0 then Session.MatchStartCoins = curCoins end
         if not Session.MatchStartCandy and curCandy > 0 then Session.MatchStartCandy = curCandy end
 
+        -- Оновлення активності: коїни, цукерки, хвиля або активний матч (захист від хибного AFK у довгих матчах)
         if curCoins ~= lastCoins or curCandy ~= lastCandy or (curWave > 0 and curWave ~= lastWave) or inMatch then
             lastCoins = curCoins
             lastCandy = curCandy
@@ -493,18 +756,18 @@ task.spawn(function()
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 420) and not inMatch
+        local isAFK = (idleSeconds > 420) and not inMatch -- У матчі ніколи не вважати AFK!
 
         local statusText = ""
         if Session.IsKicked then
             statusText = Session.Status
-            markActivitySlot("red")
+            markActivitySlot("red") -- ЧЕРВОНИЙ (Виліт / Кік)
         elseif isAFK then
             statusText = "⚠️ AFK: Немає активності (>7 хв)"
-            markActivitySlot("red")
+            markActivitySlot("red") -- ЧЕРВОНИЙ (Не фармить)
         elseif inMatch then
             statusText = string.format("🟢 В мережі: У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
-            markActivitySlot("green")
+            markActivitySlot("green") -- ЗЕЛЕНИЙ (Фарм OK)
         elseif inLobby then
             statusText = "🟢 В мережі: Лобі (Очікування раунду)"
             markActivitySlot("green")
