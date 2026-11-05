@@ -398,6 +398,67 @@ local function getInMatchCash()
     return 0
 end
 
+-- Зчитування юнітів в інвентарі та екіпіруванні
+local function getInventoryUnits()
+    local hub = getHub()
+    local unitsMap = {}
+
+    if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" then
+        for id, tower in pairs(hub.InventoryData.Towers) do
+            if type(tower) == "table" and type(tower.Name) == "string" then
+                local name = tower.Name
+                local isEq = (tonumber(tower.Equipped) or 0) > 0
+                if not unitsMap[name] then
+                    unitsMap[name] = { Name = name, Count = 0, Equipped = false }
+                end
+                unitsMap[name].Count = unitsMap[name].Count + 1
+                if isEq then unitsMap[name].Equipped = true end
+            end
+        end
+    end
+
+    if hub and hub.Units and type(hub.Units) == "table" then
+        for id, u in pairs(hub.Units) do
+            if type(u) == "table" and type(u.Name) == "string" then
+                local name = u.Name
+                local isEq = (tonumber(u.Equipped) or 0) > 0
+                if not unitsMap[name] then
+                    unitsMap[name] = { Name = name, Count = 1, Equipped = isEq }
+                else
+                    if isEq then unitsMap[name].Equipped = true end
+                end
+            end
+        end
+    end
+
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    if pgui then
+        local bottom = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Bottom")
+        local hotbar = bottom and (bottom:FindFirstChild("Hotbar") or bottom:FindFirstChild("Units") or bottom:FindFirstChild("Towers"))
+        if hotbar then
+            for _, slot in ipairs(hotbar:GetChildren()) do
+                local title = slot:FindFirstChild("Title") or slot:FindFirstChild("UnitName")
+                if title and title:IsA("TextLabel") and title.Text ~= "" and title.Text ~= "Empty" then
+                    local name = title.Text:match("^%s*(.-)%s*$")
+                    if name and #name > 1 then
+                        if not unitsMap[name] then
+                            unitsMap[name] = { Name = name, Count = 1, Equipped = true }
+                        else
+                            unitsMap[name].Equipped = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local list = {}
+    for _, item in pairs(unitsMap) do
+        table.insert(list, item)
+    end
+    return list
+end
+
 -- Зчитування поточної хвилі
 local function getCurrentWave()
     local hub = getHub()
@@ -432,24 +493,31 @@ if readfile and isfile and isfile(StatsPath) then
     end)
 end
 
-local sessionStartTime = os.time()
+local ScriptBootTime = tick()
+local baseUptime = 0
 if readfile and isfile and isfile(SessionTokenPath) then
     pcall(function()
         local dec = HttpService:JSONDecode(readfile(SessionTokenPath))
-        if dec and type(dec) == "table" and dec.SessionStartTime then
-            local lastHeartbeat = dec.LastHeartbeat or 0
-            -- Якщо останній раз фармив менше 45 хвилин тому - ЗБЕРІГАЄМО ТОЙ САМИЙ ЧАС СЕСІЇ!
-            if (os.time() - lastHeartbeat) < 2700 then
-                sessionStartTime = dec.SessionStartTime
+        if dec and type(dec) == "table" then
+            local lastHb = tonumber(dec.LastHeartbeat) or 0
+            if math.abs(os.time() - lastHb) < 1800 then
+                local savedUp = tonumber(dec.UptimeSeconds)
+                if savedUp and savedUp > 0 and savedUp < 86400 * 14 then
+                    baseUptime = savedUp
+                end
             end
         end
     end)
-elseif savedData.SessionStartTime and (os.time() - (savedData.LastHeartbeat or 0)) < 2700 then
-    sessionStartTime = savedData.SessionStartTime
+end
+
+local function getRealUptime()
+    local elapsed = math.max(0, math.floor(tick() - ScriptBootTime))
+    return baseUptime + elapsed
 end
 
 genv.__CameraTDSession = genv.__CameraTDSession or {
-    SessionStartTime = sessionStartTime,
+    SessionStartTime = os.time(),
+    BaseUptime = baseUptime,
     TotalRounds = savedData.TotalRounds or 0,
     TotalWins = savedData.TotalWins or 0,
     TotalLosses = savedData.TotalLosses or 0,
@@ -468,8 +536,7 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     IsKicked = false,
     Status = "🔄 Заходить на сервер / Завантаження..."
 }
-local Session = genv.__CameraTDSession
-Session.SessionStartTime = sessionStartTime -- Гарантуємо збереження часу
+local Session = genv.__CameraTDSession -- Гарантуємо збереження часу
 
 -- Відновлюємо слоти активності
 if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
@@ -513,6 +580,7 @@ local function pushUpdate(data)
         pcall(function()
             writefile(StatsPath, jsonString)
             writefile(SessionTokenPath, HttpService:JSONEncode({
+                UptimeSeconds = getRealUptime(),
                 SessionStartTime = Session.SessionStartTime,
                 LastHeartbeat = os.time(),
                 PlayerName = LocalPlayer.Name,
@@ -574,15 +642,17 @@ pcall(function()
                 TotalWins = Session.TotalWins,
                 TotalLosses = Session.TotalLosses,
                 Rejoins = Session.Rejoins,
-                UptimeSeconds = os.time() - Session.SessionStartTime,
+                UptimeSeconds = getRealUptime(),
                 Status = Session.Status,
                 IsAFK = false,
                 IsKicked = true,
                 IdleSeconds = os.time() - (Session.LastActionTime or os.time()),
                 LastHeartbeat = os.time(),
+                UptimeSeconds = getRealUptime(),
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
-                Version = "v4.4 (Kero Admin Cloud)"
+                InventoryTowers = getInventoryUnits(),
+                Version = "v4.6 (Kero Admin Cloud)"
             }
             pushUpdate(kickData)
         end
@@ -664,15 +734,17 @@ task.spawn(function()
         TotalWins = Session.TotalWins,
         TotalLosses = Session.TotalLosses,
         Rejoins = Session.Rejoins,
-        UptimeSeconds = os.time() - Session.SessionStartTime,
+        UptimeSeconds = getRealUptime(),
         Status = "🔄 Заходить на сервер / Завантаження...",
         IsAFK = false,
         IsKicked = false,
         IdleSeconds = 0,
         LastHeartbeat = os.time(),
-        SessionStartTime = Session.SessionStartTime,
+        UptimeSeconds = getRealUptime(),
+                SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots,
-        Version = "v4.4 (Kero Admin Cloud)"
+        InventoryTowers = getInventoryUnits(),
+                Version = "v4.6 (Kero Admin Cloud)"
     }
     pushUpdate(initialData)
 end)
@@ -699,7 +771,7 @@ task.spawn(function()
         end
 
         local now = os.time()
-        local uptime = math.max(0, now - Session.SessionStartTime)
+        local uptime = getRealUptime()
 
         local curCoins = getAccountCoins()
         local curGems = getAccountGems()
@@ -776,9 +848,11 @@ task.spawn(function()
                 IsKicked = Session.IsKicked,
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
+                UptimeSeconds = getRealUptime(),
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
-                Version = "v4.4 (Kero Admin Cloud)"
+                InventoryTowers = getInventoryUnits(),
+                Version = "v4.6 (Kero Admin Cloud)"
             }
 
             pushUpdate(exportData)
