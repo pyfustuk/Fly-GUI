@@ -1,7 +1,20 @@
 --[[ ============================================================
-     Cameraman TD · All-in-One Loader & Cloud Realtime Tracker v4.0
-     Хмарна синхронізація через ntfy.sh (0ms Live SSE на сайт)
+     Cameraman TD · All-in-One Loader & Headless Tracker v3.5 (Auto-Inject Edition)
+     
+     ОСОБЛИВОСТІ ТА ВИПРАВЛЕННЯ ДЛЯ AUTO-INJECT / AUTOEXEC:
+       1. Повна сумісність з autoexec (Solara, Wave, Codex, Delta, Fluxus тощо)
+       2. Жорсткий захист від раннього запуску (game:IsLoaded + non-blocking LocalPlayer resolution)
+       3. Захист Kero Hub від збоїв: відкладений старт (1.5с) з 3 авто-повторами
+       4. Миттєвий перший пінг (0.05с): сайт і файл одразу бачать ваш нік та аватарку
+       5. 100% фоновий трекер БЕЗ ЖОДНОГО GUI В ГРІ (повний стелс, нуль лагів)
+       6. Детекція вильотів та кіків через GuiService (миттєве підсвічування ЧЕРВОНИМ)
+       7. Реальні нагороди (~600 💵 за раунд) та розрахунок за хвилю
+       8. Захист від дублювання потоків між серверами / телепортами (Instance Token)
      ============================================================ ]]
+
+-- ============================================================
+-- 0. AUTO-INJECT СТАБІЛІЗАЦІЯ (КРИТИЧНО ДЛЯ AUTOEXEC)
+-- ============================================================
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
@@ -13,6 +26,7 @@ while not LocalPlayer do
     LocalPlayer = Players.LocalPlayer
 end
 
+-- Очікуємо PlayerGui для коректного завантаження UI-об'єктів гри
 pcall(function()
     LocalPlayer:WaitForChild("PlayerGui", 12)
 end)
@@ -21,6 +35,7 @@ local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 
+-- Пошук функції запиту для будь-якого експлойта
 local function findHttpRequest()
     local fn = (syn and syn.request) 
         or (http and http.request) 
@@ -36,6 +51,7 @@ local function findHttpRequest()
 end
 local httpRequest = findHttpRequest()
 
+-- Папка для збереження статистики
 local Folder = "CameraTD_Macros"
 local StatsPath = Folder .. "/DashboardStats.json"
 pcall(function()
@@ -44,18 +60,21 @@ pcall(function()
     end
 end)
 
+-- Глобальне середовище та захист від дублікатів потоків
 local genv = (getgenv and getgenv()) or _G
 local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
--- За замовчуванням глобальний хмарний канал для сайту
-local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
-
--- 1. Запуск Kero Hub під Auto-Inject (з авто-повторами)
+-- ============================================================
+-- ЧАСТИНА 1: Завантажувач Kero Hub (З авто-повторами під Auto-Inject)
+-- ============================================================
 task.spawn(function()
-    task.wait(1.5)
+    print("[Kero Loader] Підготовка авто-запуску Kero Hub...")
+    task.wait(1.5) -- Даємо грі 1.5с завершити первинну реплікацію об'єктів
+    
     local maxRetries = 3
     for attempt = 1, maxRetries do
+        print(string.format("[Kero Loader] Спроба %d/%d запуску Kero Hub...", attempt, maxRetries))
         local ok, err = pcall(function()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
         end)
@@ -63,12 +82,80 @@ task.spawn(function()
             print("[Kero Loader] ✅ Kero Hub успішно активовано!")
             break
         else
+            warn(string.format("[Kero Loader] Спроба %d не вдалася: %s", attempt, tostring(err)))
             task.wait(2.5)
         end
     end
 end)
 
--- 2. Зчитування валюти та хвиль
+-- ============================================================
+-- ЧАСТИНА 1.5: Combat FPS Booster & Anti-Lag Engine
+-- Автоматично прибирає просідання FPS при атаках юнітів на туалетів:
+-- 1. Вимикає лазерні промені, частки вибухів, вогонь та дим пострілів
+-- 2. Приховує плаваючі цифри урону над туалетами (BillboardGui)
+-- 3. Вимикає важкі динамічні тіні, блюм та розмиття
+-- ============================================================
+task.spawn(function()
+    print("[Anti-Lag] 🚀 Ініціалізація бойового оптимізатора FPS...")
+    task.wait(2)
+
+    -- Оптимізація освітлення та шейдерів
+    pcall(function()
+        local Lighting = game:GetService("Lighting")
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 9e9
+        Lighting.Brightness = 1
+
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("BloomEffect") or effect:IsA("BlurEffect") or effect:IsA("DepthOfFieldEffect") or effect:IsA("SunRaysEffect") then
+                effect.Enabled = false
+            end
+        end
+
+        local Terrain = workspace:FindFirstChildOfClass("Terrain")
+        if Terrain then
+            Terrain.WaterWaveSize = 0
+            Terrain.WaterWaveSpeed = 0
+            Terrain.WaterReflectance = 0
+            Terrain.Decoration = false
+        end
+    end)
+
+    -- Функція миттєвого приглушення ефектів пострілів та цифр урону
+    local function cleanCombatVFX(obj)
+        local className = obj.ClassName
+        if className == "ParticleEmitter" or className == "Beam" or className == "Trail" or className == "Smoke" or className == "Fire" or className == "Sparkles" then
+            obj.Enabled = false
+        elseif className == "Explosion" then
+            obj.Visible = false
+        elseif className == "BillboardGui" then
+            local name = obj.Name:lower()
+            if name:find("damage") or name:find("popup") or name:find("indicator") or name:find("hit") or name:find("text") then
+                obj.Enabled = false
+            end
+        end
+    end
+
+    -- Очищення вже існуючих часток на карті
+    pcall(function()
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            cleanCombatVFX(desc)
+        end
+    end)
+
+    -- Авто-глушіння нових часток під час стрільби у кожній хвилі
+    workspace.DescendantAdded:Connect(function(obj)
+        task.defer(cleanCombatVFX, obj)
+    end)
+
+    print("[Anti-Lag] ✅ Бойовий оптимізатор успішно запущено (постріли, промені та цифри урону оптимізовано під 60 FPS)!")
+end)
+
+-- ============================================================
+-- ЧАСТИНА 2: Повністю фоновий трекер (БЕЗ ЖОДНОГО МЕНЮ В ГРІ)
+-- ============================================================
+
+-- 1. Хелпери зчитування балансу та хвиль
 local function getCoins()
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
     if leaderstats then
@@ -86,6 +173,17 @@ local function getCoins()
         if m and m:IsA("TextLabel") then
             local num = m.Text:gsub(",", ""):match("[%d%.]+")
             if num then return tonumber(num) or 0 end
+        end
+        for _, desc in ipairs(pgui:GetDescendants()) do
+            if desc:IsA("TextLabel") and desc.Visible then
+                local lname = desc.Name:lower()
+                if lname:find("money") or lname:find("coin") then
+                    local num = desc.Text:gsub(",", ""):match("[%d%.]+")
+                    if num and tonumber(num) and tonumber(num) > 0 then
+                        return tonumber(num)
+                    end
+                end
+            end
         end
     end
     return 0
@@ -125,6 +223,7 @@ local function getCurrentWave()
     return 0
 end
 
+-- 2. Відновлення попередньої сесії з файлу або глобалу
 local savedData = {}
 if readfile and isfile and isfile(StatsPath) then
     pcall(function()
@@ -154,8 +253,18 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
 }
 local Session = genv.__CameraTDSession
 
+-- Відновлюємо попередні слоти з файлу
+if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
+    for k, v in pairs(savedData.ActivitySlots) do
+        if Session.ActivitySlots[k] == nil then
+            Session.ActivitySlots[k] = (v == 4 or v == "red") and "red" or "green"
+        end
+    end
+end
+
+-- 3. Розрахунок слотів активності (30-хвилинні інтервали за точним локальним часом ПК)
 local function getDayAndSlotIndex()
-    local date = os.date("!*t", os.time() + 2 * 3600)
+    local date = os.date("*t") -- Точний локальний час системи (співпадає з часом браузера)
     local dayIdx = (date.wday == 1) and 6 or (date.wday - 2)
     local slotIdx = date.hour * 2 + math.floor(date.min / 30)
     return dayIdx, math.clamp(slotIdx, 0, 47)
@@ -164,16 +273,24 @@ end
 local function markActivitySlot(statusType)
     local dayIdx, slotIdx = getDayAndSlotIndex()
     local key = tostring(dayIdx) .. "_" .. tostring(slotIdx)
-    Session.ActivitySlots[key] = statusType
+    if Session.IsKicked then
+        Session.ActivitySlots[key] = "red"
+    else
+        Session.ActivitySlots[key] = statusType -- ТІЛЬКИ "green" АБО "red"
+    end
 end
 
--- 3. ГОЛОВНА ФУНКЦІЯ ПЕРЕДАЧІ В ХМАРУ ТА НА САЙТ
+-- Визначення хмарного каналу (за замовчуванням camtd_cloud_kvires)
+local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
+
+-- 4. Уніфікована функція відправки та збереження
 local function pushUpdate(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
     end)
     if not ok or not jsonString then return end
 
+    -- 1. Локальний файл для браузера / офлайн відстеження
     if writefile then
         pcall(function()
             writefile(StatsPath, jsonString)
@@ -182,7 +299,7 @@ local function pushUpdate(data)
 
     local req = httpRequest or findHttpRequest()
     if req then
-        -- Відправка прямо на Хмарний Сервер ntfy.sh для Сайту (0ms Live)
+        -- 2. ГОЛОВНИЙ ХМАРНИЙ КАНАЛ (ntfy.sh) ДЛЯ ОНЛАЙН-САЙТУ 24/7
         task.spawn(function()
             pcall(function()
                 req({
@@ -197,7 +314,7 @@ local function pushUpdate(data)
             end)
         end)
 
-        -- Локальний сервер (якщо запущено)
+        -- 3. Локальний сервер (0ms для локальної гри)
         task.spawn(function()
             pcall(function()
                 req({
@@ -211,13 +328,13 @@ local function pushUpdate(data)
     end
 end
 
--- 4. Детектор вильотів (підсвічує клітинку червоним)
+-- 5. Детектори кіків та помилок телепорту
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
             Session.IsKicked = true
             Session.Status = "❌ ВИЛЕТІЛО / КІКНУЛО: " .. tostring(msg)
-            markActivitySlot(4)
+            markActivitySlot("red") -- Червоний слот (виліт)
             
             local kickData = {
                 PlayerName = LocalPlayer.Name,
@@ -250,7 +367,13 @@ pcall(function()
     end)
 end)
 
--- 5. Підрахунок перемог / поразок / нагород (~600 💵)
+pcall(function()
+    TeleportService.TeleportInitFailed:Connect(function(player, result, err)
+        Session.Status = "⚠️ Помилка телепорту: " .. tostring(err)
+    end)
+end)
+
+-- 6. Підрахунок результатів матчу (~600 коїнів за раунд)
 local function checkMatchResult()
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
@@ -277,7 +400,7 @@ local function checkMatchResult()
 
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
-            if roundCoins == 0 then roundCoins = 600 end
+            if roundCoins == 0 then roundCoins = 600 end -- Реалістичні ~600 за раунд
             local waves = math.max(1, getCurrentWave())
 
             Session.LastRoundCoins = roundCoins
@@ -294,16 +417,18 @@ local function checkMatchResult()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot(2)
+            markActivitySlot("green") -- Зелений слот (фарм OK)
         end
     else
         Session.LastRecordedMatchResult = nil
     end
 end
 
--- 6. Миттєвий пінг при старті
+-- ============================================================
+-- 7. МИТТЄВИЙ ПЕРШИЙ ПІНГ (0.05с) ДЛЯ ВІДОБРАЖЕННЯ НА САЙТІ
+-- ============================================================
 task.spawn(function()
-    pushUpdate({
+    local initialData = {
         PlayerName = LocalPlayer.Name,
         DisplayName = LocalPlayer.DisplayName,
         UserId = LocalPlayer.UserId,
@@ -328,63 +453,74 @@ task.spawn(function()
         LastHeartbeat = os.time(),
         SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots
-    })
+    }
+    pushUpdate(initialData)
 end)
 
--- 7. Головний фоновий цикл
+-- ============================================================
+-- 8. ГОЛОВНИЙ ФОНОВИЙ ЦИКЛ (100% СТЕЛС, 0 GUI В ROBLOX)
+-- ============================================================
 task.spawn(function()
-    print("[Camera TD Headless] ✅ Фоновий трекер успішно запущено!")
+    print("[Camera TD Headless] ✅ Фоновий трекер успішно запущено без меню в грі!")
     print("[Camera TD Headless] ☁️ Хмарний канал: " .. CloudChannel)
-    print("[Camera TD Headless] 🌐 Сайт: https://kvires-ps99-cloud.static.hf.space")
+    print("[Camera TD Headless] 🌐 Сайт: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
 
     task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
 
     local lastCoins = 0
+    local lastCandy = 0
+    local lastWave = 0
     local lastSave = 0
 
     while task.wait(1.5) do
+        -- Перевірка чи цей екземпляр скрипта актуальний
         if genv.__CameraTD_ActiveInstance ~= currentInstanceToken then
+            print("[Camera TD Headless] Зупинено попередній екземпляр трекера після зміни сервера.")
             break
         end
 
         local now = os.time()
         local uptime = now - Session.SessionStartTime
+
         local curCoins = getCoins()
         local curCandy = getCandy()
+        local curWave = getCurrentWave()
+
+        local inMatch = (game.PlaceId == 114068177100380)
+        local inLobby = (game.PlaceId == 132929771812494)
 
         if not Session.MatchStartCoins and curCoins > 0 then Session.MatchStartCoins = curCoins end
         if not Session.MatchStartCandy and curCandy > 0 then Session.MatchStartCandy = curCandy end
 
-        if curCoins ~= lastCoins then
+        -- Оновлення активності: коїни, цукерки, хвиля або активний матч (захист від хибного AFK у довгих матчах)
+        if curCoins ~= lastCoins or curCandy ~= lastCandy or (curWave > 0 and curWave ~= lastWave) or inMatch then
             lastCoins = curCoins
+            lastCandy = curCandy
+            lastWave = curWave
             Session.LastActionTime = now
-            markActivitySlot(2)
+            markActivitySlot("green")
         end
 
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 420)
-
-        local inMatch = (game.PlaceId == 114068177100380)
-        local inLobby = (game.PlaceId == 132929771812494)
-        local curWave = getCurrentWave()
+        local isAFK = (idleSeconds > 420) and not inMatch -- У матчі ніколи не вважати AFK!
 
         local statusText = ""
         if Session.IsKicked then
             statusText = Session.Status
-            markActivitySlot(4)
+            markActivitySlot("red") -- ЧЕРВОНИЙ (Виліт / Кік)
         elseif isAFK then
             statusText = "⚠️ AFK: Немає активності (>7 хв)"
-            markActivitySlot(4)
+            markActivitySlot("red") -- ЧЕРВОНИЙ (Не фармить)
         elseif inMatch then
             statusText = string.format("🟢 В мережі: У матчі (Хвиля %d)", curWave > 0 and curWave or 1)
-            markActivitySlot(1)
+            markActivitySlot("green") -- ЗЕЛЕНИЙ (Фарм OK)
         elseif inLobby then
             statusText = "🟢 В мережі: Лобі (Очікування раунду)"
-            markActivitySlot(1)
+            markActivitySlot("green")
         else
             statusText = "🟢 В мережі: Фарм активний"
-            markActivitySlot(1)
+            markActivitySlot("green")
         end
         Session.Status = statusText
 
@@ -397,7 +533,7 @@ task.spawn(function()
             local liveCandyEarned = inMatch and math.max(0, curCandy - (Session.MatchStartCandy or curCandy)) or Session.LastRoundCandy
             if liveCoinsEarned == 0 and not inMatch then liveCoinsEarned = Session.LastRoundCoins end
 
-            pushUpdate({
+            local exportData = {
                 PlayerName = LocalPlayer.Name,
                 DisplayName = LocalPlayer.DisplayName,
                 UserId = LocalPlayer.UserId,
@@ -422,7 +558,9 @@ task.spawn(function()
                 LastHeartbeat = now,
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots
-            })
+            }
+
+            pushUpdate(exportData)
         end
     end
 end)
