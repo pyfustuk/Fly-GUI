@@ -66,83 +66,7 @@ local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 0.8: ГЛУШІННЯ СПАМУ В ЛОГ ("bulk, table: 0x..., nil")
--- ============================================================
-pcall(function()
-    local function isBulkSpam(...)
-        local n = select("#", ...)
-        if n > 0 then
-            local first = select(1, ...)
-            if first == "bulk" or (type(first) == "string" and first:lower():find("bulk")) then
-                return true
-            end
-        end
-        return false
-    end
-
-    -- 1. Exploit середовище
-    if getgenv then
-        local g = getgenv()
-        if g.print then
-            local origP = g.print
-            g.print = function(...)
-                if isBulkSpam(...) then return end
-                return origP(...)
-            end
-        end
-        if g.warn then
-            local origW = g.warn
-            g.warn = function(...)
-                if isBulkSpam(...) then return end
-                return origW(...)
-            end
-        end
-    end
-
-    -- 2. Середовище клієнтських скриптів гри Roblox (getrenv)
-    if getrenv then
-        local r = getrenv()
-        if r.print then
-            local origRP = r.print
-            r.print = function(...)
-                if isBulkSpam(...) then return end
-                return origRP(...)
-            end
-        end
-        if r.warn then
-            local origRW = r.warn
-            r.warn = function(...)
-                if isBulkSpam(...) then return end
-                return origRW(...)
-            end
-        end
-    end
-
-    -- 3. Хук функцій виводу (якщо підтримується експлойтом)
-    if hookfunction then
-        if print then
-            pcall(function()
-                local oldP
-                oldP = hookfunction(print, function(...)
-                    if isBulkSpam(...) then return end
-                    return oldP(...)
-                end)
-            end)
-        end
-        if warn then
-            pcall(function()
-                local oldW
-                oldW = hookfunction(warn, function(...)
-                    if isBulkSpam(...) then return end
-                    return oldW(...)
-                end)
-            end)
-        end
-    end
-end)
-
--- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub + Оптимізація без приховування мобів
+-- ЧАСТИНА 1: Завантажувач Kero Hub (Чистий запуск без приховування мобів)
 -- ============================================================
 task.spawn(function()
     task.wait(1.5)
@@ -159,7 +83,7 @@ task.spawn(function()
     end
 end)
 
--- Налаштування Kero Hub: режим Normal (МОБИ ТА ЮНІТИ ЗАЛИШАЮТЬСЯ ВИДИМИМИ!)
+-- Авто-налаштування Kero Hub: режим Normal (МОБИ ТА ВЕЖІ 100% ВИДИМІ!)
 task.spawn(function()
     local attempts = 0
     while attempts < 35 do
@@ -173,7 +97,7 @@ task.spawn(function()
                 if s then
                     s.FPSBoost = true
                     s.RemoveVisuals = true
-                    s.VisualMethod = "Normal" -- СУВОРО "Normal", щоб бачити куди ставити юнітів!
+                    s.VisualMethod = "Normal" -- СУВОРО Normal: моби залишаються видимими!
                 end
             end)
             break
@@ -182,11 +106,9 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 1.5: ОПТИМІЗАЦІЯ FPS ДЛЯ ЗАПИСУ МАКРОСУ ТА ГРИ
--- 1. МОБИ ТА ЮНІТИ 100% ВИДИМІ (видимі моделі, текстури, анімації).
--- 2. Вимкнено суто важкі контури Highlight при наведенні (джерело лагів 1-5 хвиль).
--- 3. При смерті туалетів регдол миттєво заякорюється (Anchored = true), що прибирає фрізи фізики.
--- 4. Компактний прозорий лічильник FPS чорним текстом у кутку екрану.
+-- ЧАСТИНА 1.5: 100% БЕЗПОМИЛКОВА ОПТИМІЗАЦІЯ (ZERO ERROR EDITION)
+-- НУЛЬ втручання в Adornee, колізії, CanTouch, CanQuery чи хітбокси!
+-- Це гарантує РІВНО 0 ПОМИЛОК у консолі гри!
 -- ============================================================
 task.spawn(function()
     task.wait(1.2)
@@ -195,7 +117,7 @@ task.spawn(function()
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
 
-    -- 1. Мінімальні системні налаштування графіки
+    -- 1. Системні налаштування рушія
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
@@ -203,7 +125,7 @@ task.spawn(function()
         if setfpscap then setfpscap(60) end
     end)
 
-    -- 2. Глобальні шейдери, тіні та постобробка
+    -- 2. Глобальні шейдери освітлення та постобробка
     pcall(function()
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
@@ -226,71 +148,61 @@ task.spawn(function()
         end
     end)
 
-    -- 3. Глушіння суто важких спецефектів (МОДЕЛІ МОБІВ НЕ ЧІПАЄМО!)
+    -- 3. Безпечне глушіння виключно візуальних ефектів
+    -- КРИТИЧНО: НЕ змінюємо Adornee! Тільки прозорість контуру, щоб скрипти гри не падали!
     local function cleanVisuals(obj)
         pcall(function()
             local c = obj.ClassName
 
-            -- А) Highlight (контур наведення на туалет — головна причина лагів на 1-5 хвилях)
+            -- А) Highlight (контур цілі при наведенні — робимо повністю прозорим без обриву зв'язку Adornee)
             if c == "Highlight" then
+                obj.FillTransparency = 1
+                obj.OutlineTransparency = 1
                 obj.Enabled = false
-                obj.Adornee = nil
-                pcall(function()
-                    obj:GetPropertyChangedSignal("Enabled"):Connect(function()
-                        if obj.Enabled then obj.Enabled = false end
-                    end)
-                    obj:GetPropertyChangedSignal("Adornee"):Connect(function()
-                        if obj.Adornee ~= nil then obj.Adornee = nil end
-                    end)
-                end)
                 return
             end
 
-            -- Б) Лазери прицілювання та трейли куль
+            -- Б) Промені лазерів та трейли куль
             if c == "Beam" or c == "Trail" then
                 obj.Enabled = false
-                pcall(function() obj.Texture = "" end)
                 return
             end
 
-            -- В) Частки пострілів, спалахи, дим, іскри
+            -- В) Частки вибухів, дим, іскри
             if c == "ParticleEmitter" or c == "Smoke" or c == "Fire" or c == "Sparkles" then
                 obj.Enabled = false
                 return
             elseif c == "Explosion" then
                 obj.Visible = false
-                obj.BlastPressure = 0
-                obj.BlastRadius = 0
                 return
             end
 
-            -- Г) Світло від пострілів
+            -- Г) Джерела світла
             if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
                 obj.Enabled = false
                 return
             end
 
-            -- Д) Спливаючий текст урону (damage numbers)
+            -- Д) Спливаючі цифри урону (НЕ чіпаємо хелсбари мобів)
             if c == "BillboardGui" then
                 local name = obj.Name:lower()
-                if name:find("damage") or name:find("indicator") or name:find("hit") or name:find("popup") then
+                if name:find("damage") or name:find("hit") or name:find("popup") or name:find("indicator") then
                     obj.Enabled = false
                 end
                 return
             end
 
-            -- Е) 3D-звуки вибухів у Workspace
+            -- Е) 3D-звуки в Workspace
             if c == "Sound" and obj:IsDescendantOf(workspace) then
                 obj.Volume = 0
                 return
             end
 
-            -- Є) Круги радіусу юнітів (RangeCircles)
+            -- Є) Круги радіусу веж
             local name = obj.Name:lower()
-            if name:find("rangecircle") or name:find("range") then
+            if name:find("rangecircle") then
                 if obj:IsA("BasePart") then
                     obj.Transparency = 1
-                    obj.CanCollide = false
                 elseif obj:IsA("Decal") or obj:IsA("Texture") then
                     obj.Transparency = 1
                 end
@@ -298,105 +210,18 @@ task.spawn(function()
         end)
     end
 
-    -- 4. Запобігання фрізам при смерті туалетів (заморозка регдолу)
-    local function freezeCorpse(model)
-        task.defer(function()
-            for _, desc in ipairs(model:GetDescendants()) do
-                if desc:IsA("BasePart") then
-                    desc.CanCollide = false
-                    desc.CanTouch = false
-                    desc.CanQuery = false
-                    desc.Anchored = true
-                    desc.Transparency = 1
-                elseif desc:IsA("Decal") or desc:IsA("Texture") then
-                    desc.Transparency = 1
-                elseif desc:IsA("ParticleEmitter") or desc:IsA("Trail") or desc:IsA("Beam") or desc:IsA("Highlight") then
-                    desc.Enabled = false
-                elseif desc:IsA("BillboardGui") then
-                    desc.Enabled = false
-                elseif desc:IsA("Sound") then
-                    desc.Volume = 0
-                    pcall(desc.Stop, desc)
-                end
-            end
-        end)
-    end
-
-    local function hookEnemyDeath(model)
-        if not model or not model:IsA("Model") then return end
-        if Players:GetPlayerFromCharacter(model) then return end
-
-        local died = false
-        local function onDeath()
-            if died then return end
-            died = true
-            freezeCorpse(model)
-        end
-
-        local hum = model:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.Died:Connect(onDeath)
-            hum.HealthChanged:Connect(function(hp)
-                if hp <= 0 then onDeath() end
-            end)
-        else
-            local conn
-            conn = model.ChildAdded:Connect(function(child)
-                if child:IsA("Humanoid") then
-                    conn:Disconnect()
-                    child.Died:Connect(onDeath)
-                    child.HealthChanged:Connect(function(hp)
-                        if hp <= 0 then onDeath() end
-                    end)
-                end
-            end)
-        end
-    end
-
-    local function bindEnemiesFolder(folder)
-        if not folder then return end
-        for _, child in ipairs(folder:GetChildren()) do
-            hookEnemyDeath(child)
-            cleanVisuals(child)
-        end
-        folder.ChildAdded:Connect(function(child)
-            hookEnemyDeath(child)
-            cleanVisuals(child)
-        end)
-    end
-
-    pcall(function()
-        bindEnemiesFolder(workspace:FindFirstChild("Enemies"))
-        local g = workspace:FindFirstChild("Game")
-        if g then
-            bindEnemiesFolder(g:FindFirstChild("Enemies"))
-        end
-    end)
-
-    workspace.ChildAdded:Connect(function(child)
-        if child.Name == "Enemies" then
-            bindEnemiesFolder(child)
-        else
-            local lname = child.Name:lower()
-            if lname:find("toilet") or lname:find("enemy") or lname:find("mob") or lname:find("boss") then
-                hookEnemyDeath(child)
-            end
-        end
-    end)
-
+    -- 4. Первинне очищення та фільтр нових часток
     pcall(function()
         for _, desc in ipairs(workspace:GetDescendants()) do
             cleanVisuals(desc)
         end
     end)
 
-    workspace.DescendantAdded:Connect(function(obj)
-        cleanVisuals(obj)
-    end)
+    workspace.DescendantAdded:Connect(cleanVisuals)
 
-    -- Періодична зачистка сміття (Debris)
+    -- 5. Фонова зачистка Debris кожні 4 секунди
     task.spawn(function()
-        while task.wait(3) do
+        while task.wait(4) do
             pcall(function()
                 local debris = workspace:FindFirstChild("Debris")
                 if debris then
@@ -406,7 +231,7 @@ task.spawn(function()
         end
     end)
 
-    -- 5. Компактний прозорий лічильник FPS (чорний текст)
+    -- 6. Прозорий лічильник FPS (чорний текст)
     pcall(function()
         local renderEnabled = true
         local function toggle3D()
@@ -429,7 +254,6 @@ task.spawn(function()
             screen.DisplayOrder = 999999
             pcall(function() screen.Parent = (gethui and gethui()) or pgui end)
 
-            -- Повністю прозора підкладка, видно лише чорні цифри
             local fpsLabel = Instance.new("TextButton")
             fpsLabel.Name = "FPSDisplay"
             fpsLabel.Size = UDim2.new(0, 65, 0, 24)
@@ -442,14 +266,12 @@ task.spawn(function()
             fpsLabel.Font = Enum.Font.GothamBold
             fpsLabel.Parent = screen
 
-            -- Легка тонка обводка, щоб чорний текст чудово читався на будь-якому фоні
             local stroke = Instance.new("UIStroke")
             stroke.Color = Color3.fromRGB(255, 255, 255)
             stroke.Thickness = 0.8
             stroke.Transparency = 0.4
             stroke.Parent = fpsLabel
 
-            -- Точний розрахунок FPS у реальному часі
             local frameCount = 0
             local lastTime = os.clock()
 
@@ -471,7 +293,6 @@ task.spawn(function()
                 end
             end)
 
-            -- За бажанням: натискання на цифри FPS перемикає 3D для AFK
             fpsLabel.MouseButton1Click:Connect(function()
                 toggle3D()
             end)
