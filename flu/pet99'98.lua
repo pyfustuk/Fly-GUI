@@ -44,19 +44,7 @@ local function _cleanWarn(...)
     return _oldWarn(...)
 end
 
-pcall(function()
-    if hookfunction then
-        if print then hookfunction(print, _cleanPrint) end
-        if warn then hookfunction(warn, _cleanWarn) end
-        local _renv = getrenv and getrenv()
-        if _renv then
-            if _renv.print then hookfunction(_renv.print, _cleanPrint) end
-            if _renv.warn then hookfunction(_renv.warn, _cleanWarn) end
-            _renv.print = _cleanPrint
-            _renv.warn = _cleanWarn
-        end
-    end
-end)
+-- Safe Lua assignment (Zero Crash on Android Delta)
 if getgenv then
     getgenv().print = _cleanPrint
     getgenv().warn = _cleanWarn
