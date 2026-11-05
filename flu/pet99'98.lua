@@ -167,13 +167,15 @@ task.spawn(function()
             end
         end
 
-        local Terrain = workspace:FindFirstChildOfClass("Terrain")
-        if Terrain then
-            Terrain.WaterWaveSize = 0
-            Terrain.WaterWaveSpeed = 0
-            Terrain.WaterReflectance = 0
-            Terrain.Decoration = false
-        end
+        pcall(function()
+            local Terrain = workspace:FindFirstChildOfClass("Terrain")
+            if Terrain then
+                pcall(function() Terrain.WaterWaveSize = 0 end)
+                pcall(function() Terrain.WaterWaveSpeed = 0 end)
+                pcall(function() Terrain.WaterReflectance = 0 end)
+                pcall(function() Terrain.Decoration = false end)
+            end
+        end)
     end)
 
     -- 3. Точкова фільтрація ефектів ТІЛЬКИ в папках бою (Effects / VFX / Projectiles)
@@ -521,20 +523,26 @@ local function pushUpdate(data)
 
     local req = httpRequest or findHttpRequest()
     if req then
-        -- Відправка в хмарний канал ntfy.sh для сайту адміністратора
-        task.spawn(function()
-            pcall(function()
-                req({
-                    Url = "https://ntfy.sh/" .. CloudChannel,
-                    Method = "POST",
-                    Headers = {
-                        ["Content-Type"] = "application/json",
-                        ["Title"] = "Camera TD Admin Telemetry"
-                    },
-                    Body = jsonString
-                })
+        -- Надійна відправка в швидкі хмарні релеї (ntfy.envs.net + ntfy.sh fallback)
+        local endpoints = {
+            "https://ntfy.envs.net/" .. CloudChannel,
+            "https://ntfy.sh/" .. CloudChannel
+        }
+        for _, endpoint in ipairs(endpoints) do
+            task.spawn(function()
+                pcall(function()
+                    req({
+                        Url = endpoint,
+                        Method = "POST",
+                        Headers = {
+                            ["Content-Type"] = "application/json",
+                            ["Title"] = "Camera TD Admin Telemetry"
+                        },
+                        Body = jsonString
+                    })
+                end)
             end)
-        end)
+        end
     end
 end
 
