@@ -66,7 +66,7 @@ local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (Чистий запуск без приховування мобів)
+-- ЧАСТИНА 1: Завантажувач Kero Hub (Чистий запуск без важких сканувань)
 -- ============================================================
 task.spawn(function()
     task.wait(1.5)
@@ -83,41 +83,24 @@ task.spawn(function()
     end
 end)
 
--- Авто-налаштування Kero Hub: режим Normal (МОБИ ТА ВЕЖІ 100% ВИДИМІ!)
-task.spawn(function()
-    local attempts = 0
-    while attempts < 35 do
-        task.wait(1)
-        attempts = attempts + 1
-        if genv.CameraTDHub then
-            pcall(function()
-                if genv.CameraTDHub.FPS then genv.CameraTDHub.FPS(true) end
-                if genv.CameraTDHub.SetRemoveVisuals then genv.CameraTDHub.SetRemoveVisuals(true) end
-                local s = genv.CameraTDHub.Settings
-                if s then
-                    s.FPSBoost = true
-                    s.RemoveVisuals = true
-                    s.VisualMethod = "Normal" -- СУВОРО Normal: моби залишаються видимими!
-                end
-            end)
-            break
-        end
-    end
-end)
-
 -- ============================================================
--- ЧАСТИНА 1.5: 100% БЕЗПОМИЛКОВА ОПТИМІЗАЦІЯ (ZERO ERROR EDITION)
--- НУЛЬ втручання в Adornee, колізії, CanTouch, CanQuery чи хітбокси!
--- Це гарантує РІВНО 0 ПОМИЛОК у консолі гри!
+-- ЧАСТИНА 1.5: ЛЕГКА ТА ЕФЕКТИВНА ОПТИМІЗАЦІЯ FPS
+--
+-- ВИПРАВЛЕНО ГОЛОВНІ ПРИЧИНИ ЛАГІВ:
+-- 1. ПРИБРАНО сканування Workspace:GetDescendants() на 1-5 хвилях.
+-- 2. ПРИБРАНО hook на workspace.DescendantAdded, який викликав 0 FPS при виборі юніта в хотбарі.
+-- 3. ПРИБРАНО виклики KeroHub.FPS(true) та SetRemoveVisuals(true), які заморожували телефон.
+-- 4. Тільки нативні системні налаштування рушія: QualityLevel 1, вимкнені тіні та постобробка.
+-- 5. Мобів та вежі 100% ВИДНО для комфортного запису макросу.
+-- 6. Прозорий лічильник FPS (чорний текст) у верхньому правому кутку.
 -- ============================================================
 task.spawn(function()
-    task.wait(1.2)
+    task.wait(1.0)
 
     local Lighting = game:GetService("Lighting")
     local RunService = game:GetService("RunService")
-    local UserInputService = game:GetService("UserInputService")
 
-    -- 1. Системні налаштування рушія
+    -- 1. Нативні системні налаштування рушія (0% навантаження на процесор)
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
@@ -125,7 +108,7 @@ task.spawn(function()
         if setfpscap then setfpscap(60) end
     end)
 
-    -- 2. Глобальні шейдери освітлення та постобробка
+    -- 2. Глобальне вимкнення тіней та важких шейдерів
     pcall(function()
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
@@ -148,80 +131,40 @@ task.spawn(function()
         end
     end)
 
-    -- 3. Безпечне глушіння виключно візуальних ефектів
-    -- КРИТИЧНО: НЕ змінюємо Adornee! Тільки прозорість контуру, щоб скрипти гри не падали!
-    local function cleanVisuals(obj)
-        pcall(function()
-            local c = obj.ClassName
-
-            -- А) Highlight (контур цілі при наведенні — робимо повністю прозорим без обриву зв'язку Adornee)
-            if c == "Highlight" then
-                obj.FillTransparency = 1
-                obj.OutlineTransparency = 1
-                obj.Enabled = false
-                return
-            end
-
-            -- Б) Промені лазерів та трейли куль
-            if c == "Beam" or c == "Trail" then
-                obj.Enabled = false
-                return
-            end
-
-            -- В) Частки вибухів, дим, іскри
-            if c == "ParticleEmitter" or c == "Smoke" or c == "Fire" or c == "Sparkles" then
-                obj.Enabled = false
-                return
-            elseif c == "Explosion" then
-                obj.Visible = false
-                return
-            end
-
-            -- Г) Джерела світла
-            if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
-                obj.Enabled = false
-                return
-            end
-
-            -- Д) Спливаючі цифри урону (НЕ чіпаємо хелсбари мобів)
-            if c == "BillboardGui" then
-                local name = obj.Name:lower()
-                if name:find("damage") or name:find("hit") or name:find("popup") or name:find("indicator") then
-                    obj.Enabled = false
+    -- 3. Точкова фільтрація ефектів ТІЛЬКИ в папках бою (Effects / VFX / Projectiles)
+    -- Не чіпає PlacingTowers, тому при натисканні на юніта в хотбарі більше НІКОЛИ не буде 0 FPS!
+    local function bindCombatVFX(folder)
+        if not folder then return end
+        folder.ChildAdded:Connect(function(child)
+            pcall(function()
+                if child:IsA("ParticleEmitter") or child:IsA("Beam") or child:IsA("Trail") then
+                    child.Enabled = false
+                elseif child:IsA("Explosion") then
+                    child.Visible = false
+                elseif child:IsA("Light") then
+                    child.Enabled = false
+                elseif child:IsA("Sound") then
+                    child.Volume = 0
                 end
-                return
-            end
-
-            -- Е) 3D-звуки в Workspace
-            if c == "Sound" and obj:IsDescendantOf(workspace) then
-                obj.Volume = 0
-                return
-            end
-
-            -- Є) Круги радіусу веж
-            local name = obj.Name:lower()
-            if name:find("rangecircle") then
-                if obj:IsA("BasePart") then
-                    obj.Transparency = 1
-                elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                    obj.Transparency = 1
-                end
-            end
+            end)
         end)
     end
 
-    -- 4. Первинне очищення та фільтр нових часток
     pcall(function()
-        for _, desc in ipairs(workspace:GetDescendants()) do
-            cleanVisuals(desc)
+        local g = workspace:FindFirstChild("Game")
+        if g then
+            bindCombatVFX(g:FindFirstChild("Effects"))
+            bindCombatVFX(g:FindFirstChild("VFX"))
+            bindCombatVFX(g:FindFirstChild("Projectiles"))
         end
+        bindCombatVFX(workspace:FindFirstChild("Effects"))
+        bindCombatVFX(workspace:FindFirstChild("VFX"))
+        bindCombatVFX(workspace:FindFirstChild("Projectiles"))
     end)
 
-    workspace.DescendantAdded:Connect(cleanVisuals)
-
-    -- 5. Фонова зачистка Debris кожні 4 секунди
+    -- 4. Періодична зачистка сміття (Debris) раз на 5 секунд
     task.spawn(function()
-        while task.wait(4) do
+        while task.wait(5) do
             pcall(function()
                 local debris = workspace:FindFirstChild("Debris")
                 if debris then
@@ -231,21 +174,8 @@ task.spawn(function()
         end
     end)
 
-    -- 6. Прозорий лічильник FPS (чорний текст)
+    -- 5. Компактний прозорий лічильник FPS (чорний текст)
     pcall(function()
-        local renderEnabled = true
-        local function toggle3D()
-            renderEnabled = not renderEnabled
-            RunService:Set3dRenderingEnabled(renderEnabled)
-            return renderEnabled
-        end
-
-        UserInputService.InputBegan:Connect(function(input, processed)
-            if not processed and input.KeyCode == Enum.KeyCode.F2 then
-                toggle3D()
-            end
-        end)
-
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         if pgui then
             local screen = Instance.new("ScreenGui")
@@ -254,10 +184,10 @@ task.spawn(function()
             screen.DisplayOrder = 999999
             pcall(function() screen.Parent = (gethui and gethui()) or pgui end)
 
-            local fpsLabel = Instance.new("TextButton")
+            local fpsLabel = Instance.new("TextLabel")
             fpsLabel.Name = "FPSDisplay"
-            fpsLabel.Size = UDim2.new(0, 65, 0, 24)
-            fpsLabel.Position = UDim2.new(1, -75, 0, 8)
+            fpsLabel.Size = UDim2.new(0, 60, 0, 20)
+            fpsLabel.Position = UDim2.new(1, -70, 0, 8)
             fpsLabel.BackgroundTransparency = 1
             fpsLabel.BorderSizePixel = 0
             fpsLabel.Text = "60 FPS"
@@ -281,20 +211,10 @@ task.spawn(function()
                 local delta = now - lastTime
                 if delta >= 0.5 then
                     local currentFPS = math.clamp(math.round(frameCount / delta), 0, 120)
-                    if renderEnabled then
-                        fpsLabel.Text = tostring(currentFPS) .. " FPS"
-                        fpsLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
-                    else
-                        fpsLabel.Text = "⚡ 3D OFF"
-                        fpsLabel.TextColor3 = Color3.fromRGB(200, 30, 30)
-                    end
+                    fpsLabel.Text = tostring(currentFPS) .. " FPS"
                     frameCount = 0
                     lastTime = now
                 end
-            end)
-
-            fpsLabel.MouseButton1Click:Connect(function()
-                toggle3D()
             end)
         end
     end)
