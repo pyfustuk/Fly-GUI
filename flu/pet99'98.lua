@@ -66,7 +66,83 @@ local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub + Автоналаштування оптимізації
+-- ЧАСТИНА 0.8: ГЛУШІННЯ СПАМУ В ЛОГ ("bulk, table: 0x..., nil")
+-- ============================================================
+pcall(function()
+    local function isBulkSpam(...)
+        local n = select("#", ...)
+        if n > 0 then
+            local first = select(1, ...)
+            if first == "bulk" or (type(first) == "string" and first:lower():find("bulk")) then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- 1. Exploit середовище
+    if getgenv then
+        local g = getgenv()
+        if g.print then
+            local origP = g.print
+            g.print = function(...)
+                if isBulkSpam(...) then return end
+                return origP(...)
+            end
+        end
+        if g.warn then
+            local origW = g.warn
+            g.warn = function(...)
+                if isBulkSpam(...) then return end
+                return origW(...)
+            end
+        end
+    end
+
+    -- 2. Середовище клієнтських скриптів гри Roblox (getrenv)
+    if getrenv then
+        local r = getrenv()
+        if r.print then
+            local origRP = r.print
+            r.print = function(...)
+                if isBulkSpam(...) then return end
+                return origRP(...)
+            end
+        end
+        if r.warn then
+            local origRW = r.warn
+            r.warn = function(...)
+                if isBulkSpam(...) then return end
+                return origRW(...)
+            end
+        end
+    end
+
+    -- 3. Хук функцій виводу (якщо підтримується експлойтом)
+    if hookfunction then
+        if print then
+            pcall(function()
+                local oldP
+                oldP = hookfunction(print, function(...)
+                    if isBulkSpam(...) then return end
+                    return oldP(...)
+                end)
+            end)
+        end
+        if warn then
+            pcall(function()
+                local oldW
+                oldW = hookfunction(warn, function(...)
+                    if isBulkSpam(...) then return end
+                    return oldW(...)
+                end)
+            end)
+        end
+    end
+end)
+
+-- ============================================================
+-- ЧАСТИНА 1: Завантажувач Kero Hub + Оптимізація без приховування мобів
 -- ============================================================
 task.spawn(function()
     task.wait(1.5)
@@ -83,7 +159,7 @@ task.spawn(function()
     end
 end)
 
--- Автоматичне ввімкнення оптимізації Kero Hub одразу після завантаження
+-- Налаштування Kero Hub: режим Normal (МОБИ ТА ЮНІТИ ЗАЛИШАЮТЬСЯ ВИДИМИМИ!)
 task.spawn(function()
     local attempts = 0
     while attempts < 35 do
@@ -97,7 +173,7 @@ task.spawn(function()
                 if s then
                     s.FPSBoost = true
                     s.RemoveVisuals = true
-                    s.VisualMethod = "Full (For Afk)"
+                    s.VisualMethod = "Normal" -- СУВОРО "Normal", щоб бачити куди ставити юнітів!
                 end
             end)
             break
@@ -106,18 +182,11 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 1.5: ГЛИБОКА БЕЗПЕЧНА ОПТИМІЗАЦІЯ FPS (ЦІЛЬОВИЙ ФІКС ПРИЦІЛЮВАННЯ ТА СМЕРТІ МОБІВ)
---
--- ВИРІШЕННЯ ГОЛОВНИХ ПРОБЛЕМ:
--- 1. Лаги при наведенні (Aiming / Targeting Lag):
---    - Повне блокування Highlight (контурів), які активуються при наведенні на туалети
---    - Відключення променів прицілювання (Beams / Trails) та кружечків радіусу (RangeCircles)
---    - Глушіння важких 3D-хелсбарів та маркерів цілей (BillboardGui) над туалетами
--- 2. Фрізи при смерті туалетів (Kill / Death Ragdoll Freeze):
---    - Миттєва деактивація регдолу та фізики при Humanoid.Died (Anchored = true, CanCollide = false)
---    - Миттєве приховування трупа (Transparency = 1), щоб GPU не малював уламки
---    - НУЛЬ викликів :Destroy() під час смерті, що гарантує 0 червоних помилок у Workspace!
--- 3. Мобільна кнопка [⚡ 3D OFF] для повного відключення 3D-рендеру під час AFK
+-- ЧАСТИНА 1.5: ОПТИМІЗАЦІЯ FPS ДЛЯ ЗАПИСУ МАКРОСУ ТА ГРИ
+-- 1. МОБИ ТА ЮНІТИ 100% ВИДИМІ (видимі моделі, текстури, анімації).
+-- 2. Вимкнено суто важкі контури Highlight при наведенні (джерело лагів 1-5 хвиль).
+-- 3. При смерті туалетів регдол миттєво заякорюється (Anchored = true), що прибирає фрізи фізики.
+-- 4. Компактний прозорий лічильник FPS чорним текстом у кутку екрану.
 -- ============================================================
 task.spawn(function()
     task.wait(1.2)
@@ -157,12 +226,12 @@ task.spawn(function()
         end
     end)
 
-    -- 3. Функція нейтралізації суто візуальних ефектів прицілювання та бою
+    -- 3. Глушіння суто важких спецефектів (МОДЕЛІ МОБІВ НЕ ЧІПАЄМО!)
     local function cleanVisuals(obj)
         pcall(function()
             local c = obj.ClassName
 
-            -- А) Підсвічування контурів при наведенні (головний вбивця FPS на Android Mali/Adreno)
+            -- А) Highlight (контур наведення на туалет — головна причина лагів на 1-5 хвилях)
             if c == "Highlight" then
                 obj.Enabled = false
                 obj.Adornee = nil
@@ -177,7 +246,7 @@ task.spawn(function()
                 return
             end
 
-            -- Б) Лазерні промені прицілювання юнітів
+            -- Б) Лазери прицілювання та трейли куль
             if c == "Beam" or c == "Trail" then
                 obj.Enabled = false
                 pcall(function() obj.Texture = "" end)
@@ -195,23 +264,22 @@ task.spawn(function()
                 return
             end
 
-            -- Г) Динамічні джерела світла від пострілів
+            -- Г) Світло від пострілів
             if c == "PointLight" or c == "SpotLight" or c == "SurfaceLight" then
                 obj.Enabled = false
                 return
             end
 
-            -- Д) Спливаючі хелсбари, маркер цілі та цифри урону над туалетами
+            -- Д) Спливаючий текст урону (damage numbers)
             if c == "BillboardGui" then
-                local p = obj.Parent
-                local isPlayer = p and Players:GetPlayerFromCharacter(p) or (p and p.Parent and Players:GetPlayerFromCharacter(p.Parent))
-                if not isPlayer then
+                local name = obj.Name:lower()
+                if name:find("damage") or name:find("indicator") or name:find("hit") or name:find("popup") then
                     obj.Enabled = false
                 end
                 return
             end
 
-            -- Е) 3D-звуки пострілів та вибухів
+            -- Е) 3D-звуки вибухів у Workspace
             if c == "Sound" and obj:IsDescendantOf(workspace) then
                 obj.Volume = 0
                 return
@@ -230,7 +298,7 @@ task.spawn(function()
         end)
     end
 
-    -- 4. Нейтралізація фрізів при смерті мобів (Регдол + фізика)
+    -- 4. Запобігання фрізам при смерті туалетів (заморозка регдолу)
     local function freezeCorpse(model)
         task.defer(function()
             for _, desc in ipairs(model:GetDescendants()) do
@@ -285,7 +353,6 @@ task.spawn(function()
         end
     end
 
-    -- Прив'язка відстеження смерті до папки Enemies
     local function bindEnemiesFolder(folder)
         if not folder then return end
         for _, child in ipairs(folder:GetChildren()) do
@@ -317,7 +384,6 @@ task.spawn(function()
         end
     end)
 
-    -- 5. Первинна зачистка ефектів у Workspace та підписка на нові
     pcall(function()
         for _, desc in ipairs(workspace:GetDescendants()) do
             cleanVisuals(desc)
@@ -328,7 +394,7 @@ task.spawn(function()
         cleanVisuals(obj)
     end)
 
-    -- 6. Фонова періодична зачистка сміття (Debris)
+    -- Періодична зачистка сміття (Debris)
     task.spawn(function()
         while task.wait(3) do
             pcall(function()
@@ -340,7 +406,7 @@ task.spawn(function()
         end
     end)
 
-    -- 7. Мобільна сенсорна кнопка [⚡ 3D OFF] + Гаряча клавіша [F2]
+    -- 5. Компактний прозорий лічильник FPS (чорний текст)
     pcall(function()
         local renderEnabled = true
         local function toggle3D()
@@ -349,56 +415,65 @@ task.spawn(function()
             return renderEnabled
         end
 
-        -- Клавіша F2 для ПК
         UserInputService.InputBegan:Connect(function(input, processed)
             if not processed and input.KeyCode == Enum.KeyCode.F2 then
                 toggle3D()
             end
         end)
 
-        -- Кнопка для сенсорних телефонів у верхньому правому кутку
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         if pgui then
             local screen = Instance.new("ScreenGui")
-            screen.Name = "CameraTD_MobileOptimizer"
+            screen.Name = "CameraTD_FPSMeter"
             screen.ResetOnSpawn = false
             screen.DisplayOrder = 999999
             pcall(function() screen.Parent = (gethui and gethui()) or pgui end)
 
-            local btn = Instance.new("TextButton")
-            btn.Name = "Toggle3D"
-            btn.Size = UDim2.new(0, 84, 0, 32)
-            btn.Position = UDim2.new(1, -94, 0, 10)
-            btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-            btn.BackgroundTransparency = 0.2
-            btn.BorderSizePixel = 0
-            btn.Text = "⚡ 3D: ON"
-            btn.TextColor3 = Color3.fromRGB(0, 255, 160)
-            btn.TextSize = 12
-            btn.Font = Enum.Font.GothamBold
-            btn.Parent = screen
+            -- Повністю прозора підкладка, видно лише чорні цифри
+            local fpsLabel = Instance.new("TextButton")
+            fpsLabel.Name = "FPSDisplay"
+            fpsLabel.Size = UDim2.new(0, 65, 0, 24)
+            fpsLabel.Position = UDim2.new(1, -75, 0, 8)
+            fpsLabel.BackgroundTransparency = 1
+            fpsLabel.BorderSizePixel = 0
+            fpsLabel.Text = "60 FPS"
+            fpsLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+            fpsLabel.TextSize = 13
+            fpsLabel.Font = Enum.Font.GothamBold
+            fpsLabel.Parent = screen
 
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 8)
-            corner.Parent = btn
-
+            -- Легка тонка обводка, щоб чорний текст чудово читався на будь-якому фоні
             local stroke = Instance.new("UIStroke")
-            stroke.Color = Color3.fromRGB(0, 255, 160)
-            stroke.Thickness = 1.2
+            stroke.Color = Color3.fromRGB(255, 255, 255)
+            stroke.Thickness = 0.8
             stroke.Transparency = 0.4
-            stroke.Parent = btn
+            stroke.Parent = fpsLabel
 
-            btn.MouseButton1Click:Connect(function()
-                local state = toggle3D()
-                if state then
-                    btn.Text = "⚡ 3D: ON"
-                    btn.TextColor3 = Color3.fromRGB(0, 255, 160)
-                    stroke.Color = Color3.fromRGB(0, 255, 160)
-                else
-                    btn.Text = "⚡ 3D: OFF"
-                    btn.TextColor3 = Color3.fromRGB(255, 80, 80)
-                    stroke.Color = Color3.fromRGB(255, 80, 80)
+            -- Точний розрахунок FPS у реальному часі
+            local frameCount = 0
+            local lastTime = os.clock()
+
+            RunService.RenderStepped:Connect(function()
+                frameCount = frameCount + 1
+                local now = os.clock()
+                local delta = now - lastTime
+                if delta >= 0.5 then
+                    local currentFPS = math.clamp(math.round(frameCount / delta), 0, 120)
+                    if renderEnabled then
+                        fpsLabel.Text = tostring(currentFPS) .. " FPS"
+                        fpsLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+                    else
+                        fpsLabel.Text = "⚡ 3D OFF"
+                        fpsLabel.TextColor3 = Color3.fromRGB(200, 30, 30)
+                    end
+                    frameCount = 0
+                    lastTime = now
                 end
+            end)
+
+            -- За бажанням: натискання на цифри FPS перемикає 3D для AFK
+            fpsLabel.MouseButton1Click:Connect(function()
+                toggle3D()
             end)
         end
     end)
