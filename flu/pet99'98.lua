@@ -398,65 +398,102 @@ local function getInMatchCash()
     return 0
 end
 
--- Зчитування юнітів в інвентарі та екіпіруванні
+-- Кеш юнітів для безперервного відображення на сайті
+local CachedInventoryUnits = {}
+
+-- Зчитування юнітів в інвентарі та екіпіруванні з усіх доступних джерел
 local function getInventoryUnits()
     local hub = getHub()
     local unitsMap = {}
+    local foundAny = false
 
-    if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" then
-        for id, tower in pairs(hub.InventoryData.Towers) do
-            if type(tower) == "table" and type(tower.Name) == "string" then
-                local name = tower.Name
-                local isEq = (tonumber(tower.Equipped) or 0) > 0
-                if not unitsMap[name] then
-                    unitsMap[name] = { Name = name, Count = 0, Equipped = false }
-                end
-                unitsMap[name].Count = unitsMap[name].Count + 1
-                if isEq then unitsMap[name].Equipped = true end
-            end
+    local function addUnit(name, count, isEquipped)
+        if not name or type(name) ~= "string" or #name < 2 then return end
+        name = name:match("^%s*(.-)%s*$")
+        if not name or name == "" or name:lower() == "empty" or name:lower() == "none" or name:lower() == "locked" then return end
+        local lower = name:lower()
+        if lower == "template" or lower == "holder" or lower == "frame" or lower == "slot" or lower == "button" or lower == "title" or lower == "label" then
+            return
         end
+
+        count = math.max(1, tonumber(count) or 1)
+        if not unitsMap[name] then
+            unitsMap[name] = { Name = name, Count = count, Equipped = isEquipped or false }
+        else
+            unitsMap[name].Count = unitsMap[name].Count + count
+            if isEquipped then unitsMap[name].Equipped = true end
+        end
+        foundAny = true
     end
 
+    -- 1. Спроба з Kero Hub Units
     if hub and hub.Units and type(hub.Units) == "table" then
         for id, u in pairs(hub.Units) do
-            if type(u) == "table" and type(u.Name) == "string" then
-                local name = u.Name
-                local isEq = (tonumber(u.Equipped) or 0) > 0
-                if not unitsMap[name] then
-                    unitsMap[name] = { Name = name, Count = 1, Equipped = isEq }
-                else
-                    if isEq then unitsMap[name].Equipped = true end
-                end
-            end
+            local uName = (type(u) == "table" and (u.Name or u.UnitName or u.TowerName or u.Type or u.Tower)) or (type(u) == "string" and u)
+            local isEq = (type(u) == "table" and (tonumber(u.Equipped) or 0) > 0)
+            addUnit(uName, 1, isEq)
         end
     end
 
+    -- 2. Спроба з Kero Hub InventoryData.Towers
+    if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" then
+        for id, tower in pairs(hub.InventoryData.Towers) do
+            local tName = (type(tower) == "table" and (tower.Name or tower.TowerName or tower.Unit or tower.Type or tower.Tower)) or (type(tower) == "string" and tower)
+            local isEq = (type(tower) == "table" and (tonumber(tower.Equipped) or 0) > 0)
+            addUnit(tName, 1, isEq)
+        end
+    end
+
+    -- 3. Спроба з PlayerGui GameUI Hotbar (екіпіровані юніти внизу екрана)
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
-        local bottom = pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Bottom")
-        local hotbar = bottom and (bottom:FindFirstChild("Hotbar") or bottom:FindFirstChild("Units") or bottom:FindFirstChild("Towers"))
-        if hotbar then
-            for _, slot in ipairs(hotbar:GetChildren()) do
-                local title = slot:FindFirstChild("Title") or slot:FindFirstChild("UnitName")
-                if title and title:IsA("TextLabel") and title.Text ~= "" and title.Text ~= "Empty" then
-                    local name = title.Text:match("^%s*(.-)%s*$")
-                    if name and #name > 1 then
-                        if not unitsMap[name] then
-                            unitsMap[name] = { Name = name, Count = 1, Equipped = true }
-                        else
-                            unitsMap[name].Equipped = true
+        local gameUI = pgui:FindFirstChild("GameUI")
+        if gameUI then
+            local bottom = gameUI:FindFirstChild("Bottom")
+            local hotbar = bottom and (bottom:FindFirstChild("Hotbar") or bottom:FindFirstChild("Units") or bottom:FindFirstChild("Towers"))
+            if hotbar then
+                for _, slot in ipairs(hotbar:GetChildren()) do
+                    if slot:IsA("GuiObject") then
+                        for _, desc in ipairs(slot:GetDescendants()) do
+                            if desc:IsA("TextLabel") and desc.Text ~= "" and desc.Visible then
+                                local txt = desc.Text:match("^%s*(.-)%s*$")
+                                if txt and #txt >= 3 and not txt:find("^%d+$") and not txt:lower():find("equipped") and not txt:lower():find("cost") and not txt:find("%$") then
+                                    addUnit(txt, 1, true)
+                                    break
+                                end
+                            end
                         end
+                    end
+                end
+            end
+        end
+
+        -- 3.2 Inventory Frame в Main
+        local mainGui = pgui:FindFirstChild("Main")
+        if mainGui then
+            for _, desc in ipairs(mainGui:GetDescendants()) do
+                if desc:IsA("Frame") and (desc.Name:lower():find("troop") or desc.Name:lower():find("tower") or desc.Name:lower():find("unit")) then
+                    local title = desc:FindFirstChild("Title") or desc:FindFirstChild("UnitName") or desc:FindFirstChild("NameLabel")
+                    if title and title:IsA("TextLabel") and title.Text ~= "" then
+                        addUnit(title.Text, 1, false)
                     end
                 end
             end
         end
     end
 
-    local list = {}
-    for _, item in pairs(unitsMap) do
-        table.insert(list, item)
+    -- 4. Перевірка кешу: зберігаємо знайдені юніти, щоб вони ніколи не зникали
+    local result = {}
+    if foundAny then
+        for _, item in pairs(unitsMap) do
+            table.insert(result, item)
+        end
+        CachedInventoryUnits = result
+    elseif #CachedInventoryUnits > 0 then
+        result = CachedInventoryUnits
     end
-    return list
+
+    return result
 end
 
 -- Зчитування поточної хвилі
