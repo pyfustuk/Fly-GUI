@@ -652,7 +652,7 @@ pcall(function()
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
                 InventoryTowers = getInventoryUnits(),
-                Version = "v4.6 (Kero Admin Cloud)"
+                Version = "v4.8 (Kero Admin Cloud)"
             }
             pushUpdate(kickData)
         end
@@ -744,7 +744,7 @@ task.spawn(function()
                 SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots,
         InventoryTowers = getInventoryUnits(),
-                Version = "v4.6 (Kero Admin Cloud)"
+                Version = "v4.8 (Kero Admin Cloud)"
     }
     pushUpdate(initialData)
 end)
@@ -852,7 +852,7 @@ task.spawn(function()
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
                 InventoryTowers = getInventoryUnits(),
-                Version = "v4.6 (Kero Admin Cloud)"
+                Version = "v4.8 (Kero Admin Cloud)"
             }
 
             pushUpdate(exportData)
