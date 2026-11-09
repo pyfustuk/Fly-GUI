@@ -398,6 +398,42 @@ local function getInMatchCash()
     return 0
 end
 
+-- ============================================================
+-- ЧАСТИНА 2.1: ВАЛІДАЦІЯ ТА ЗЧИТУВАННЯ ІНВЕНТАРЯ ЮНІТІВ (БЕЗ ФАНТОМІВ)
+-- ============================================================
+local UI_BLACKLIST = {
+    ["template"] = true, ["holder"] = true, ["frame"] = true, ["slot"] = true,
+    ["button"] = true, ["title"] = true, ["label"] = true, ["equipped"] = true,
+    ["cost"] = true, ["locked"] = true, ["sell"] = true, ["upgrade"] = true,
+    ["select"] = true, ["empty"] = true, ["none"] = true, ["buy"] = true,
+    ["price"] = true, ["unit"] = true, ["units"] = true, ["tower"] = true,
+    ["towers"] = true, ["level"] = true, ["lvl"] = true, ["damage"] = true,
+    ["range"] = true, ["cooldown"] = true, ["dps"] = true, ["stats"] = true,
+    ["coins"] = true, ["gems"] = true, ["money"] = true, ["inventory"] = true,
+    ["shop"] = true, ["gameui"] = true, ["hud"] = true, ["main"] = true,
+    ["troops"] = true, ["close"] = true, ["otherui"] = true, ["statsui"] = true,
+    ["amountlabel"] = true, ["currencyframe"] = true, ["currencies"] = true,
+    ["cash"] = true, ["gold"] = true, ["diamond"] = true, ["diamonds"] = true,
+    ["troop"] = true, ["equip"] = true, ["unequip"] = true, ["speed"] = true,
+    ["skip"] = true, ["auto"] = true, ["autoplace"] = true, ["autoupgrade"] = true,
+    ["menu"] = true, ["back"] = true, ["closebutton"] = true, ["icon"] = true,
+    ["background"] = true, ["container"] = true, ["list"] = true, ["grid"] = true,
+    ["item"] = true, ["items"] = true, ["page"] = true, ["next"] = true, ["prev"] = true
+}
+
+local function isValidUnitName(name)
+    if not name or type(name) ~= "string" then return false end
+    name = name:match("^%s*(.-)%s*$")
+    if #name < 3 or #name > 50 then return false end
+    if name:find("^%d+$") or name:find("^%$") or name:find("^%d+%$") then return false end
+    local clean = name:lower():gsub("[^%a%d]", "")
+    if UI_BLACKLIST[clean] or UI_BLACKLIST[name:lower()] then
+        return false
+    end
+    if name:match("^%$%d") or name:match("^[Ll][Vv][Ll]%s*%d") then return false end
+    return true
+end
+
 -- Кеш юнітів для безперервного відображення на сайті
 local CachedInventoryUnits = {}
 
@@ -408,14 +444,8 @@ local function getInventoryUnits()
     local foundAny = false
 
     local function addUnit(name, count, isEquipped)
-        if not name or type(name) ~= "string" or #name < 2 then return end
+        if not isValidUnitName(name) then return end
         name = name:match("^%s*(.-)%s*$")
-        if not name or name == "" or name:lower() == "empty" or name:lower() == "none" or name:lower() == "locked" then return end
-        local lower = name:lower()
-        if lower == "template" or lower == "holder" or lower == "frame" or lower == "slot" or lower == "button" or lower == "title" or lower == "label" then
-            return
-        end
-
         count = math.max(1, tonumber(count) or 1)
         if not unitsMap[name] then
             unitsMap[name] = { Name = name, Count = count, Equipped = isEquipped or false }
@@ -426,16 +456,7 @@ local function getInventoryUnits()
         foundAny = true
     end
 
-    -- 1. Спроба з Kero Hub Units
-    if hub and hub.Units and type(hub.Units) == "table" then
-        for id, u in pairs(hub.Units) do
-            local uName = (type(u) == "table" and (u.Name or u.UnitName or u.TowerName or u.Type or u.Tower)) or (type(u) == "string" and u)
-            local isEq = (type(u) == "table" and (tonumber(u.Equipped) or 0) > 0)
-            addUnit(uName, 1, isEq)
-        end
-    end
-
-    -- 2. Спроба з Kero Hub InventoryData.Towers
+    -- 1. Спроба з Kero Hub InventoryData.Towers (Найточніше офіційне джерело інвентаря)
     if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" then
         for id, tower in pairs(hub.InventoryData.Towers) do
             local tName = (type(tower) == "table" and (tower.Name or tower.TowerName or tower.Unit or tower.Type or tower.Tower)) or (type(tower) == "string" and tower)
@@ -444,7 +465,29 @@ local function getInventoryUnits()
         end
     end
 
-    -- 3. Спроба з PlayerGui GameUI Hotbar (екіпіровані юніти внизу екрана)
+    -- 2. Спроба з Kero Hub Units
+    if hub and hub.Units and type(hub.Units) == "table" then
+        for id, u in pairs(hub.Units) do
+            local uName = (type(u) == "table" and (u.Name or u.UnitName or u.TowerName or u.Type or u.Tower)) or (type(u) == "string" and u)
+            local isEq = (type(u) == "table" and (tonumber(u.Equipped) or 0) > 0)
+            addUnit(uName, 1, isEq)
+        end
+    end
+
+    -- 3. Спроба з Kero Hub Equipped()
+    if hub and type(hub.Equipped) == "function" then
+        pcall(function()
+            local eqList = hub.Equipped()
+            if type(eqList) == "table" then
+                for _, eqU in ipairs(eqList) do
+                    local eqName = (type(eqU) == "table" and eqU.Name) or (type(eqU) == "string" and eqU)
+                    addUnit(eqName, 1, true)
+                end
+            end
+        end)
+    end
+
+    -- 4. Спроба з PlayerGui GameUI Hotbar (екіпіровані юніти внизу екрана в бою)
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     if pgui then
         local gameUI = pgui:FindFirstChild("GameUI")
@@ -457,7 +500,7 @@ local function getInventoryUnits()
                         for _, desc in ipairs(slot:GetDescendants()) do
                             if desc:IsA("TextLabel") and desc.Text ~= "" and desc.Visible then
                                 local txt = desc.Text:match("^%s*(.-)%s*$")
-                                if txt and #txt >= 3 and not txt:find("^%d+$") and not txt:lower():find("equipped") and not txt:lower():find("cost") and not txt:find("%$") then
+                                if isValidUnitName(txt) then
                                     addUnit(txt, 1, true)
                                     break
                                 end
@@ -467,22 +510,17 @@ local function getInventoryUnits()
                 end
             end
         end
-
-        -- 3.2 Inventory Frame в Main
-        local mainGui = pgui:FindFirstChild("Main")
-        if mainGui then
-            for _, desc in ipairs(mainGui:GetDescendants()) do
-                if desc:IsA("Frame") and (desc.Name:lower():find("troop") or desc.Name:lower():find("tower") or desc.Name:lower():find("unit")) then
-                    local title = desc:FindFirstChild("Title") or desc:FindFirstChild("UnitName") or desc:FindFirstChild("NameLabel")
-                    if title and title:IsA("TextLabel") and title.Text ~= "" then
-                        addUnit(title.Text, 1, false)
-                    end
-                end
-            end
-        end
     end
 
-    -- 4. Перевірка кешу: зберігаємо знайдені юніти, щоб вони ніколи не зникали
+    -- 5. Фільтрація кешу: видаляємо всі старі фантомні записи
+    local cleanCache = {}
+    for _, item in ipairs(CachedInventoryUnits) do
+        if isValidUnitName(item.Name) then
+            table.insert(cleanCache, item)
+        end
+    end
+    CachedInventoryUnits = cleanCache
+
     local result = {}
     if foundAny then
         for _, item in pairs(unitsMap) do
@@ -597,8 +635,14 @@ local function markActivitySlot(statusType)
     local key = tostring(dayIdx) .. "_" .. tostring(slotIdx)
     if Session.IsKicked then
         Session.ActivitySlots[key] = "red"
+    elseif Session.IsAFK then
+        if Session.ActivitySlots[key] ~= "red" then
+            Session.ActivitySlots[key] = "yellow"
+        end
     else
-        Session.ActivitySlots[key] = statusType
+        if Session.ActivitySlots[key] ~= "red" then
+            Session.ActivitySlots[key] = statusType or "green"
+        end
     end
 end
 
@@ -651,48 +695,60 @@ local function pushUpdate(data)
     end
 end
 
--- 5. Детекція кіків
+-- 5. Комплексна детекція кіків, помилок з'єднання та вильотів
+local function handleKickDetected(reason)
+    if Session.IsKicked then return end
+    Session.IsKicked = true
+    Session.KickReason = tostring(reason or "Від'єднано від сервера Roblox")
+    Session.Status = "🔴 ВИЛІТ: " .. Session.KickReason
+    markActivitySlot("red")
+
+    local kickData = {
+        PlayerName = LocalPlayer.Name,
+        DisplayName = LocalPlayer.DisplayName,
+        UserId = LocalPlayer.UserId,
+        CurrentCoins = getAccountCoins(),
+        AccountCoins = getAccountCoins(),
+        AccountGems = getAccountGems(),
+        AccountCandy = getAccountCandy(),
+        InMatchCash = getInMatchCash(),
+        TotalCoinsEarned = Session.TotalCoinsEarned,
+        TotalCandyEarned = Session.TotalCandyEarned,
+        LastRoundCoins = Session.LastRoundCoins or 600,
+        LastRoundCandy = Session.LastRoundCandy or 10,
+        CoinsPerWave = Session.CoinsPerWave or 50,
+        CurrentWave = getCurrentWave(),
+        MapName = (game.PlaceId == 114068177100380 and "Toilet City (Match)") or "Lobby",
+        TotalRounds = Session.TotalRounds,
+        TotalWins = Session.TotalWins,
+        TotalLosses = Session.TotalLosses,
+        Rejoins = Session.Rejoins,
+        UptimeSeconds = getRealUptime(),
+        Status = Session.Status,
+        IsAFK = false,
+        IsKicked = true,
+        KickReason = Session.KickReason,
+        IdleSeconds = os.time() - (Session.LastActionTime or os.time()),
+        LastHeartbeat = os.time(),
+        SessionStartTime = Session.SessionStartTime,
+        ActivitySlots = Session.ActivitySlots,
+        InventoryTowers = getInventoryUnits(),
+        Version = "v5.5 (Kero Admin Cloud)"
+    }
+    pushUpdate(kickData)
+end
+
 pcall(function()
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if msg and msg ~= "" then
-            Session.IsKicked = true
-            Session.Status = "❌ ВИЛІТ / КІК: " .. tostring(msg)
-            markActivitySlot("red")
-            
-            local kickData = {
-                PlayerName = LocalPlayer.Name,
-                DisplayName = LocalPlayer.DisplayName,
-                UserId = LocalPlayer.UserId,
-                CurrentCoins = getAccountCoins(),
-                AccountCoins = getAccountCoins(),
-                AccountGems = getAccountGems(),
-                AccountCandy = getAccountCandy(),
-                InMatchCash = getInMatchCash(),
-                TotalCoinsEarned = Session.TotalCoinsEarned,
-                TotalCandyEarned = Session.TotalCandyEarned,
-                LastRoundCoins = Session.LastRoundCoins or 600,
-                LastRoundCandy = Session.LastRoundCandy or 10,
-                CoinsPerWave = Session.CoinsPerWave or 50,
-                CurrentWave = getCurrentWave(),
-                MapName = (game.PlaceId == 114068177100380 and "Toilet City (Match)") or "Lobby",
-                TotalRounds = Session.TotalRounds,
-                TotalWins = Session.TotalWins,
-                TotalLosses = Session.TotalLosses,
-                Rejoins = Session.Rejoins,
-                UptimeSeconds = getRealUptime(),
-                Status = Session.Status,
-                IsAFK = false,
-                IsKicked = true,
-                IdleSeconds = os.time() - (Session.LastActionTime or os.time()),
-                LastHeartbeat = os.time(),
-                UptimeSeconds = getRealUptime(),
-                SessionStartTime = Session.SessionStartTime,
-                ActivitySlots = Session.ActivitySlots,
-                InventoryTowers = getInventoryUnits(),
-                Version = "v4.8 (Kero Admin Cloud)"
-            }
-            pushUpdate(kickData)
+            handleKickDetected(msg)
         end
+    end)
+end)
+
+pcall(function()
+    TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
+        handleKickDetected("Teleport Failed: " .. tostring(errorMessage))
     end)
 end)
 
@@ -781,7 +837,7 @@ task.spawn(function()
                 SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots,
         InventoryTowers = getInventoryUnits(),
-                Version = "v4.8 (Kero Admin Cloud)"
+                Version = "v5.3 (Kero Admin Cloud)"
     }
     pushUpdate(initialData)
 end)
@@ -828,12 +884,41 @@ task.spawn(function()
             Session.LastActionTime = now
         end
 
+        -- Миттєва перевірка діалогових вікон помилок Roblox
+        if not Session.IsKicked then
+            pcall(function()
+                local err = GuiService:GetErrorMessage()
+                if err and err ~= "" then
+                    handleKickDetected(err)
+                end
+            end)
+            pcall(function()
+                local coreGui = game:GetService("CoreGui")
+                local prompt = coreGui:FindFirstChild("RobloxPromptGui")
+                local overlay = prompt and prompt:FindFirstChild("promptOverlay")
+                if overlay then
+                    local title = overlay:FindFirstChild("ErrorTitle") or overlay:FindFirstChild("Title")
+                    local msg = overlay:FindFirstChild("ErrorMessage") or overlay:FindFirstChild("Message")
+                    if title and title.Visible then
+                        local reason = (title.Text or "Error") .. ": " .. (msg and msg.Text or "")
+                        handleKickDetected(reason)
+                    end
+                end
+            end)
+        end
+
         local idleSeconds = now - (Session.LastActionTime or now)
-        local isAFK = (idleSeconds > 180)
+        local isAFK = (idleSeconds > 150)
+        Session.IsAFK = isAFK
 
         local statusText = "🟢 В мережі"
         if Session.IsKicked then
             statusText = Session.Status
+            markActivitySlot("red")
+        elseif isAFK then
+            local mins = math.floor(idleSeconds / 60)
+            statusText = "🟡 AFK: Без руху (" .. tostring(mins) .. " хв)"
+            markActivitySlot("yellow")
         elseif inMatch then
             statusText = "🟢 У бою: Хвиля " .. tostring(curWave > 0 and curWave or 1)
             markActivitySlot("green")
@@ -883,13 +968,14 @@ task.spawn(function()
                 Status = statusText,
                 IsAFK = isAFK,
                 IsKicked = Session.IsKicked,
+                KickReason = Session.KickReason or "",
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
                 UptimeSeconds = getRealUptime(),
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
                 InventoryTowers = getInventoryUnits(),
-                Version = "v4.8 (Kero Admin Cloud)"
+                Version = "v5.3 (Kero Admin Cloud)"
             }
 
             pushUpdate(exportData)
