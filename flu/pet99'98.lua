@@ -203,31 +203,7 @@ task.spawn(function()
         pushUpdate(initData)
         print("[Camera TD Cloud] 🚀 Миттєвий стартовий сигнал @ " .. LocalPlayer.Name .. " відправлено в хмару!")
     end
-end) or {
-    SessionStartTime = os.time(),
-    BaseUptime = 0,
-    TotalRounds = 0,
-    TotalWins = 0,
-    TotalLosses = 0,
-    Rejoins = 0,
-    TotalCoinsEarned = 0,
-    TotalCandyEarned = 0,
-    LastRoundCoins = 600,
-    LastRoundCandy = 10,
-    LastRoundWaves = 12,
-    CoinsPerWave = 50,
-    CandyPerWave = 1,
-    ActivitySlots = {},
-    ActionLog = {},
-    MatchStartCoins = nil,
-    MatchStartCandy = nil,
-    LastActionTime = os.time(),
-    IsKicked = false,
-    ScriptDisabled = false,
-    Status = "🔄 Заходить на сервер / Завантаження..."
-}
-Session = genv.__CameraTDSession
-if not Session.ActionLog then Session.ActionLog = {} end
+end)
 
 -- ============================================================
 -- ЧАСТИНА 1: ДИНАМІЧНИЙ ЗАВАНТАЖУВАЧ KERO HUB ТА ХМАРНЕ КЕРУВАННЯ
@@ -956,27 +932,34 @@ end
 -- Хмарний канал
 local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
 
--- Збір списку друзів на сервері
+-- Збір списку друзів на сервері з кешуванням (нуль лагів)
+local _cachedFriends = {}
+local _lastFriendsCheck = 0
 local function getFriendsList()
+    local now = os.time()
+    if #_cachedFriends > 0 and (now - _lastFriendsCheck < 15) then
+        return _cachedFriends
+    end
+    _lastFriendsCheck = now
     local friendsOnServer = {}
     pcall(function()
-        local StarterPlayer = game:GetService("StarterPlayer")
         for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
+            if player and player ~= LocalPlayer then
                 local isFriend = false
                 pcall(function()
                     isFriend = LocalPlayer:IsFriendsWith(player.UserId)
                 end)
                 table.insert(friendsOnServer, {
-                    Name = player.Name,
-                    DisplayName = player.DisplayName,
-                    UserId = player.UserId,
+                    Name = player.Name or "",
+                    DisplayName = player.DisplayName or player.Name or "",
+                    UserId = player.UserId or 0,
                     IsFriend = isFriend,
-                    AvatarUrl = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. tostring(player.UserId) .. "&size=150x150&format=Png"
+                    AvatarUrl = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. tostring(player.UserId or 0) .. "&size=150x150&format=Png"
                 })
             end
         end
     end)
+    _cachedFriends = friendsOnServer
     return friendsOnServer
 end
 
