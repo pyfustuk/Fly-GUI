@@ -133,7 +133,6 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     MatchStartCandy = nil,
     LastActionTime = os.time(),
     IsKicked = false,
-    ScriptDisabled = false,
     Status = "🟢 В мережі / Завантажено"
 }
 Session = genv.__CameraTDSession
@@ -191,7 +190,6 @@ task.spawn(function()
         Status = "🟢 В мережі: Скрипт успішно запущено",
         IsAFK = false,
         IsKicked = false,
-        ScriptDisabled = (Session.ScriptDisabled == true),
         LastHeartbeat = os.time(),
         UptimeSeconds = 0,
         SessionStartTime = os.time(),
@@ -206,16 +204,12 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- ЧАСТИНА 1: ДИНАМІЧНИЙ ЗАВАНТАЖУВАЧ KERO HUB ТА ХМАРНЕ КЕРУВАННЯ
--- (Підтримка дистанційного ввімкнення/вимкнення та Remote Kick Error 277)
+-- ЧАСТИНА 1: ДИНАМІЧНИЙ ЗАВАНТАЖУВАЧ KERO HUB
+-- (Пряме та безвідмовне завантаження Kero Hub)
 -- ============================================================
 local isKeroHubLoaded = false
 
 local function loadKeroHub()
-    if Session and Session.ScriptDisabled then
-        print("[Camera TD] ⛔ Скрипт вимкнено через адмін-панель. Kero Hub заблоковано.")
-        return
-    end
     if isKeroHubLoaded then return end
 
     pcall(function()
@@ -251,88 +245,8 @@ local function loadKeroHub()
     end)
 end
 
-local function unloadKeroHub()
-    -- 1. Вимикаємо всі глобальні прапорці автофарму, авто-старту та макросів
-    pcall(function()
-        local globals = { getgenv and getgenv(), _G }
-        for _, env in ipairs(globals) do
-            if env and type(env) == "table" then
-                env.AutoFarm = false
-                env.AutoStart = false
-                env.AutoSkip = false
-                env.AutoPlace = false
-                env.AutoUpgrade = false
-                env.AutoPlay = false
-                env.MacroEnabled = false
-                env.CameraTD_Disabled = true
-                env.CameraTD_ScriptDisabled = true
-            end
-        end
-    end)
-
-    -- 2. Викликаємо деструктори Kero Hub
-    local hub = getHub()
-    if hub then
-        if hub.Stop then pcall(hub.Stop) end
-        if hub.Unload then pcall(hub.Unload) end
-        if hub.Destroy then pcall(hub.Destroy) end
-    end
-
-    -- 3. Приховуємо та знищуємо ScreenGui у всіх контейнерах
-    pcall(function()
-        local function purgeGui(parent)
-            if not parent then return end
-            for _, gui in ipairs(parent:GetChildren()) do
-                if gui:IsA("ScreenGui") then
-                    local n = gui.Name:lower()
-                    if n:find("kero") or n:find("cameratd") or n:find("windui") or n:find("solara") or n:find("hub") then
-                        gui.Enabled = false
-                        gui:Destroy()
-                    end
-                end
-            end
-        end
-        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-        purgeGui(pgui)
-        if gethui then purgeGui(gethui()) end
-        pcall(function()
-            local coreGui = game:GetService("CoreGui")
-            purgeGui(coreGui)
-        end)
-    end)
-
-    isKeroHubLoaded = false
-    if getgenv then getgenv().CameraTDHub = nil end
-    _G.CameraTDHub = nil
-    print("[Camera TD] 🛑 Скрипт та Kero Hub повністю вимкнено для @ " .. LocalPlayer.Name)
-end
-
--- Локальний файл збереження стану дозволу акаунта
-local ControlPath = Folder .. "/AccountControl.json"
 local processedCmdIds = {}
 local processedCmdIdList = {}
-
-pcall(function()
-    if readfile and isfile and isfile(ControlPath) then
-        local dec = HttpService:JSONDecode(readfile(ControlPath))
-        if dec and type(dec) == "table" then
-            if dec.ScriptDisabled ~= nil then
-                if Session then Session.ScriptDisabled = dec.ScriptDisabled end
-            end
-        end
-    end
-end)
-
-local function saveControlState()
-    if writefile then
-        pcall(function()
-            writefile(ControlPath, HttpService:JSONEncode({
-                ScriptDisabled = Session and Session.ScriptDisabled or false,
-                Updated = os.time()
-            }))
-        end)
-    end
-end
 
 -- Обробка вхідних команд з адмін-панелі сайту
 local function processRemoteCommand(cmd)
@@ -421,46 +335,6 @@ local function processRemoteCommand(cmd)
         return
     end
 
-    -- 2. ДІЯ: ДИСТАНЦІЙНЕ ВВІМКНЕННЯ / ВИМКНЕННЯ СКРИПТА
-    if cmd.action == "set_enabled" or cmd.action == "toggle" or cmd.action == "disable" or cmd.action == "enable" then
-        local enableState = (cmd.enabled == true or cmd.action == "enable")
-        if enableState then
-            print("[Camera TD Remote] 🟢 Скрипт дозволено адміністратором.")
-            if Session then
-                Session.ScriptDisabled = false
-                Session.Status = "🟢 В мережі: Фарм активний"
-            end
-            addActionLog("toggle_script", "Скрипт увімкнено (Kero Hub запущено)")
-            saveControlState()
-            loadKeroHub()
-        else
-            print("[Camera TD Remote] ⛔ Скрипт заблоковано адміністратором. Вимикаємо Kero Hub...")
-            if Session then
-                Session.ScriptDisabled = true
-                Session.Status = "⛔ Скрипт вимкнено в адмін-панелі"
-            end
-            addActionLog("toggle_script", "Скрипт вимкнено (Kero Hub зупинено)")
-            saveControlState()
-            unloadKeroHub()
-        end
-
-        if pushUpdate then
-            pcall(function()
-                pushUpdate({
-                    PlayerName = LocalPlayer.Name,
-                    DisplayName = LocalPlayer.DisplayName,
-                    UserId = LocalPlayer.UserId,
-                    Status = Session.Status,
-                    ScriptDisabled = (Session.ScriptDisabled == true),
-                    IsKicked = (Session.IsKicked == true),
-                    LastHeartbeat = os.time(),
-                    UptimeSeconds = (getRealUptime and getRealUptime()) or 0,
-                    ActionLog = Session.ActionLog or {}
-                })
-            end)
-        end
-        return
-    end
 
     -- 3. ДІЯ: ДИСТАНЦІЙНЕ ПОВНЕ СКАНУВАННЯ ТА ОНОВЛЕННЯ ІНВЕНТАРЯ З ГРИ
     if cmd.action == "refresh_inventory" or cmd.action == "rescan_inventory" then
@@ -539,16 +413,10 @@ task.spawn(function()
     end
 end)
 
--- Авто-запуск Kero Hub через 1.2с якщо не заблоковано в хмарі
+-- Авто-запуск Kero Hub
 task.spawn(function()
-    task.wait(0.6)
-    pcall(pollRemoteCommands)
-    task.wait(0.6)
-    if not (Session and Session.ScriptDisabled) then
-        loadKeroHub()
-    else
-        print("[Camera TD] ⛔ Стартовий стан: заблоковано в адмінці. Kero Hub чекає дозволу.")
-    end
+    task.wait(1.0)
+    loadKeroHub()
 end)
 
 -- ============================================================
@@ -1466,9 +1334,6 @@ task.spawn(function()
         if Session.IsKicked then
             statusText = Session.Status
             markActivitySlot("red")
-        elseif Session.ScriptDisabled then
-            statusText = "⛔ Скрипт вимкнено в адмін-панелі"
-            markActivitySlot("yellow")
         elseif Session.LastMatchResult == "💀 ПОРАЗКА" or (baseHp ~= nil and baseHp <= 0) then
             statusText = "💀 ПОРАЗКА: Базу зруйновано на хвилі " .. tostring(curWave > 0 and curWave or 1)
             markActivitySlot("red")
@@ -1531,7 +1396,6 @@ task.spawn(function()
                 Status = statusText,
                 IsAFK = isAFK,
                 IsKicked = Session.IsKicked,
-                ScriptDisabled = (Session.ScriptDisabled == true),
                 KickReason = Session.KickReason or "",
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
