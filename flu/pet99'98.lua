@@ -266,7 +266,8 @@ end
 
 -- Локальний файл збереження стану дозволу акаунта
 local ControlPath = Folder .. "/AccountControl.json"
-local lastProcessedCmdTimestamp = 0
+local processedCmdIds = {}
+local processedCmdIdList = {}
 
 pcall(function()
     if readfile and isfile and isfile(ControlPath) then
@@ -274,9 +275,6 @@ pcall(function()
         if dec and type(dec) == "table" then
             if dec.ScriptDisabled ~= nil then
                 if Session then Session.ScriptDisabled = dec.ScriptDisabled end
-            end
-            if dec.LastKickTime then
-                lastProcessedCmdTimestamp = dec.LastKickTime
             end
         end
     end
@@ -287,7 +285,6 @@ local function saveControlState()
         pcall(function()
             writefile(ControlPath, HttpService:JSONEncode({
                 ScriptDisabled = Session and Session.ScriptDisabled or false,
-                LastKickTime = lastProcessedCmdTimestamp,
                 Updated = os.time()
             }))
         end)
@@ -297,126 +294,174 @@ end
 -- Обробка вхідних команд з адмін-панелі сайту
 local function processRemoteCommand(cmd)
     if not cmd or type(cmd) ~= "table" then return end
-    local target = tostring(cmd.target or ""):lower()
+
+    -- 1. ДЕДУПЛІКАЦІЯ ЗА УНІКАЛЬНИМ COMMAND ID (без помилкових відхилень за годинником)
+    local cmdId = cmd.id or (tostring(cmd.action) .. "_" .. tostring(cmd.timestamp) .. "_" .. tostring(cmd.target))
+    if processedCmdIds[cmdId] then
+        return
+    end
+    processedCmdIds[cmdId] = true
+    table.insert(processedCmdIdList, cmdId)
+    if #processedCmdIdList > 200 then
+        local oldId = table.remove(processedCmdIdList, 1)
+        processedCmdIds[oldId] = nil
+    end
+
+    -- 2. ТОЧНА ТА ГНУЧКА ПЕРЕВІРКА ЦІЛІ (UserName, DisplayName, UserId, "all")
+    local rawTarget = tostring(cmd.target or cmd.targetName or "all")
+    local target = rawTarget:gsub("^@", ""):lower():match("^%s*(.-)%s*$") or ""
+    local targetId = tostring(cmd.targetUserId or "")
+
     local myName = LocalPlayer.Name:lower()
-    local myId = tostring(LocalPlayer.UserId)
+    local myDisplayName = LocalPlayer.DisplayName:lower()
+    local myUserId = tostring(LocalPlayer.UserId)
 
-    if target ~= myName and target ~= myId and target ~= "all" then
+    local isForMe = false
+    if target == "" or target == "all" then
+        isForMe = true
+    elseif target == myName or target == myDisplayName or target == myUserId then
+        isForMe = true
+    elseif targetId ~= "" and targetId == myUserId then
+        isForMe = true
+    end
+
+    if not isForMe then
         return
     end
 
+    -- 3. ПЕРЕВІРКА ТЕРМІНУ ДІЇ (ігноруємо лише команди старіші 15 хвилин)
     local cmdTime = tonumber(cmd.timestamp) or 0
-    if cmdTime > 0 and cmdTime <= lastProcessedCmdTimestamp then
+    local now = os.time()
+    if cmdTime > 0 and (now - cmdTime) > 900 then
         return
     end
-    lastProcessedCmdTimestamp = math.max(lastProcessedCmdTimestamp, cmdTime > 0 and cmdTime or os.time())
-    saveControlState()
 
-    -- 1. ДІЯ: ДИСТАНЦІЙНИЙ КІК З ГРИ (Error 277)
+    -- 1. ДІЯ: ДИСТАНЦІЙНИЙ КІК З ГРИ (Error 277 / Примусовий виліт)
     if cmd.action == "kick" then
-        print("[Camera TD Remote] ⚡ Отримано команду від'єднання (Error 277)!")
         local kickReason = cmd.reason or "Lost connection to the game server, please reconnect (Error Code: 277)"
-        local reason = kickReason
-        addActionLog("remote_kick", reason)
-        if handleKickDetected then
-            handleKickDetected(kickReason)
+        print("[Camera TD Remote] ⚡ Отримано команду від'єднання (Error 277): " .. kickReason)
+        addActionLog("remote_kick", kickReason)
+        
+        if Session then
+            Session.IsKicked = true
+            Session.KickReason = kickReason
+            Session.Status = "🔴 ВИЛІТ: " .. kickReason
         end
-        task.wait(0.2)
-        LocalPlayer:Kick(kickReason)
+        if handleKickDetected then
+            pcall(function() handleKickDetected(kickReason) end)
+        end
+        saveControlState()
+        
+        task.spawn(function()
+            task.wait(0.1)
+            pcall(function()
+                LocalPlayer:Kick(kickReason)
+            end)
+        end)
         return
     end
 
     -- 2. ДІЯ: ДИСТАНЦІЙНЕ ВВІМКНЕННЯ / ВИМКНЕННЯ СКРИПТА
-    if cmd.action == "set_enabled" then
-        local enableState = (cmd.enabled == true)
+    if cmd.action == "set_enabled" or cmd.action == "toggle" or cmd.action == "disable" or cmd.action == "enable" then
+        local enableState = (cmd.enabled == true or cmd.action == "enable")
         if enableState then
             print("[Camera TD Remote] 🟢 Скрипт дозволено адміністратором.")
             if Session then
                 Session.ScriptDisabled = false
                 Session.Status = "🟢 В мережі: Фарм активний"
             end
-            addActionLog("toggle_script", tostring(Session.ScriptDisabled))
+            addActionLog("toggle_script", "Скрипт увімкнено (Kero Hub запущено)")
             saveControlState()
             loadKeroHub()
-            if pushUpdate then
-                pcall(function()
-                    pushUpdate({
-                        PlayerName = LocalPlayer.Name,
-                        DisplayName = LocalPlayer.DisplayName,
-                        UserId = LocalPlayer.UserId,
-                        Status = Session.Status,
-                        ScriptDisabled = false,
-                        LastHeartbeat = os.time(),
-                        UptimeSeconds = (getRealUptime and getRealUptime()) or 0
-                    })
-                end)
-            end
         else
             print("[Camera TD Remote] ⛔ Скрипт заблоковано адміністратором. Вимикаємо Kero Hub...")
             if Session then
                 Session.ScriptDisabled = true
                 Session.Status = "⛔ Скрипт вимкнено в адмін-панелі"
             end
-            addActionLog("toggle_script", tostring(Session.ScriptDisabled))
+            addActionLog("toggle_script", "Скрипт вимкнено (Kero Hub зупинено)")
             saveControlState()
             unloadKeroHub()
-            if pushUpdate then
-                pcall(function()
-                    pushUpdate({
-                        PlayerName = LocalPlayer.Name,
-                        DisplayName = LocalPlayer.DisplayName,
-                        UserId = LocalPlayer.UserId,
-                        Status = Session.Status,
-                        ScriptDisabled = true,
-                        LastHeartbeat = os.time(),
-                        UptimeSeconds = (getRealUptime and getRealUptime()) or 0
-                    })
-                end)
-            end
         end
+
+        if pushUpdate then
+            pcall(function()
+                pushUpdate({
+                    PlayerName = LocalPlayer.Name,
+                    DisplayName = LocalPlayer.DisplayName,
+                    UserId = LocalPlayer.UserId,
+                    Status = Session.Status,
+                    ScriptDisabled = (Session.ScriptDisabled == true),
+                    IsKicked = (Session.IsKicked == true),
+                    LastHeartbeat = os.time(),
+                    UptimeSeconds = (getRealUptime and getRealUptime()) or 0,
+                    ActionLog = Session.ActionLog or {}
+                })
+            end)
+        end
+        return
     end
 end
 
 -- Фоновий слухач команд керування через хмару (ntfy _cmd)
-task.spawn(function()
-    while true do
-        local req = httpRequest or findHttpRequest()
-        if req then
-            local endpoints = {
-                "https://ntfy.envs.net/" .. CloudChannel .. "_cmd/json?poll=1&since=5m",
-                "https://ntfy.sh/" .. CloudChannel .. "_cmd/json?poll=1&since=5m"
-            }
-            for _, ep in ipairs(endpoints) do
-                local ok, resp = pcall(function()
-                    return req({ Url = ep, Method = "GET" })
-                end)
-                if ok and resp and resp.Body and resp.Body ~= "" then
-                    for line in resp.Body:gmatch("[^\r\n]+") do
-                        local okJson, data = pcall(function()
-                            return HttpService:JSONDecode(line)
-                        end)
-                        if okJson and data then
-                            if data.message then
-                                local okInner, inner = pcall(function()
-                                    return HttpService:JSONDecode(data.message)
-                                end)
-                                if okInner and inner then processRemoteCommand(inner) end
-                            else
-                                processRemoteCommand(data)
-                            end
+local function pollRemoteCommands()
+    local fn = httpRequest or findHttpRequest()
+    if not fn then return end
+
+    local endpoints = {
+        "https://ntfy.envs.net/" .. CloudChannel .. "_cmd/json?poll=1&since=5m",
+        "https://ntfy.sh/" .. CloudChannel .. "_cmd/json?poll=1&since=5m"
+    }
+    for _, ep in ipairs(endpoints) do
+        local ok, resp = pcall(function()
+            return fn({
+                Url = ep,
+                url = ep,
+                Method = "GET",
+                method = "GET",
+                Headers = { ["User-Agent"] = "Roblox/CameraTD" },
+                headers = { ["User-Agent"] = "Roblox/CameraTD" }
+            })
+        end)
+        local body = ok and resp and (resp.Body or resp.body or resp.Response or resp.Data)
+        local status = resp and (resp.StatusCode or resp.Status or resp.status_code)
+
+        if ok and resp and (status == 200 or (not status and body and #body > 0)) then
+            if body and #body > 0 then
+                for line in body:gmatch("[^\r\n]+") do
+                    local okJson, data = pcall(function()
+                        return HttpService:JSONDecode(line)
+                    end)
+                    if okJson and data then
+                        if data.message then
+                            local okInner, inner = pcall(function()
+                                return HttpService:JSONDecode(data.message)
+                            end)
+                            if okInner and inner then processRemoteCommand(inner) end
+                        else
+                            processRemoteCommand(data)
                         end
                     end
-                    break
                 end
             end
+            break -- Отримано успішну відповідь від першого сервера, другий не перевантажуємо
         end
-        task.wait(2.5)
+    end
+end
+
+task.spawn(function()
+    pcall(pollRemoteCommands)
+    while true do
+        task.wait(3.0)
+        pcall(pollRemoteCommands)
     end
 end)
 
--- Авто-запуск Kero Hub через 1.2с якщо не заблоковано
+-- Авто-запуск Kero Hub через 1.2с якщо не заблоковано в хмарі
 task.spawn(function()
-    task.wait(1.2)
+    task.wait(0.6)
+    pcall(pollRemoteCommands)
+    task.wait(0.6)
     if not (Session and Session.ScriptDisabled) then
         loadKeroHub()
     else
