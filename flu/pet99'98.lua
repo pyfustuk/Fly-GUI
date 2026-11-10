@@ -102,29 +102,305 @@ end)
 
 -- Глобальне середовище та захист від дублікатів потоків
 local genv = (getgenv and getgenv()) or _G
+local CloudChannel = (genv and genv.CameraTD_Channel) or "camtd_cloud_kvires"
 local currentInstanceToken = tick()
 genv.__CameraTD_ActiveInstance = currentInstanceToken
 
+-- Випереджальні оголошення для доступу з усіх функцій
+local Session
+local handleKickDetected
+local pushUpdate
+
+-- Попередня ініціалізація Session для миттєвого реагування на дистанційні команди
+genv.__CameraTDSession = genv.__CameraTDSession or {
+    SessionStartTime = os.time(),
+    BaseUptime = 0,
+    TotalRounds = 0,
+    TotalWins = 0,
+    TotalLosses = 0,
+    Rejoins = 0,
+    TotalCoinsEarned = 0,
+    TotalCandyEarned = 0,
+    LastRoundCoins = 600,
+    LastRoundCandy = 10,
+    LastRoundWaves = 12,
+    CoinsPerWave = 50,
+    CandyPerWave = 1,
+    ActivitySlots = {},
+    MatchStartCoins = nil,
+    MatchStartCandy = nil,
+    LastActionTime = os.time(),
+    IsKicked = false,
+    ScriptDisabled = false,
+    Status = "🟢 В мережі / Завантажено"
+}
+Session = genv.__CameraTDSession
+
+-- МИТТЄВИЙ СТАРТОВИЙ ПІНГ (0мс): Акаунт з'являється на сайті за 0.1 секунди після інжекту!
+task.spawn(function()
+    task.wait(0.1)
+    local pId = game.PlaceId
+    local isMatch = (pId == 114068177100380) or (workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Base") ~= nil)
+    local initData = {
+        PlayerName = LocalPlayer.Name,
+        DisplayName = LocalPlayer.DisplayName,
+        UserId = LocalPlayer.UserId,
+        AccountCoins = 0,
+        AccountGems = 0,
+        AccountCandy = 0,
+        CurrentWave = 0,
+        MapName = isMatch and "Toilet City (Match)" or (pId == 85725785704440 and "Trading Plaza" or "Lobby"),
+        Status = "🟢 В мережі: Скрипт успішно запущено",
+        IsAFK = false,
+        IsKicked = false,
+        ScriptDisabled = (Session.ScriptDisabled == true),
+        LastHeartbeat = os.time(),
+        UptimeSeconds = 0,
+        SessionStartTime = os.time(),
+        ActivitySlots = Session.ActivitySlots or {},
+        InventoryTowers = {},
+        Version = "v5.6 (Kero Admin Cloud)"
+    }
+    if pushUpdate then
+        pushUpdate(initData)
+        print("[Camera TD Cloud] 🚀 Миттєвий стартовий сигнал @ " .. LocalPlayer.Name .. " відправлено в хмару!")
+    end
+end) or {
+    SessionStartTime = os.time(),
+    BaseUptime = 0,
+    TotalRounds = 0,
+    TotalWins = 0,
+    TotalLosses = 0,
+    Rejoins = 0,
+    TotalCoinsEarned = 0,
+    TotalCandyEarned = 0,
+    LastRoundCoins = 600,
+    LastRoundCandy = 10,
+    LastRoundWaves = 12,
+    CoinsPerWave = 50,
+    CandyPerWave = 1,
+    ActivitySlots = {},
+    MatchStartCoins = nil,
+    MatchStartCandy = nil,
+    LastActionTime = os.time(),
+    IsKicked = false,
+    ScriptDisabled = false,
+    Status = "🔄 Заходить на сервер / Завантаження..."
+}
+Session = genv.__CameraTDSession
+
 -- ============================================================
--- ЧАСТИНА 1: Завантажувач Kero Hub (Чистий запуск без важких сканувань)
+-- ЧАСТИНА 1: ДИНАМІЧНИЙ ЗАВАНТАЖУВАЧ KERO HUB ТА ХМАРНЕ КЕРУВАННЯ
+-- (Підтримка дистанційного ввімкнення/вимкнення та Remote Kick Error 277)
 -- ============================================================
+local isKeroHubLoaded = false
+
+local function loadKeroHub()
+    if isKeroHubLoaded then return end
+    if Session and Session.ScriptDisabled then
+        print("[Camera TD] ⛔ Скрипт вимкнено через адмін-панель. Kero Hub не завантажується.")
+        return
+    end
+
+    task.spawn(function()
+        task.wait(0.5)
+        local hubUrls = {
+            "https://huggingface.co/spaces/kvires/ps99-cloud/raw/main/cameraman_hub.lua",
+            "https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"
+        }
+        for _, url in ipairs(hubUrls) do
+            local ok = pcall(function()
+                local code = game:HttpGet(url)
+                if code and #code > 1000 then
+                    loadstring(code)()
+                    isKeroHubLoaded = true
+                    print("[Camera TD] 👑 Kero Hub успішно завантажено та активовано!")
+                    return true
+                end
+                error("empty code")
+            end)
+            if ok then break end
+            task.wait(1.5)
+        end
+    end)
+end
+
+local function unloadKeroHub()
+    local hub = getHub()
+    if hub and hub.Destroy then
+        pcall(hub.Destroy)
+    end
+    pcall(function()
+        local function purgeGui(parent)
+            if not parent then return end
+            for _, gui in ipairs(parent:GetChildren()) do
+                if gui:IsA("ScreenGui") and (gui.Name:lower():find("kero") or gui.Name:lower():find("cameratd") or gui.Name:lower():find("windui")) then
+                    gui.Enabled = false
+                    gui:Destroy()
+                end
+            end
+        end
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        purgeGui(pgui)
+        if gethui then purgeGui(gethui()) end
+    end)
+    isKeroHubLoaded = false
+    print("[Camera TD] 🛑 Меню Kero Hub повністю вивантажено та приховано.")
+end
+
+-- Локальний файл збереження стану дозволу акаунта
+local ControlPath = Folder .. "/AccountControl.json"
+local lastProcessedCmdTimestamp = 0
+
+pcall(function()
+    if readfile and isfile and isfile(ControlPath) then
+        local dec = HttpService:JSONDecode(readfile(ControlPath))
+        if dec and type(dec) == "table" then
+            if dec.ScriptDisabled ~= nil then
+                if Session then Session.ScriptDisabled = dec.ScriptDisabled end
+            end
+            if dec.LastKickTime then
+                lastProcessedCmdTimestamp = dec.LastKickTime
+            end
+        end
+    end
+end)
+
+local function saveControlState()
+    if writefile then
+        pcall(function()
+            writefile(ControlPath, HttpService:JSONEncode({
+                ScriptDisabled = Session and Session.ScriptDisabled or false,
+                LastKickTime = lastProcessedCmdTimestamp,
+                Updated = os.time()
+            }))
+        end)
+    end
+end
+
+-- Обробка вхідних команд з адмін-панелі сайту
+local function processRemoteCommand(cmd)
+    if not cmd or type(cmd) ~= "table" then return end
+    local target = tostring(cmd.target or ""):lower()
+    local myName = LocalPlayer.Name:lower()
+    local myId = tostring(LocalPlayer.UserId)
+
+    if target ~= myName and target ~= myId and target ~= "all" then
+        return
+    end
+
+    local cmdTime = tonumber(cmd.timestamp) or 0
+    if cmdTime > 0 and cmdTime <= lastProcessedCmdTimestamp then
+        return
+    end
+    lastProcessedCmdTimestamp = math.max(lastProcessedCmdTimestamp, cmdTime > 0 and cmdTime or os.time())
+    saveControlState()
+
+    -- 1. ДІЯ: ДИСТАНЦІЙНИЙ КІК З ГРИ (Error 277)
+    if cmd.action == "kick" then
+        print("[Camera TD Remote] ⚡ Отримано команду від'єднання (Error 277)!")
+        local kickReason = cmd.reason or "Lost connection to the game server, please reconnect (Error Code: 277)"
+        if handleKickDetected then
+            handleKickDetected(kickReason)
+        end
+        task.wait(0.2)
+        LocalPlayer:Kick(kickReason)
+        return
+    end
+
+    -- 2. ДІЯ: ДИСТАНЦІЙНЕ ВВІМКНЕННЯ / ВИМКНЕННЯ СКРИПТА
+    if cmd.action == "set_enabled" then
+        local enableState = (cmd.enabled == true)
+        if enableState then
+            print("[Camera TD Remote] 🟢 Скрипт дозволено адміністратором.")
+            if Session then
+                Session.ScriptDisabled = false
+                Session.Status = "🟢 В мережі: Фарм активний"
+            end
+            saveControlState()
+            loadKeroHub()
+            if pushUpdate then
+                pcall(function()
+                    pushUpdate({
+                        PlayerName = LocalPlayer.Name,
+                        DisplayName = LocalPlayer.DisplayName,
+                        UserId = LocalPlayer.UserId,
+                        Status = Session.Status,
+                        ScriptDisabled = false,
+                        LastHeartbeat = os.time(),
+                        UptimeSeconds = (getRealUptime and getRealUptime()) or 0
+                    })
+                end)
+            end
+        else
+            print("[Camera TD Remote] ⛔ Скрипт заблоковано адміністратором. Вимикаємо Kero Hub...")
+            if Session then
+                Session.ScriptDisabled = true
+                Session.Status = "⛔ Скрипт вимкнено в адмін-панелі"
+            end
+            saveControlState()
+            unloadKeroHub()
+            if pushUpdate then
+                pcall(function()
+                    pushUpdate({
+                        PlayerName = LocalPlayer.Name,
+                        DisplayName = LocalPlayer.DisplayName,
+                        UserId = LocalPlayer.UserId,
+                        Status = Session.Status,
+                        ScriptDisabled = true,
+                        LastHeartbeat = os.time(),
+                        UptimeSeconds = (getRealUptime and getRealUptime()) or 0
+                    })
+                end)
+            end
+        end
+    end
+end
+
+-- Фоновий слухач команд керування через хмару (ntfy _cmd)
+task.spawn(function()
+    while true do
+        local req = httpRequest or findHttpRequest()
+        if req then
+            local endpoints = {
+                "https://ntfy.envs.net/" .. CloudChannel .. "_cmd/json?poll=1&since=5m",
+                "https://ntfy.sh/" .. CloudChannel .. "_cmd/json?poll=1&since=5m"
+            }
+            for _, ep in ipairs(endpoints) do
+                local ok, resp = pcall(function()
+                    return req({ Url = ep, Method = "GET" })
+                end)
+                if ok and resp and resp.Body and resp.Body ~= "" then
+                    for line in resp.Body:gmatch("[^\r\n]+") do
+                        local okJson, data = pcall(function()
+                            return HttpService:JSONDecode(line)
+                        end)
+                        if okJson and data then
+                            if data.message then
+                                local okInner, inner = pcall(function()
+                                    return HttpService:JSONDecode(data.message)
+                                end)
+                                if okInner and inner then processRemoteCommand(inner) end
+                            else
+                                processRemoteCommand(data)
+                            end
+                        end
+                    end
+                    break
+                end
+            end
+        end
+        task.wait(2.5)
+    end
+end)
+
+-- Авто-запуск Kero Hub через 1.2с якщо не заблоковано
 task.spawn(function()
     task.wait(1.2)
-    local hubUrls = {
-        "https://huggingface.co/spaces/kvires/ps99-cloud/raw/main/cameraman_hub.lua",
-        "https://raw.githubusercontent.com/KeroTwT/Kero-Hub/main/Sources/Cameraman%20TD"
-    }
-    for _, url in ipairs(hubUrls) do
-        local ok = pcall(function()
-            local code = game:HttpGet(url)
-            if code and #code > 1000 then
-                loadstring(code)()
-                return true
-            end
-            error("empty code")
-        end)
-        if ok then break end
-        task.wait(1.5)
+    if not (Session and Session.ScriptDisabled) then
+        loadKeroHub()
+    else
+        print("[Camera TD] ⛔ Стартовий стан: заблоковано в адмінці. Kero Hub чекає дозволу.")
     end
 end)
 
@@ -456,21 +732,24 @@ local function getInventoryUnits()
         foundAny = true
     end
 
-    -- 1. Спроба з Kero Hub InventoryData.Towers (Найточніше офіційне джерело інвентаря)
-    if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" then
-        for id, tower in pairs(hub.InventoryData.Towers) do
-            local tName = (type(tower) == "table" and (tower.Name or tower.TowerName or tower.Unit or tower.Type or tower.Tower)) or (type(tower) == "string" and tower)
-            local isEq = (type(tower) == "table" and (tonumber(tower.Equipped) or 0) > 0)
-            addUnit(tName, 1, isEq)
+    -- 1. Спроба з Kero Hub Units (Точна серверна репліка акаунта)
+    if hub and hub.Units and type(hub.Units) == "table" and next(hub.Units) ~= nil then
+        for id, u in pairs(hub.Units) do
+            if type(u) == "table" and u.Name and type(u.Name) == "string" then
+                local isEq = (tonumber(u.Equipped) or 0) > 0
+                addUnit(u.Name, 1, isEq)
+            end
         end
     end
 
-    -- 2. Спроба з Kero Hub Units
-    if hub and hub.Units and type(hub.Units) == "table" then
-        for id, u in pairs(hub.Units) do
-            local uName = (type(u) == "table" and (u.Name or u.UnitName or u.TowerName or u.Type or u.Tower)) or (type(u) == "string" and u)
-            local isEq = (type(u) == "table" and (tonumber(u.Equipped) or 0) > 0)
-            addUnit(uName, 1, isEq)
+    -- 2. Спроба з Kero Hub InventoryData.Towers (Офіційний інвентар гри)
+    if hub and hub.InventoryData and type(hub.InventoryData.Towers) == "table" and next(hub.InventoryData.Towers) ~= nil then
+        for id, tower in pairs(hub.InventoryData.Towers) do
+            local tName = (type(tower) == "table" and (tower.Name or tower.TowerName or tower.Unit or tower.Type or tower.Tower)) or (type(tower) == "string" and tower)
+            if tName and type(tName) == "string" then
+                local isEq = (type(tower) == "table" and (tonumber(tower.Equipped) or 0) > 0)
+                addUnit(tName, 1, isEq)
+            end
         end
     end
 
@@ -481,45 +760,29 @@ local function getInventoryUnits()
             if type(eqList) == "table" then
                 for _, eqU in ipairs(eqList) do
                     local eqName = (type(eqU) == "table" and eqU.Name) or (type(eqU) == "string" and eqU)
-                    addUnit(eqName, 1, true)
+                    if eqName and type(eqName) == "string" then
+                        addUnit(eqName, 1, true)
+                    end
                 end
             end
         end)
     end
 
-    -- 4. Спроба з PlayerGui GameUI Hotbar (екіпіровані юніти внизу екрана в бою)
-    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    if pgui then
-        local gameUI = pgui:FindFirstChild("GameUI")
-        if gameUI then
-            local bottom = gameUI:FindFirstChild("Bottom")
-            local hotbar = bottom and (bottom:FindFirstChild("Hotbar") or bottom:FindFirstChild("Units") or bottom:FindFirstChild("Towers"))
-            if hotbar then
-                for _, slot in ipairs(hotbar:GetChildren()) do
-                    if slot:IsA("GuiObject") then
-                        for _, desc in ipairs(slot:GetDescendants()) do
-                            if desc:IsA("TextLabel") and desc.Text ~= "" and desc.Visible then
-                                local txt = desc.Text:match("^%s*(.-)%s*$")
-                                if isValidUnitName(txt) then
-                                    addUnit(txt, 1, true)
-                                    break
-                                end
-                            end
-                        end
+    -- 4. Якщо Kero Hub ще завантажується, перевіряємо слоти екіпірування GameUI (без парсингу рандомних лейблів!)
+    if not foundAny then
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local hotbar = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("Bottom") and pgui.GameUI.Bottom:FindFirstChild("Hotbar")
+        if hotbar then
+            for _, slot in ipairs(hotbar:GetChildren()) do
+                if slot:IsA("GuiObject") then
+                    local unitVal = slot:FindFirstChild("Unit") or slot:FindFirstChild("Tower") or slot:FindFirstChild("UnitName")
+                    if unitVal and unitVal:IsA("StringValue") and isValidUnitName(unitVal.Value) then
+                        addUnit(unitVal.Value, 1, true)
                     end
                 end
             end
         end
     end
-
-    -- 5. Фільтрація кешу: видаляємо всі старі фантомні записи
-    local cleanCache = {}
-    for _, item in ipairs(CachedInventoryUnits) do
-        if isValidUnitName(item.Name) then
-            table.insert(cleanCache, item)
-        end
-    end
-    CachedInventoryUnits = cleanCache
 
     local result = {}
     if foundAny then
@@ -611,7 +874,7 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     IsKicked = false,
     Status = "🔄 Заходить на сервер / Завантаження..."
 }
-local Session = genv.__CameraTDSession -- Гарантуємо збереження часу
+Session = genv.__CameraTDSession -- Гарантуємо збереження часу
 
 -- Відновлюємо слоти активності
 if savedData.ActivitySlots and type(savedData.ActivitySlots) == "table" then
@@ -650,7 +913,7 @@ end
 local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
 
 -- 4. Уніфікована відправка телеметрії на сайт та збереження
-local function pushUpdate(data)
+pushUpdate = function(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
     end)
@@ -696,7 +959,7 @@ local function pushUpdate(data)
 end
 
 -- 5. Комплексна детекція кіків, помилок з'єднання та вильотів
-local function handleKickDetected(reason)
+handleKickDetected = function(reason)
     if Session.IsKicked then return end
     Session.IsKicked = true
     Session.KickReason = tostring(reason or "Від'єднано від сервера Roblox")
@@ -752,24 +1015,95 @@ pcall(function()
     end)
 end)
 
--- 6. Підрахунок перемог / поразок
-local function checkMatchResult()
+-- Визначення локації гри (Бій / Лобі / Трейд)
+local function getGameLocationInfo()
+    local pId = game.PlaceId
+    local inLobby = (pId == 132929771812494)
+    local inTrading = (pId == 85725785704440)
+    local inMatch = (pId == 114068177100380)
+
+    local gameFolder = workspace:FindFirstChild("Game")
+    if gameFolder and (gameFolder:FindFirstChild("Base") or gameFolder:FindFirstChild("Towers") or gameFolder:FindFirstChild("PlacingTowers")) then
+        inMatch = true
+        inLobby = false
+    end
+
+    local mapName = "Toilet City"
+    if inMatch then
+        if gameFolder then
+            mapName = gameFolder:GetAttribute("Map") or gameFolder:GetAttribute("MapName") or "Toilet City"
+        end
+    elseif inTrading then
+        mapName = "Trading Plaza"
+    else
+        mapName = "Lobby"
+    end
+
+    return {
+        inMatch = inMatch,
+        inLobby = inLobby,
+        inTrading = inTrading,
+        mapName = tostring(mapName)
+    }
+end
+
+-- Зчитування здоров'я бази (Base HP)
+local function getBaseHp()
+    local base = (workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Base")) or workspace:FindFirstChild("Base", true)
+    if not base then return nil end
+    local hp = base:GetAttribute("Health") or base:GetAttribute("HP")
+    if hp == nil and base:FindFirstChild("Health") then
+        hp = base.Health.Value
+    end
+    return tonumber(hp)
+end
+
+-- 6. Підрахунок перемог / поразок та фіксація смерті бази
+local function checkMatchResult(curWave, inMatch)
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
-    local finalUI = pgui and pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")
-    local content = finalUI and finalUI:FindFirstChild("Content")
+    local baseHp = getBaseHp()
+    Session.BaseHP = baseHp
 
-    if content and content.Visible then
-        local stats = content:FindFirstChild("Stats")
-        local mode = stats and stats:FindFirstChild("Mode")
-        if mode and not Session.LastRecordedMatchResult then
-            local text = mode.Text:lower()
-            Session.TotalRounds = Session.TotalRounds + 1
+    -- Сценарій 1: Базу знищено зомбі (HP <= 0) -> ПОРАЗКА!
+    if inMatch and baseHp ~= nil and baseHp <= 0 and not Session.MatchEndedInCurrentSession then
+        Session.MatchEndedInCurrentSession = true
+        Session.TotalLosses = (Session.TotalLosses or 0) + 1
+        Session.TotalRounds = (Session.TotalRounds or 0) + 1
+        Session.LastMatchResult = "💀 ПОРАЗКА (Базу зруйновано)"
+        Session.Status = "💀 ПОРАЗКА: Базу знищено на хвилі " .. tostring(curWave > 0 and curWave or 1)
+        markActivitySlot("red")
+        Session.LastActionTime = os.time()
+        if saveStats then saveStats() end
+        return
+    end
 
-            local isWon = text:find("won") or text:find("victory")
-            if isWon then
-                Session.TotalWins = Session.TotalWins + 1
+    -- Сценарій 2: Вікно завершення матчу FinalUI в PlayerGui
+    local finalUI = pgui and (pgui:FindFirstChild("FinalUI", true) or (pgui:FindFirstChild("GameUI") and pgui.GameUI:FindFirstChild("FinalUI")))
+    if finalUI and (finalUI.Visible or (finalUI:FindFirstChild("Content") and finalUI.Content.Visible)) then
+        if not Session.MatchEndedInCurrentSession then
+            Session.MatchEndedInCurrentSession = true
+            local combinedText = ""
+            for _, desc in ipairs(finalUI:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Text ~= "" and desc.Visible then
+                    combinedText = combinedText .. " " .. desc.Text:lower()
+                end
+            end
+
+            local isWon = combinedText:find("won") or combinedText:find("victory") or combinedText:find("clear") or (baseHp ~= nil and baseHp > 0)
+            local isLost = combinedText:find("lost") or combinedText:find("defeat") or combinedText:find("game over") or (baseHp ~= nil and baseHp <= 0)
+
+            if isLost and not isWon then
+                Session.TotalLosses = (Session.TotalLosses or 0) + 1
+                Session.TotalRounds = (Session.TotalRounds or 0) + 1
+                Session.LastMatchResult = "💀 ПОРАЗКА"
+                Session.Status = "💀 ПОРАЗКА: Зомбі прорвалися на хвилі " .. tostring(curWave > 0 and curWave or 1)
+                markActivitySlot("red")
             else
-                Session.TotalLosses = Session.TotalLosses + 1
+                Session.TotalWins = (Session.TotalWins or 0) + 1
+                Session.TotalRounds = (Session.TotalRounds or 0) + 1
+                Session.LastMatchResult = "🏆 ПЕРЕМОГА"
+                Session.Status = "🏆 ПЕРЕМОГА: Всі хвилі пройдено!"
+                markActivitySlot("green")
             end
 
             local curCoins = getAccountCoins()
@@ -780,7 +1114,7 @@ local function checkMatchResult()
             local roundCoins = math.max(0, curCoins - startCoins)
             local roundCandy = math.max(0, curCandy - startCandy)
             if roundCoins == 0 then roundCoins = 600 end
-            local waves = math.max(1, getCurrentWave())
+            local waves = math.max(1, curWave)
 
             Session.LastRoundCoins = roundCoins
             Session.LastRoundCandy = roundCandy
@@ -788,18 +1122,19 @@ local function checkMatchResult()
             Session.CoinsPerWave = math.floor(roundCoins / waves)
             Session.CandyPerWave = math.floor(roundCandy / waves)
 
-            Session.TotalCoinsEarned = Session.TotalCoinsEarned + roundCoins
-            Session.TotalCandyEarned = Session.TotalCandyEarned + roundCandy
-
+            Session.TotalCoinsEarned = (Session.TotalCoinsEarned or 0) + roundCoins
+            Session.TotalCandyEarned = (Session.TotalCandyEarned or 0) + roundCandy
             Session.LastRecordedMatchResult = os.time()
             Session.LastActionTime = os.time()
             Session.MatchStartCoins = curCoins
             Session.MatchStartCandy = curCandy
 
-            markActivitySlot("green")
+            if saveStats then saveStats() end
         end
     else
-        Session.LastRecordedMatchResult = nil
+        if not inMatch or (baseHp and baseHp > 0) then
+            Session.MatchEndedInCurrentSession = false
+        end
     end
 end
 
@@ -872,8 +1207,12 @@ task.spawn(function()
         local curCash = getInMatchCash()
         local curWave = getCurrentWave()
 
-        local inMatch = (game.PlaceId == 114068177100380)
-        local inLobby = (game.PlaceId == 132929771812494)
+        local loc = getGameLocationInfo()
+        local inMatch = loc.inMatch
+        local inLobby = loc.inLobby
+        local inTrading = loc.inTrading
+        local mapName = loc.mapName
+        local baseHp = getBaseHp()
 
         if not Session.MatchStartCoins and curCoins > 0 then Session.MatchStartCoins = curCoins end
         if not Session.MatchStartCandy and curCandy > 0 then Session.MatchStartCandy = curCandy end
@@ -911,16 +1250,30 @@ task.spawn(function()
         local isAFK = (idleSeconds > 150)
         Session.IsAFK = isAFK
 
+        checkMatchResult(curWave, inMatch)
+
         local statusText = "🟢 В мережі"
         if Session.IsKicked then
             statusText = Session.Status
             markActivitySlot("red")
+        elseif Session.ScriptDisabled then
+            statusText = "⛔ Скрипт вимкнено в адмін-панелі"
+            markActivitySlot("yellow")
+        elseif Session.LastMatchResult == "💀 ПОРАЗКА" or (baseHp ~= nil and baseHp <= 0) then
+            statusText = "💀 ПОРАЗКА: Базу зруйновано на хвилі " .. tostring(curWave > 0 and curWave or 1)
+            markActivitySlot("red")
+        elseif Session.LastMatchResult == "🏆 ПЕРЕМОГА" then
+            statusText = "🏆 ПЕРЕМОГА: Всі хвилі пройдено!"
+            markActivitySlot("green")
         elseif isAFK then
             local mins = math.floor(idleSeconds / 60)
             statusText = "🟡 AFK: Без руху (" .. tostring(mins) .. " хв)"
             markActivitySlot("yellow")
         elseif inMatch then
-            statusText = "🟢 У бою: Хвиля " .. tostring(curWave > 0 and curWave or 1)
+            statusText = "🟢 У бою: Хвиля " .. tostring(curWave > 0 and curWave or 1) .. (baseHp and (" (HP: " .. tostring(baseHp) .. ")") or "")
+            markActivitySlot("green")
+        elseif inTrading then
+            statusText = "🤝 Трейд Плаза"
             markActivitySlot("green")
         elseif inLobby then
             statusText = "🏰 В лобі: Очікує старту"
@@ -930,8 +1283,6 @@ task.spawn(function()
             markActivitySlot("green")
         end
         Session.Status = statusText
-
-        checkMatchResult()
 
         if now - lastSave >= 1.5 then
             lastSave = now
@@ -957,7 +1308,9 @@ task.spawn(function()
                 LastRoundCandy = liveCandyEarned > 0 and liveCandyEarned or 10,
                 CoinsPerWave = Session.CoinsPerWave > 0 and Session.CoinsPerWave or 50,
                 CurrentWave = curWave,
-                MapName = inMatch and "Toilet City (Match)" or (inLobby and "Lobby" or "Place " .. tostring(game.PlaceId)),
+                BaseHP = baseHp,
+                LastMatchResult = Session.LastMatchResult or "",
+                MapName = inMatch and (mapName .. " (Match)") or (inTrading and "Trading Plaza" or "Lobby"),
                 Difficulty = "Normal",
                 
                 TotalRounds = Session.TotalRounds,
@@ -968,6 +1321,7 @@ task.spawn(function()
                 Status = statusText,
                 IsAFK = isAFK,
                 IsKicked = Session.IsKicked,
+                ScriptDisabled = (Session.ScriptDisabled == true),
                 KickReason = Session.KickReason or "",
                 IdleSeconds = idleSeconds,
                 LastHeartbeat = now,
