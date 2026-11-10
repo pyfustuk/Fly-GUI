@@ -212,11 +212,21 @@ end)
 local isKeroHubLoaded = false
 
 local function loadKeroHub()
-    if isKeroHubLoaded then return end
     if Session and Session.ScriptDisabled then
-        print("[Camera TD] ⛔ Скрипт вимкнено через адмін-панель. Kero Hub не завантажується.")
+        print("[Camera TD] ⛔ Скрипт вимкнено через адмін-панель. Kero Hub заблоковано.")
         return
     end
+    if isKeroHubLoaded then return end
+
+    pcall(function()
+        local globals = { getgenv and getgenv(), _G }
+        for _, env in ipairs(globals) do
+            if env and type(env) == "table" then
+                env.CameraTD_Disabled = false
+                env.CameraTD_ScriptDisabled = false
+            end
+        end
+    end)
 
     task.spawn(function()
         task.wait(0.5)
@@ -242,26 +252,59 @@ local function loadKeroHub()
 end
 
 local function unloadKeroHub()
+    -- 1. Вимикаємо всі глобальні прапорці автофарму, авто-старту та макросів
+    pcall(function()
+        local globals = { getgenv and getgenv(), _G }
+        for _, env in ipairs(globals) do
+            if env and type(env) == "table" then
+                env.AutoFarm = false
+                env.AutoStart = false
+                env.AutoSkip = false
+                env.AutoPlace = false
+                env.AutoUpgrade = false
+                env.AutoPlay = false
+                env.MacroEnabled = false
+                env.CameraTD_Disabled = true
+                env.CameraTD_ScriptDisabled = true
+            end
+        end
+    end)
+
+    -- 2. Викликаємо деструктори Kero Hub
     local hub = getHub()
-    if hub and hub.Destroy then
-        pcall(hub.Destroy)
+    if hub then
+        if hub.Stop then pcall(hub.Stop) end
+        if hub.Unload then pcall(hub.Unload) end
+        if hub.Destroy then pcall(hub.Destroy) end
     end
+
+    -- 3. Приховуємо та знищуємо ScreenGui у всіх контейнерах
     pcall(function()
         local function purgeGui(parent)
             if not parent then return end
             for _, gui in ipairs(parent:GetChildren()) do
-                if gui:IsA("ScreenGui") and (gui.Name:lower():find("kero") or gui.Name:lower():find("cameratd") or gui.Name:lower():find("windui")) then
-                    gui.Enabled = false
-                    gui:Destroy()
+                if gui:IsA("ScreenGui") then
+                    local n = gui.Name:lower()
+                    if n:find("kero") or n:find("cameratd") or n:find("windui") or n:find("solara") or n:find("hub") then
+                        gui.Enabled = false
+                        gui:Destroy()
+                    end
                 end
             end
         end
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
         purgeGui(pgui)
         if gethui then purgeGui(gethui()) end
+        pcall(function()
+            local coreGui = game:GetService("CoreGui")
+            purgeGui(coreGui)
+        end)
     end)
+
     isKeroHubLoaded = false
-    print("[Camera TD] 🛑 Меню Kero Hub повністю вивантажено та приховано.")
+    if getgenv then getgenv().CameraTDHub = nil end
+    _G.CameraTDHub = nil
+    print("[Camera TD] 🛑 Скрипт та Kero Hub повністю вимкнено для @ " .. LocalPlayer.Name)
 end
 
 -- Локальний файл збереження стану дозволу акаунта
@@ -345,15 +388,32 @@ local function processRemoteCommand(cmd)
         if Session then
             Session.IsKicked = true
             Session.KickReason = kickReason
-            Session.Status = "🔴 ВИЛІТ: " .. kickReason
+            Session.Status = "🔴 ВИЛІТ (Error 277): " .. kickReason
         end
         if handleKickDetected then
             pcall(function() handleKickDetected(kickReason) end)
         end
         saveControlState()
         
+        -- Миттєво відправляємо підтвердження кіку серверу
+        if pushUpdate then
+            pcall(function()
+                pushUpdate({
+                    PlayerName = LocalPlayer.Name,
+                    DisplayName = LocalPlayer.DisplayName,
+                    UserId = LocalPlayer.UserId,
+                    Status = "🔴 ВИЛІТ: " .. kickReason,
+                    IsKicked = true,
+                    KickConfirmed = true,
+                    KickReason = kickReason,
+                    LastHeartbeat = os.time(),
+                    ActionLog = Session.ActionLog or {}
+                })
+            end)
+        end
+
         task.spawn(function()
-            task.wait(0.1)
+            task.wait(0.35)
             pcall(function()
                 LocalPlayer:Kick(kickReason)
             end)
@@ -395,6 +455,28 @@ local function processRemoteCommand(cmd)
                     IsKicked = (Session.IsKicked == true),
                     LastHeartbeat = os.time(),
                     UptimeSeconds = (getRealUptime and getRealUptime()) or 0,
+                    ActionLog = Session.ActionLog or {}
+                })
+            end)
+        end
+        return
+    end
+
+    -- 3. ДІЯ: ДИСТАНЦІЙНЕ ПОВНЕ СКАНУВАННЯ ТА ОНОВЛЕННЯ ІНВЕНТАРЯ З ГРИ
+    if cmd.action == "refresh_inventory" or cmd.action == "rescan_inventory" then
+        print("[Camera TD Remote] 🔄 Отримано запит на оновлення інвентаря з гри!")
+        CachedInventoryUnits = {}
+        local freshUnits = getInventoryUnits and getInventoryUnits() or {}
+        addActionLog("inventory_refresh", "Оновлено " .. tostring(#freshUnits) .. " юнітів з гри")
+        if pushUpdate then
+            pcall(function()
+                pushUpdate({
+                    PlayerName = LocalPlayer.Name,
+                    DisplayName = LocalPlayer.DisplayName,
+                    UserId = LocalPlayer.UserId,
+                    Status = Session.Status,
+                    InventoryTowers = freshUnits,
+                    LastHeartbeat = os.time(),
                     ActionLog = Session.ActionLog or {}
                 })
             end)
@@ -777,9 +859,16 @@ end
 
 -- Кеш юнітів для безперервного відображення на сайті
 local CachedInventoryUnits = {}
+local lastInventoryScanTime = 0
 
 -- Зчитування юнітів в інвентарі та екіпіруванні з усіх доступних джерел
-local function getInventoryUnits()
+local function getInventoryUnits(force)
+    local now = os.time()
+    if not force and #CachedInventoryUnits > 0 and (now - lastInventoryScanTime < 15) then
+        return CachedInventoryUnits
+    end
+    lastInventoryScanTime = now
+
     local hub = getHub()
     local unitsMap = {}
     local foundAny = false
@@ -1008,21 +1097,24 @@ local function getFriendsList()
     return friendsOnServer
 end
 
--- 4. Уніфікована відправка телеметрії на сайт та збереження
+local lastDiskSave = 0
+-- 4. Уніфікована швидка та стабільна відправка телеметрії на сайт
 pushUpdate = function(data)
     local ok, jsonString = pcall(function()
         return HttpService:JSONEncode(data)
     end)
     if not ok or not jsonString then return end
 
-    -- Збереження постійного токена сесії
-    if writefile then
+    local nowTime = os.time()
+    -- Зберігаємо на локальний диск не частіше ніж раз на 15 секунд (або при кіку/завершенні раунду)
+    if writefile and (nowTime - lastDiskSave >= 15 or data.IsKicked or data.KickConfirmed) then
+        lastDiskSave = nowTime
         pcall(function()
             writefile(StatsPath, jsonString)
             writefile(SessionTokenPath, HttpService:JSONEncode({
                 UptimeSeconds = getRealUptime(),
                 SessionStartTime = Session.SessionStartTime,
-                LastHeartbeat = os.time(),
+                LastHeartbeat = nowTime,
                 PlayerName = LocalPlayer.Name,
                 UserId = LocalPlayer.UserId
             }))
@@ -1031,26 +1123,40 @@ pushUpdate = function(data)
 
     local req = httpRequest or findHttpRequest()
     if req then
-        -- Надійна відправка в швидкі хмарні релеї (ntfy.envs.net + ntfy.sh fallback)
-        local endpoints = {
-            "https://ntfy.envs.net/" .. CloudChannel,
-            "https://ntfy.sh/" .. CloudChannel
-        }
-        for _, endpoint in ipairs(endpoints) do
-            task.spawn(function()
+        task.spawn(function()
+            local headers = {
+                ["Content-Type"] = "application/json",
+                ["Title"] = "Camera TD Admin Telemetry"
+            }
+            -- 1. Відправляємо на головний швидкий релей
+            local okPost = pcall(function()
+                return req({
+                    Url = "https://ntfy.envs.net/" .. CloudChannel,
+                    url = "https://ntfy.envs.net/" .. CloudChannel,
+                    Method = "POST",
+                    method = "POST",
+                    Headers = headers,
+                    headers = headers,
+                    Body = jsonString,
+                    body = jsonString
+                })
+            end)
+            -- 2. Fallback на ntfy.sh тільки якщо перший релей повернув помилку
+            if not okPost then
                 pcall(function()
                     req({
-                        Url = endpoint,
+                        Url = "https://ntfy.sh/" .. CloudChannel,
+                        url = "https://ntfy.sh/" .. CloudChannel,
                         Method = "POST",
-                        Headers = {
-                            ["Content-Type"] = "application/json",
-                            ["Title"] = "Camera TD Admin Telemetry"
-                        },
-                        Body = jsonString
+                        method = "POST",
+                        Headers = headers,
+                        headers = headers,
+                        Body = jsonString,
+                        body = jsonString
                     })
                 end)
-            end)
-        end
+            end
+        end)
     end
 end
 
@@ -1296,7 +1402,7 @@ task.spawn(function()
     local lastWave = 0
     local lastSave = 0
 
-    while task.wait(1.5) do
+    while task.wait(3.0) do
         if genv.__CameraTD_ActiveInstance ~= currentInstanceToken then
             print("[Camera TD Headless] Зупинено попередній екземпляр трекера після зміни сервера.")
             break
@@ -1388,7 +1494,7 @@ task.spawn(function()
         end
         Session.Status = statusText
 
-        if now - lastSave >= 1.5 then
+        if now - lastSave >= 3.0 then
             lastSave = now
 
             local liveCoinsEarned = inMatch and math.max(0, curCoins - (Session.MatchStartCoins or curCoins)) or Session.LastRoundCoins
