@@ -127,6 +127,8 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     CoinsPerWave = 50,
     CandyPerWave = 1,
     ActivitySlots = {},
+    ActionLog = {},
+    TradeHistory = {},
     MatchStartCoins = nil,
     MatchStartCandy = nil,
     LastActionTime = os.time(),
@@ -135,6 +137,42 @@ genv.__CameraTDSession = genv.__CameraTDSession or {
     Status = "🟢 В мережі / Завантажено"
 }
 Session = genv.__CameraTDSession
+if not Session.ActionLog then Session.ActionLog = {} end
+if not Session.TradeHistory then Session.TradeHistory = {} end
+
+-- Система логування дій
+local MAX_LOG_ENTRIES = 200
+local function addActionLog(actionType, details)
+    if not Session.ActionLog then Session.ActionLog = {} end
+    table.insert(Session.ActionLog, {
+        ts = os.time(),
+        type = actionType,
+        details = tostring(details or "")
+    })
+    -- Trim to last MAX_LOG_ENTRIES
+    while #Session.ActionLog > MAX_LOG_ENTRIES do
+        table.remove(Session.ActionLog, 1)
+    end
+end
+
+-- Система відстеження трейдів
+local MAX_TRADE_ENTRIES = 100
+local function recordTrade(partnerName, partnerUserId, actionType, itemsList, gemsAmount)
+    if not Session.TradeHistory then Session.TradeHistory = {} end
+    local entry = {
+        ts = os.time(),
+        partner = tostring(partnerName or "Unknown"),
+        partnerId = partnerUserId or 0,
+        action = tostring(actionType or "Completed"),
+        items = itemsList or {},
+        gems = gemsAmount or 0
+    }
+    table.insert(Session.TradeHistory, entry)
+    while #Session.TradeHistory > MAX_TRADE_ENTRIES do
+        table.remove(Session.TradeHistory, 1)
+    end
+    addActionLog("trade", "Трейд з @" .. tostring(partnerName) .. " (" .. tostring(actionType) .. ")")
+end
 
 -- МИТТЄВИЙ СТАРТОВИЙ ПІНГ (0мс): Акаунт з'являється на сайті за 0.1 секунди після інжекту!
 task.spawn(function()
@@ -180,6 +218,7 @@ end) or {
     CoinsPerWave = 50,
     CandyPerWave = 1,
     ActivitySlots = {},
+    ActionLog = {},
     MatchStartCoins = nil,
     MatchStartCandy = nil,
     LastActionTime = os.time(),
@@ -188,6 +227,7 @@ end) or {
     Status = "🔄 Заходить на сервер / Завантаження..."
 }
 Session = genv.__CameraTDSession
+if not Session.ActionLog then Session.ActionLog = {} end
 
 -- ============================================================
 -- ЧАСТИНА 1: ДИНАМІЧНИЙ ЗАВАНТАЖУВАЧ KERO HUB ТА ХМАРНЕ КЕРУВАННЯ
@@ -300,6 +340,8 @@ local function processRemoteCommand(cmd)
     if cmd.action == "kick" then
         print("[Camera TD Remote] ⚡ Отримано команду від'єднання (Error 277)!")
         local kickReason = cmd.reason or "Lost connection to the game server, please reconnect (Error Code: 277)"
+        local reason = kickReason
+        addActionLog("remote_kick", reason)
         if handleKickDetected then
             handleKickDetected(kickReason)
         end
@@ -317,6 +359,7 @@ local function processRemoteCommand(cmd)
                 Session.ScriptDisabled = false
                 Session.Status = "🟢 В мережі: Фарм активний"
             end
+            addActionLog("toggle_script", tostring(Session.ScriptDisabled))
             saveControlState()
             loadKeroHub()
             if pushUpdate then
@@ -338,6 +381,7 @@ local function processRemoteCommand(cmd)
                 Session.ScriptDisabled = true
                 Session.Status = "⛔ Скрипт вимкнено в адмін-панелі"
             end
+            addActionLog("toggle_script", tostring(Session.ScriptDisabled))
             saveControlState()
             unloadKeroHub()
             if pushUpdate then
@@ -912,6 +956,30 @@ end
 -- Хмарний канал
 local CloudChannel = (genv.CameraTD_Channel) or "camtd_cloud_kvires"
 
+-- Збір списку друзів на сервері
+local function getFriendsList()
+    local friendsOnServer = {}
+    pcall(function()
+        local StarterPlayer = game:GetService("StarterPlayer")
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local isFriend = false
+                pcall(function()
+                    isFriend = LocalPlayer:IsFriendsWith(player.UserId)
+                end)
+                table.insert(friendsOnServer, {
+                    Name = player.Name,
+                    DisplayName = player.DisplayName,
+                    UserId = player.UserId,
+                    IsFriend = isFriend,
+                    AvatarUrl = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. tostring(player.UserId) .. "&size=150x150&format=Png"
+                })
+            end
+        end
+    end)
+    return friendsOnServer
+end
+
 -- 4. Уніфікована відправка телеметрії на сайт та збереження
 pushUpdate = function(data)
     local ok, jsonString = pcall(function()
@@ -965,6 +1033,7 @@ handleKickDetected = function(reason)
     Session.KickReason = tostring(reason or "Від'єднано від сервера Roblox")
     Session.Status = "🔴 ВИЛІТ: " .. Session.KickReason
     markActivitySlot("red")
+    addActionLog("kick", Session.KickReason)
 
     local kickData = {
         PlayerName = LocalPlayer.Name,
@@ -1073,6 +1142,7 @@ local function checkMatchResult(curWave, inMatch)
         Session.Status = "💀 ПОРАЗКА: Базу знищено на хвилі " .. tostring(curWave > 0 and curWave or 1)
         markActivitySlot("red")
         Session.LastActionTime = os.time()
+        addActionLog("match_result", Session.LastMatchResult)
         if saveStats then saveStats() end
         return
     end
@@ -1105,6 +1175,7 @@ local function checkMatchResult(curWave, inMatch)
                 Session.Status = "🏆 ПЕРЕМОГА: Всі хвилі пройдено!"
                 markActivitySlot("green")
             end
+            addActionLog("match_result", Session.LastMatchResult)
 
             local curCoins = getAccountCoins()
             local curCandy = getAccountCandy()
@@ -1172,9 +1243,14 @@ task.spawn(function()
                 SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots,
         InventoryTowers = getInventoryUnits(),
-                Version = "v5.3 (Kero Admin Cloud)"
+        FriendsList = getFriendsList(),
+        ActionLog = Session.ActionLog or {},
+        TradeHistory = Session.TradeHistory or {},
+        PlayersOnServer = #Players:GetPlayers(),
+        Version = "v5.3 (Kero Admin Cloud)"
     }
     pushUpdate(initialData)
+    addActionLog("script_start", "Script started, channel: " .. CloudChannel)
 end)
 
 -- ============================================================
@@ -1329,6 +1405,10 @@ task.spawn(function()
                 SessionStartTime = Session.SessionStartTime,
                 ActivitySlots = Session.ActivitySlots,
                 InventoryTowers = getInventoryUnits(),
+                FriendsList = getFriendsList(),
+                ActionLog = Session.ActionLog or {},
+                TradeHistory = Session.TradeHistory or {},
+                PlayersOnServer = #Players:GetPlayers(),
                 Version = "v5.3 (Kero Admin Cloud)"
             }
 
