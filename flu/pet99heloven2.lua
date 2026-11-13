@@ -237,7 +237,7 @@ local function checkSavedLicense()
     return false
 end
 
--- Створення темного кібер-вікна введення ключа
+-- Створення темного чіт-вікна введення ключа (стиль читу, 1 кнопка знизу "Використати")
 local function showCyberKeyUI()
     local parentGui = nil
     pcall(function()
@@ -249,12 +249,12 @@ local function showCyberKeyUI()
     if not parentGui then return end
 
     pcall(function()
-        local old = parentGui:FindFirstChild("CameraTD_CyberKeyUI")
+        local old = parentGui:FindFirstChild("Pufyftyk_KeyUI") or parentGui:FindFirstChild("CameraTD_CyberKeyUI")
         if old then old:Destroy() end
     end)
 
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "CameraTD_CyberKeyUI"
+    screenGui.Name = "Pufyftyk_KeyUI"
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.IgnoreGuiInset = true
@@ -263,136 +263,75 @@ local function showCyberKeyUI()
     local overlay = Instance.new("Frame")
     overlay.Name = "Overlay"
     overlay.Size = UDim2.new(1, 0, 1, 0)
-    overlay.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
-    overlay.BackgroundTransparency = 0.35
+    overlay.BackgroundColor3 = Color3.fromRGB(4, 6, 10)
+    overlay.BackgroundTransparency = 0.4
     overlay.BorderSizePixel = 0
     overlay.Parent = screenGui
 
+    -- Чітерське темне неонове вікно (компактне, 380x210)
     local card = Instance.new("Frame")
-    card.Name = "Card"
-    card.Size = UDim2.new(0, 440, 0, 330)
+    card.Name = "CheatCard"
+    card.Size = UDim2.new(0, 390, 0, 220)
     card.Position = UDim2.new(0.5, 0, 0.5, 0)
     card.AnchorPoint = Vector2.new(0.5, 0.5)
-    card.BackgroundColor3 = Color3.fromRGB(12, 16, 25)
+    card.BackgroundColor3 = Color3.fromRGB(10, 14, 22)
     card.BorderSizePixel = 0
     card.ClipsDescendants = true
     card.Parent = overlay
 
     local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 14)
+    cardCorner.CornerRadius = UDim.new(0, 12)
     cardCorner.Parent = card
 
     local cardStroke = Instance.new("UIStroke")
-    cardStroke.Color = Color3.fromRGB(0, 210, 255)
-    cardStroke.Thickness = 1.6
+    cardStroke.Color = Color3.fromRGB(168, 85, 247)
+    cardStroke.Thickness = 1.8
     cardStroke.Parent = card
 
+    -- Верхня неонова лінія
     local neonBar = Instance.new("Frame")
     neonBar.Name = "NeonBar"
-    neonBar.Size = UDim2.new(1, 0, 0, 4)
-    neonBar.BackgroundColor3 = Color3.fromRGB(0, 210, 255)
+    neonBar.Size = UDim2.new(1, 0, 0, 3)
+    neonBar.BackgroundColor3 = Color3.fromRGB(0, 220, 255)
     neonBar.BorderSizePixel = 0
     neonBar.Parent = card
 
     local neonGrad = Instance.new("UIGradient")
     neonGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 210, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(168, 85, 247)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 210, 255))
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(168, 85, 247)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 240, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(168, 85, 247))
     })
     neonGrad.Parent = neonBar
 
-    local badge = Instance.new("TextLabel")
-    badge.Size = UDim2.new(0, 220, 0, 20)
-    badge.Position = UDim2.new(0, 24, 0, 18)
-    badge.BackgroundTransparency = 1
-    badge.Font = Enum.Font.GothamBold
-    badge.TextSize = 10
-    badge.TextColor3 = Color3.fromRGB(0, 210, 255)
-    badge.TextXAlignment = Enum.TextXAlignment.Left
-    badge.Text = "🛡️ HWID GUARD • CYBER SECURITY"
-    badge.Parent = card
-
+    -- Заголовок: стиль читу PUFYFTYK
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -48, 0, 24)
-    title.Position = UDim2.new(0, 24, 0, 40)
+    title.Size = UDim2.new(1, -40, 0, 22)
+    title.Position = UDim2.new(0, 20, 0, 16)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBlack
-    title.TextSize = 18
+    title.TextSize = 16
     title.TextColor3 = Color3.fromRGB(240, 248, 255)
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Text = "⚡ CAMERAMAN TD | KEY AUTH"
+    title.TextXAlignment = Enum.TextXAlignment.Center
+    title.Text = "⚡ PUFYFTYK | CHEAT SUITE"
     title.Parent = card
 
     local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -48, 0, 16)
-    subtitle.Position = UDim2.new(0, 24, 0, 66)
+    subtitle.Size = UDim2.new(1, -40, 0, 14)
+    subtitle.Position = UDim2.new(0, 20, 0, 38)
     subtitle.BackgroundTransparency = 1
     subtitle.Font = Enum.Font.Gotham
-    subtitle.TextSize = 11
-    subtitle.TextColor3 = Color3.fromRGB(140, 155, 180)
-    subtitle.TextXAlignment = Enum.TextXAlignment.Left
-    subtitle.Text = "Введіть ліцензійний ключ для прив'язки до вашого пристрою"
+    subtitle.TextSize = 10
+    subtitle.TextColor3 = Color3.fromRGB(130, 145, 175)
+    subtitle.TextXAlignment = Enum.TextXAlignment.Center
+    subtitle.Text = "Введіть ліцензійний ключ (CAMTD-CYBER-...)"
     subtitle.Parent = card
 
-    local hwidBox = Instance.new("Frame")
-    hwidBox.Size = UDim2.new(1, -48, 0, 36)
-    hwidBox.Position = UDim2.new(0, 24, 0, 94)
-    hwidBox.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
-    hwidBox.BorderSizePixel = 0
-    hwidBox.Parent = card
-
-    local hwidCorner = Instance.new("UICorner")
-    hwidCorner.CornerRadius = UDim.new(0, 8)
-    hwidCorner.Parent = hwidBox
-
-    local hwidStroke = Instance.new("UIStroke")
-    hwidStroke.Color = Color3.fromRGB(35, 48, 70)
-    hwidStroke.Thickness = 1
-    hwidStroke.Parent = hwidBox
-
-    local hwidLabel = Instance.new("TextLabel")
-    hwidLabel.Size = UDim2.new(1, -120, 1, 0)
-    hwidLabel.Position = UDim2.new(0, 10, 0, 0)
-    hwidLabel.BackgroundTransparency = 1
-    hwidLabel.Font = Enum.Font.Code
-    hwidLabel.TextSize = 10
-    hwidLabel.TextColor3 = Color3.fromRGB(120, 180, 255)
-    hwidLabel.TextXAlignment = Enum.TextXAlignment.Left
-    hwidLabel.Text = "HWID: " .. CurrentHWID:sub(1, 16) .. "..."
-    hwidLabel.Parent = hwidBox
-
-    local copyHwidBtn = Instance.new("TextButton")
-    copyHwidBtn.Size = UDim2.new(0, 105, 0, 24)
-    copyHwidBtn.Position = UDim2.new(1, -112, 0.5, -12)
-    copyHwidBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
-    copyHwidBtn.BorderSizePixel = 0
-    copyHwidBtn.Font = Enum.Font.GothamBold
-    copyHwidBtn.TextSize = 10
-    copyHwidBtn.TextColor3 = Color3.fromRGB(0, 210, 255)
-    copyHwidBtn.Text = "📋 Скопіювати"
-    copyHwidBtn.Parent = hwidBox
-
-    local copyCorner = Instance.new("UICorner")
-    copyCorner.CornerRadius = UDim.new(0, 6)
-    copyCorner.Parent = copyHwidBtn
-
-    copyHwidBtn.MouseButton1Click:Connect(function()
-        pcall(function()
-            if setclipboard then
-                setclipboard(CurrentHWID)
-                copyHwidBtn.Text = "✅ Скопійовано!"
-                task.delay(2.0, function()
-                    copyHwidBtn.Text = "📋 Скопіювати"
-                end)
-            end
-        end)
-    end)
-
+    -- Поле вводу ключа
     local inputWrap = Instance.new("Frame")
-    inputWrap.Size = UDim2.new(1, -48, 0, 44)
-    inputWrap.Position = UDim2.new(0, 24, 0, 142)
-    inputWrap.BackgroundColor3 = Color3.fromRGB(16, 22, 34)
+    inputWrap.Size = UDim2.new(1, -40, 0, 42)
+    inputWrap.Position = UDim2.new(0, 20, 0, 64)
+    inputWrap.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
     inputWrap.BorderSizePixel = 0
     inputWrap.Parent = card
 
@@ -401,7 +340,7 @@ local function showCyberKeyUI()
     inputCorner.Parent = inputWrap
 
     local inputStroke = Instance.new("UIStroke")
-    inputStroke.Color = Color3.fromRGB(0, 180, 240)
+    inputStroke.Color = Color3.fromRGB(0, 210, 255)
     inputStroke.Thickness = 1.2
     inputStroke.Parent = inputWrap
 
@@ -412,65 +351,57 @@ local function showCyberKeyUI()
     keyInput.Font = Enum.Font.Code
     keyInput.TextSize = 12
     keyInput.TextColor3 = Color3.fromRGB(0, 240, 255)
-    keyInput.PlaceholderColor3 = Color3.fromRGB(80, 105, 140)
-    keyInput.PlaceholderText = "CAMTD-CYBER-XXXX-XXXX"
+    keyInput.PlaceholderColor3 = Color3.fromRGB(75, 95, 130)
+    keyInput.PlaceholderText = "Введіть ключ (CAMTD-CYBER-XXXX-XXXX)..."
     keyInput.ClearTextOnFocus = false
     keyInput.Parent = inputWrap
 
+    -- Рядок статусу
     local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, -48, 0, 20)
-    statusLabel.Position = UDim2.new(0, 24, 0, 196)
+    statusLabel.Size = UDim2.new(1, -40, 0, 18)
+    statusLabel.Position = UDim2.new(0, 20, 0, 114)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Font = Enum.Font.GothamMedium
-    statusLabel.TextSize = 11
+    statusLabel.TextSize = 10.5
     statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Text = "🔒 Функціонал заблоковано до введення валідного ключа"
+    statusLabel.Text = "🔒 Введіть ключ та натисніть «Використати»"
     statusLabel.Parent = card
 
-    local activateBtn = Instance.new("TextButton")
-    activateBtn.Size = UDim2.new(1, -48, 0, 44)
-    activateBtn.Position = UDim2.new(0, 24, 0, 226)
-    activateBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 255)
-    activateBtn.BorderSizePixel = 0
-    activateBtn.Font = Enum.Font.GothamBold
-    activateBtn.TextSize = 13
-    activateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    activateBtn.Text = "🚀 АКТИВУВАТИ ТА РОЗБЛОКУВАТИ"
-    activateBtn.Parent = card
+    -- ЄДИНА КНОПКА ЗНИЗУ: "ВИКОРИСТАТИ"
+    local useBtn = Instance.new("TextButton")
+    useBtn.Name = "UseKeyButton"
+    useBtn.Size = UDim2.new(1, -40, 0, 44)
+    useBtn.Position = UDim2.new(0, 20, 0, 144)
+    useBtn.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+    useBtn.BorderSizePixel = 0
+    useBtn.Font = Enum.Font.GothamBold
+    useBtn.TextSize = 13
+    useBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    useBtn.Text = "🚀 ВИКОРИСТАТИ"
+    useBtn.Parent = card
 
     local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 10)
-    btnCorner.Parent = activateBtn
+    btnCorner.CornerRadius = UDim.new(0, 9)
+    btnCorner.Parent = useBtn
 
     local btnGrad = Instance.new("UIGradient")
     btnGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 160, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(147, 51, 234))
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(147, 51, 234)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 180, 255))
     })
-    btnGrad.Parent = activateBtn
-
-    local footer = Instance.new("TextLabel")
-    footer.Size = UDim2.new(1, -48, 0, 16)
-    footer.Position = UDim2.new(0, 24, 0, 282)
-    footer.BackgroundTransparency = 1
-    footer.Font = Enum.Font.Gotham
-    footer.TextSize = 9.5
-    footer.TextColor3 = Color3.fromRGB(80, 100, 130)
-    footer.TextXAlignment = Enum.TextXAlignment.Center
-    footer.Text = "⚡ 1 Ключ = 1 Пристрій (HWID Lock) • Не підлягає передачі"
-    footer.Parent = card
+    btnGrad.Parent = useBtn
 
     local processing = false
-    activateBtn.MouseButton1Click:Connect(function()
+    useBtn.MouseButton1Click:Connect(function()
         if processing then return end
         processing = true
 
         local rawKey = tostring(keyInput.Text or ""):upper():gsub("%s+", "")
         statusLabel.TextColor3 = Color3.fromRGB(0, 210, 255)
-        statusLabel.Text = "⏳ Перевірка ключа та прив'язка HWID..."
+        statusLabel.Text = "⏳ Перевірка ключа..."
 
-        task.wait(0.4)
+        task.wait(0.3)
 
         if INITIAL_WORKING_KEYS[rawKey] then
             local binding = {
@@ -492,17 +423,32 @@ local function showCyberKeyUI()
             Session.DeviceHWID = CurrentHWID
 
             statusLabel.TextColor3 = Color3.fromRGB(16, 185, 129)
-            statusLabel.Text = "✅ Ключ активовано! Запуск скрипта..."
-            activateBtn.Text = "✅ УСПІШНО!"
+            statusLabel.Text = "✅ АКТИВОВАНО! Запуск pufyftyk читу..."
+            useBtn.Text = "✅ АКТИВОВАНО!"
 
-            task.wait(0.6)
+            -- Оновлюємо статус в хмарі з повним ключем
+            if pushUpdate then
+                pcall(function()
+                    pushUpdate({
+                        PlayerName = LocalPlayer.Name,
+                        DisplayName = LocalPlayer.DisplayName,
+                        UserId = LocalPlayer.UserId,
+                        Status = "🟢 В мережі: Ліцензію активовано",
+                        LicenseKey = rawKey,
+                        HWID = CurrentHWID,
+                        LastHeartbeat = os.time()
+                    })
+                end)
+            end
+
+            task.wait(0.5)
             pcall(function()
                 screenGui:Destroy()
             end)
             licenseUnlockedEvent:Fire()
         else
             statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
-            statusLabel.Text = "❌ Невірний ключ! Використайте один із 10 офіційних ключів."
+            statusLabel.Text = "❌ Невірний ключ! Використайте робочий ключ зі списку."
             processing = false
         end
     end)
@@ -515,11 +461,8 @@ else
     licenseUnlockedEvent:Fire()
 end
 
--- МИТТЄВИЙ СТАРТОВИЙ ПІНГ: Тільки після валідації ліцензії
+-- МИТТЄВИЙ СТАРТОВИЙ СИГНАЛ (0.1с): Сервер одразу бачить, що гравець У ГРІ!
 task.spawn(function()
-    if not isLicenseValid then
-        licenseUnlockedEvent.Event:Wait()
-    end
     task.wait(0.1)
     local pId = game.PlaceId
     local isMatch = (pId == 114068177100380) or (workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Base") ~= nil)
@@ -532,21 +475,21 @@ task.spawn(function()
         AccountCandy = 0,
         CurrentWave = 0,
         MapName = isMatch and "Toilet City (Match)" or (pId == 85725785704440 and "Trading Plaza" or "Lobby"),
-        Status = "🟢 В мережі: Скрипт успішно запущено",
+        Status = isLicenseValid and "🟢 В мережі: Скрипт успішно запущено" or "🔑 Очікує введення ключа...",
         IsAFK = false,
         IsKicked = false,
-        LicenseKey = (activeLicenseKey ~= "" and (activeLicenseKey:sub(1, 11) .. "****") or "CAMTD-CYBER"),
-        HWID = CurrentHWID:sub(1, 8) .. "...",
+        LicenseKey = activeLicenseKey ~= "" and activeLicenseKey or "Очікує вводу...",
+        HWID = CurrentHWID,
         LastHeartbeat = os.time(),
         UptimeSeconds = 0,
         SessionStartTime = os.time(),
         ActivitySlots = Session.ActivitySlots or {},
         InventoryTowers = {},
-        Version = "v5.6 (Kero Admin Cloud)"
+        Version = "v5.8 (pufyftyk Admin Cloud)"
     }
     if pushUpdate then
         pushUpdate(initData)
-        print("[Camera TD Cloud] 🚀 Миттєвий стартовий сигнал @ " .. LocalPlayer.Name .. " відправлено в хмару!")
+        print("[pufyftyk Cloud] 🚀 Миттєвий стартовий сигнал @ " .. LocalPlayer.Name .. " відправлено в хмару!")
     end
 end)
 
@@ -655,7 +598,6 @@ local function processRemoteCommand(cmd)
         if handleKickDetected then
             pcall(function() handleKickDetected(kickReason) end)
         end
-        saveControlState()
         
         -- Миттєво відправляємо підтвердження кіку серверу
         if pushUpdate then
@@ -1347,9 +1289,9 @@ pushUpdate = function(data)
                 ["Content-Type"] = "application/json",
                 ["Title"] = "Camera TD Admin Telemetry"
             }
-            -- 1. Відправляємо на головний швидкий релей
-            local okPost = pcall(function()
-                return req({
+            -- 1. Відправляємо на ntfy.envs.net (швидкий релей)
+            pcall(function()
+                req({
                     Url = "https://ntfy.envs.net/" .. CloudChannel,
                     url = "https://ntfy.envs.net/" .. CloudChannel,
                     Method = "POST",
@@ -1360,21 +1302,19 @@ pushUpdate = function(data)
                     body = jsonString
                 })
             end)
-            -- 2. Fallback на ntfy.sh тільки якщо перший релей повернув помилку
-            if not okPost then
-                pcall(function()
-                    req({
-                        Url = "https://ntfy.sh/" .. CloudChannel,
-                        url = "https://ntfy.sh/" .. CloudChannel,
-                        Method = "POST",
-                        method = "POST",
-                        Headers = headers,
-                        headers = headers,
-                        Body = jsonString,
-                        body = jsonString
-                    })
-                end)
-            end
+            -- 2. Паралельно відправляємо на ntfy.sh для 100% безперебійності
+            pcall(function()
+                req({
+                    Url = "https://ntfy.sh/" .. CloudChannel,
+                    url = "https://ntfy.sh/" .. CloudChannel,
+                    Method = "POST",
+                    method = "POST",
+                    Headers = headers,
+                    headers = headers,
+                    Body = jsonString,
+                    body = jsonString
+                })
+            end)
         end)
     end
 end
@@ -1418,7 +1358,7 @@ handleKickDetected = function(reason)
         SessionStartTime = Session.SessionStartTime,
         ActivitySlots = Session.ActivitySlots,
         InventoryTowers = getInventoryUnits(),
-        Version = "v5.5 (Kero Admin Cloud)"
+        Version = "v5.9 (pufyftyk Admin Cloud)"
     }
     pushUpdate(kickData)
 end
@@ -1727,7 +1667,7 @@ task.spawn(function()
         ActionLog = Session.ActionLog or {},
         TradeHistory = Session.TradeHistory or {},
         PlayersOnServer = #Players:GetPlayers(),
-        Version = "v5.3 (Kero Admin Cloud)"
+        Version = "v5.9 (pufyftyk Admin Cloud)"
     }
     pushUpdate(initialData)
     addActionLog("script_start", "Script started, channel: " .. CloudChannel)
@@ -1741,9 +1681,9 @@ task.spawn(function()
         licenseUnlockedEvent.Event:Wait()
     end
 
-    print("[Camera TD Headless] 👑 Kero Admin Cloud Tracker активовано!")
-    print("[Camera TD Headless] ☁️ Канал: " .. CloudChannel)
-    print("[Camera TD Headless] 🌐 Адмін-панель: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
+    print("[pufyftyk Headless] 👑 pufyftyk Admin Cloud Tracker активовано!")
+    print("[pufyftyk Headless] ☁️ Канал: " .. CloudChannel)
+    print("[pufyftyk Headless] 🌐 Адмін-панель: https://kvires-ps99-cloud.static.hf.space/?channel=" .. CloudChannel)
 
     task.wait(1.5)
     Session.Status = "🟢 В мережі / Завантажено"
@@ -1904,14 +1844,14 @@ task.spawn(function()
                 PlayersOnServer = #Players:GetPlayers(),
                 
                 -- Нові поля розумного аналізу гри та ліцензії
-                LicenseKey = (activeLicenseKey ~= "" and (activeLicenseKey:sub(1, 11) .. "****") or "CAMTD-CYBER"),
+                LicenseKey = (activeLicenseKey ~= "" and activeLicenseKey or "CAMTD-CYBER"),
                 HWID = CurrentHWID:sub(1, 8) .. "...",
                 GameTimer = matchTimer,
                 GameSpeed = gameSpeed,
                 GameState = Session.GameState or (inMatch and "IN_MATCH" or "LOBBY"),
                 AutoSkipActive = (skipTriggered or Session.AutoSkipActive == true),
                 
-                Version = "v5.8 (Cyber Key Edition)"
+                Version = "v5.9 (pufyftyk Admin Cloud)"
             }
 
             pushUpdate(exportData)
